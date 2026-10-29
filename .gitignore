@@ -1,0 +1,21 @@
+# build artifacts
+build/
+out/
+*.o
+*.a
+*.so
+*.dylib
+
+# python
+__pycache__/
+.venv/
+*.egg-info/
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# benchmark scratch
+bench-results-*/
