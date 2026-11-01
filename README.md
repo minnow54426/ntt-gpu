@@ -40,6 +40,13 @@ Transform convention (see `include/ntt/ntt.hpp`): ψ a primitive 2N-th root of
 unity mod q, `forward: A_j = Σ_i a_i·ψ^((2j+1)·i) mod q` — evaluation at the
 odd powers of ψ, where x^N+1 splits into linear factors.
 
+## Docs
+
+- [`docs/butterfly-explained.html`](docs/butterfly-explained.html) — an interactive,
+  dependency-free beginner's explainer: why the NTT is built from butterfly units,
+  from the one-line definition through the negacyclic fold rule to the full N=8
+  network (open in any browser).
+
 ## Provenance
 
 Independent clean-room implementation. Contains no code, data, or artifacts from any
