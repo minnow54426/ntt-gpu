@@ -315,7 +315,7 @@
     <div class="hero-art">
       <svg viewBox="0 0 360 250" role="img" aria-label="A single butterfly unit: two inputs cross and produce a sum and a difference">
         <!-- input wires -->
-        <path d="M 20 70 L 120 70" stroke="#57503F" stroke-width="2.5" fill="none"/>
+        <path d="M 20 70 L 166 70" stroke="#57503F" stroke-width="2.5" fill="none"/>
         <path d="M 20 180 L 120 180" stroke="#57503F" stroke-width="2.5" fill="none"/>
         <!-- multiply box -->
         <rect x="120" y="158" width="46" height="44" rx="9" fill="#F5DBCC" stroke="#C2410C" stroke-width="2"/>
@@ -430,7 +430,7 @@
       <p class="dim">Nothing sacred about 2 — mod 17 offers four primitive 8th roots: 2, 8, 9, 15. Each walks the <i>same</i> eight points in a different order; 2 just gives the easiest multiplication table.</p>
       <div class="reasons">
         <div class="reason"><div class="r-num">i.</div><h4>Closed: multiply = move</h4><p>Powers never leave the wheel: <span class="m">ωᵃ·ωᵇ = ω^(a+b)</span> — multiplying just adds positions, a clock for multiplication (the logarithm trick). <b>Why:</b> one number generates all N plug-in points, one multiplication each.</p></div>
-        <div class="reason"><div class="r-num">ii.</div><h4>Distinct: nothing is lost</h4><p>A primitive root visits N <i>different</i> points, so N plugged-in values pin the list down exactly — the coordinates are reversible. <b>Why:</b> the transform has an inverse. The one demand on the prime: N | q−1 (<code class="inline">ntt.hpp:41</code>).</p></div>
+        <div class="reason"><div class="r-num">ii.</div><h4>Distinct: nothing is lost</h4><p>A primitive root visits N <i>different</i> points, so N plugged-in values pin the list down exactly — the coordinates are reversible. <b>Why:</b> the transform has an inverse. The one demand on the prime: N | q−1 (<code class="inline">ntt.hpp:61</code>).</p></div>
         <div class="reason"><div class="r-num">iii.</div><h4>Halfway = minus</h4><p><span class="m">ω^(N/2) = −1</span>: opposite points are negatives (above: 1↔16, 2↔15, 4↔13, 8↔9 — each pair sums to 17). <b>Why:</b> the ± that makes output pairs — the butterfly's two wings (chapter 6).</p></div>
         <div class="reason"><div class="r-num">iv.</div><h4>Squaring = a half wheel</h4><p>Every second point closes after N/2 steps: a half-size wheel with root ω². <b>Why:</b> wheels nest — the transform builds itself from half-size copies, the source of every "repeat" in chapter 5.</p></div>
       </div>
@@ -490,7 +490,7 @@
       </div>
       <div class="callout teal">
         <h4>Why "NTT" and not "FFT"?</h4>
-        <p>The FFT does this with decimals — but decimals round, and rounding errors compound. The NTT does the <b>same idea with whole numbers mod a prime</b>: exact forever. Its wheels exist whenever N | q−1 — checked at <code class="inline">ntt.hpp:41</code>.</p>
+        <p>The FFT does this with decimals — but decimals round, and rounding errors compound. The NTT does the <b>same idea with whole numbers mod a prime</b>: exact forever. Its wheels exist whenever N | q−1 — checked at <code class="inline">ntt.hpp:61</code>.</p>
       </div>
     </section>
 
@@ -539,7 +539,7 @@ A₁ = q + ω·s      A₃ = q − ω·s        ← one butterfly (w = ω)</div>
 out[j+N/2]  =  E  −  w·O     ← same E, same O, same w — only the sign flips</div>
       <div class="callout">
         <h4>Where does that minus come from? Wheel property iii</h4>
-        <p>Halfway around, every point is the negative of its mirror: <span class="m">ω^(j+N/2) = −ωʲ</span> (mod 17, ω = 4: ω² = 16 = −1). The repo checks this exact fact at <code class="inline">ntt.hpp:43</code>: <code class="inline">psi^n == q−1</code>.</p>
+        <p>Halfway around, every point is the negative of its mirror: <span class="m">ω^(j+N/2) = −ωʲ</span> (mod 17, ω = 4: ω² = 16 = −1). The repo checks this exact fact at <code class="inline">ntt.hpp:66</code>: <code class="inline">psi^n == q−1</code>.</p>
       </div>
       <p>The same derivation with real numbers — set the coefficients yourself:</p>
       <div class="widget">
@@ -564,27 +564,68 @@ out[j+N/2]  =  E  −  w·O     ← same E, same O, same w — only the sign fli
     <!-- ============================ 6. THE BUTTERFLY ============================ -->
     <section id="s6" class="reveal">
       <div class="sec-head"><div class="sec-num">06</div><h2>Meet the butterfly</h2></div>
-      <p>You met this unit four times in chapter 5. Draw its formulas as a circuit: two wires in, two out, crossing once — from the side, two wings. Someone in 1969 said <i>"butterfly"</i>, and the name never left.</p>
-      <div class="widget" style="padding:22px;">
-        <svg viewBox="0 0 560 190" width="100%" style="max-width:560px; display:block; margin:0 auto;" role="img" aria-label="A butterfly unit: inputs a and b, b multiplied by w, outputs a plus w b and a minus w b">
-          <path d="M 30 60 L 170 60" stroke="#57503F" stroke-width="2.5" fill="none"/>
-          <path d="M 30 130 L 150 130" stroke="#57503F" stroke-width="2.5" fill="none"/>
-          <rect x="150" y="108" width="52" height="44" rx="9" fill="#F5DBCC" stroke="#C2410C" stroke-width="2"/>
-          <text x="176" y="136" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="14" fill="#C2410C" font-weight="600">× w</text>
-          <path d="M 202 60 C 270 60 270 130 330 130" stroke="#C2410C" stroke-width="3" fill="none"/>
-          <path d="M 202 130 C 270 130 270 60 330 60" stroke="#C2410C" stroke-width="3" fill="none"/>
-          <path d="M 330 60 L 420 60" stroke="#57503F" stroke-width="2.5" fill="none"/>
-          <path d="M 330 130 L 420 130" stroke="#57503F" stroke-width="2.5" fill="none"/>
-          <circle cx="440" cy="60" r="15" fill="#D9E8E2" stroke="#14655A" stroke-width="2"/>
-          <text x="440" y="66" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="17" fill="#14655A" font-weight="600">+</text>
-          <circle cx="440" cy="130" r="15" fill="#F5DBCC" stroke="#C2410C" stroke-width="2"/>
-          <text x="440" y="136" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="17" fill="#C2410C" font-weight="600">−</text>
-          <text x="22" y="52" font-family="IBM Plex Mono, monospace" font-size="15" fill="#221D16" font-weight="600">a</text>
-          <text x="22" y="122" font-family="IBM Plex Mono, monospace" font-size="15" fill="#221D16" font-weight="600">b</text>
-          <text x="466" y="66" font-family="IBM Plex Mono, monospace" font-size="14" fill="#221D16" font-weight="600">a + w·b</text>
-          <text x="466" y="136" font-family="IBM Plex Mono, monospace" font-size="14" fill="#221D16" font-weight="600">a − w·b</text>
-        </svg>
-        <div class="w-note">One multiply, one add, one subtract — two values in, two out. The entire algorithm is this unit, tiled.</div>
+      <p>You met this unit four times in chapter 5. Draw its formulas as a circuit: two wires in, two out, crossing once — from the side, two wings. Someone in 1969 said <i>"butterfly"</i>, and the name never left. It comes in two costumes — same wings, the multipliers ride different legs:</p>
+      <div class="widget" style="padding:26px;">
+        <div style="max-width:840px; margin:0 auto;">
+          <svg viewBox="0 0 720 200" width="100%" role="img" aria-label="DIT butterfly: inputs a and b; first multiply b by w, then add and subtract; outputs a plus b w and a minus b w">
+            <path d="M 110 60 H 330" stroke="#57503F" stroke-width="2.5" fill="none"/>
+            <path d="M 110 140 H 210" stroke="#57503F" stroke-width="2.5" fill="none"/>
+            <rect x="210" y="114" width="70" height="52" rx="9" fill="#F5DBCC" stroke="#C2410C" stroke-width="2"/>
+            <text x="245" y="147" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="17" fill="#C2410C" font-weight="600">× w</text>
+            <path d="M 280 140 H 330" stroke="#57503F" stroke-width="2.5" fill="none"/>
+            <path d="M 330 60 C 420 60 420 140 510 140" stroke="#C2410C" stroke-width="2.5" fill="none" opacity="0.85"/>
+            <path d="M 330 140 C 420 140 420 60 510 60" stroke="#C2410C" stroke-width="2.5" fill="none" opacity="0.85"/>
+            <circle cx="510" cy="60" r="18" fill="#D9E8E2" stroke="#14655A" stroke-width="2"/>
+            <text x="510" y="67" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="20" fill="#14655A" font-weight="600">+</text>
+            <circle cx="510" cy="140" r="18" fill="#F5DBCC" stroke="#C2410C" stroke-width="2"/>
+            <text x="510" y="147" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="20" fill="#C2410C" font-weight="600">−</text>
+            <path d="M 528 60 H 542" stroke="#57503F" stroke-width="2.5" fill="none"/>
+            <path d="M 528 140 H 542" stroke="#57503F" stroke-width="2.5" fill="none"/>
+            <text x="94" y="52" font-family="IBM Plex Mono, monospace" font-size="18" fill="#221D16" font-weight="600">a</text>
+            <text x="94" y="132" font-family="IBM Plex Mono, monospace" font-size="18" fill="#221D16" font-weight="600">b</text>
+            <text x="550" y="67" font-family="IBM Plex Mono, monospace" font-size="17" fill="#221D16" font-weight="600">a + b·w</text>
+            <text x="550" y="147" font-family="IBM Plex Mono, monospace" font-size="17" fill="#221D16" font-weight="600">a − b·w</text>
+            <circle cx="110" cy="60" r="4.5" fill="#57503F"/>
+            <circle cx="110" cy="140" r="4.5" fill="#57503F"/>
+            <circle cx="330" cy="60" r="5.5" fill="#57503F"/>
+            <circle cx="330" cy="140" r="5.5" fill="#57503F"/>
+            <circle cx="245" cy="96" r="12" fill="#F2E3C2" stroke="#946B00" stroke-width="1.8"/>
+            <text x="245" y="101" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="13" fill="#946B00" font-weight="700">1</text>
+            <circle cx="470" cy="100" r="12" fill="#F2E3C2" stroke="#946B00" stroke-width="1.8"/>
+            <text x="470" y="105" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="13" fill="#946B00" font-weight="700">2</text>
+          </svg>
+          <div class="coef-label" style="margin:6px 0 24px;">DIT — ① multiply the <b>input</b>, ② add / subtract · what chapters 5–7 derive</div>
+
+          <svg viewBox="0 0 720 200" width="100%" role="img" aria-label="DIF butterfly: inputs a and b; first add and subtract, then multiply the difference; outputs a plus b and a minus b times w">
+            <path d="M 85 60 H 265" stroke="#57503F" stroke-width="2.5" fill="none"/>
+            <path d="M 85 140 H 265" stroke="#57503F" stroke-width="2.5" fill="none"/>
+            <path d="M 265 60 C 355 60 355 140 445 140" stroke="#C2410C" stroke-width="2.5" fill="none" opacity="0.85"/>
+            <path d="M 265 140 C 355 140 355 60 445 60" stroke="#C2410C" stroke-width="2.5" fill="none" opacity="0.85"/>
+            <circle cx="445" cy="60" r="18" fill="#D9E8E2" stroke="#14655A" stroke-width="2"/>
+            <text x="445" y="67" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="20" fill="#14655A" font-weight="600">+</text>
+            <circle cx="445" cy="140" r="18" fill="#F5DBCC" stroke="#C2410C" stroke-width="2"/>
+            <text x="445" y="147" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="20" fill="#C2410C" font-weight="600">−</text>
+            <path d="M 463 60 H 477" stroke="#57503F" stroke-width="2.5" fill="none"/>
+            <path d="M 463 140 H 477" stroke="#57503F" stroke-width="2.5" fill="none"/>
+            <rect x="477" y="114" width="70" height="52" rx="9" fill="#F5DBCC" stroke="#C2410C" stroke-width="2"/>
+            <text x="512" y="147" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="17" fill="#C2410C" font-weight="600">× w</text>
+            <path d="M 547 140 H 559" stroke="#57503F" stroke-width="2.5" fill="none"/>
+            <text x="69" y="52" font-family="IBM Plex Mono, monospace" font-size="18" fill="#221D16" font-weight="600">a</text>
+            <text x="69" y="132" font-family="IBM Plex Mono, monospace" font-size="18" fill="#221D16" font-weight="600">b</text>
+            <text x="485" y="67" font-family="IBM Plex Mono, monospace" font-size="17" fill="#221D16" font-weight="600">a + b</text>
+            <text x="567" y="147" font-family="IBM Plex Mono, monospace" font-size="17" fill="#221D16" font-weight="600">(a − b)·w</text>
+            <circle cx="85" cy="60" r="4.5" fill="#57503F"/>
+            <circle cx="85" cy="140" r="4.5" fill="#57503F"/>
+            <circle cx="265" cy="60" r="5.5" fill="#57503F"/>
+            <circle cx="265" cy="140" r="5.5" fill="#57503F"/>
+            <circle cx="415" cy="100" r="12" fill="#F2E3C2" stroke="#946B00" stroke-width="1.8"/>
+            <text x="415" y="105" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="13" fill="#946B00" font-weight="700">1</text>
+            <circle cx="512" cy="96" r="12" fill="#F2E3C2" stroke="#946B00" stroke-width="1.8"/>
+            <text x="512" y="101" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="13" fill="#946B00" font-weight="700">2</text>
+          </svg>
+          <div class="coef-label" style="margin:6px 0 0;">DIF — ① add / subtract, ② multiply the <b>difference output</b> · the same unit, run the other way</div>
+        </div>
+        <div class="w-note">Same two wings — only the <b>order</b> of multiply vs ± differs (the gold ①②). DIT multiplies before the crossing, DIF after it. (The repo's negacyclic forward adds one refinement on top of DIF — a ladder constant ψ^d on the input leg; that is chapter 10's loop.)</div>
       </div>
     </section>
 
@@ -612,11 +653,11 @@ out[j+N/2]  =  E  −  w·O     ← same E, same O, same w — only the sign fli
       </div>
       <div class="callout">
         <h4>Why are the inputs scrambled?</h4>
-        <p>The leftmost values are in <b>bit-reversed</b> order (0,4,2,6,1,5,3,7 — index in binary, read backwards). That one upfront shuffle lets every stage read its partners from nearby positions and the outputs arrive in natural order — zero shuffling in between (<code class="inline">bitrev.hpp</code>).</p>
+        <p>The leftmost values are in <b>bit-reversed</b> order (0,4,2,6,1,5,3,7 — index in binary, read backwards). That one upfront shuffle lets every stage read its partners from nearby positions and the outputs arrive in natural order. The repo ships the mirror image: a DIF <i>forward</i> (natural inputs, bit-reversed <b>outputs</b>) paired with a DIT inverse that consumes exactly that order — so in the real pipeline the two permutations cancel and <b>no bit-reversal pass exists at all</b> (<code class="inline">bitrev.hpp</code> documents the permutation itself).</p>
       </div>
       <div class="callout teal">
         <h4>And the negacyclic variant?</h4>
-        <p>This network is the plain ("cyclic") transform. The negacyclic variant — chapter 10 — wraps this same network in a cheap twist: a multiply by a table of wheel powers before, and its undo after (<code class="inline">ntt.hpp:63–76</code>). Every butterfly inside is identical.</p>
+        <p>This network is the plain ("cyclic") transform. The negacyclic variant — chapter 10 — is the same network with its stage twiddles scaled by wheel powers: same butterflies, one pass (<code class="inline">ntt.hpp:87</code>).</p>
       </div>
     </section>
 
@@ -675,24 +716,25 @@ x^N = −1    "negacyclic" — wrap it back with a <b>minus</b></div>
       </div>
       <div class="callout teal">
         <h4>The twist: same butterflies, one seasoning</h4>
-        <p>The negacyclic NTT is chapter 7's butterfly network, untouched, wrapped in a twist: multiply the inputs by the ψ-powers table before the network, undo it after (<code class="inline">ntt.hpp:63–76</code>). The plug-in points shift to the odd steps of the doubled wheel; every X inside is unchanged. That is the entire difference — and exactly what this repo implements.</p>
+        <p>Conceptually: multiply the inputs by the ψ-powers table before the network, undo after. The repo's reference goes one better — it <b>folds the twist into the butterflies</b> as ladder constants: stage with pair distance d multiplies the add leg by ψ^d (an odd wheel power — exactly where x^N + 1 lives) and strides the difference leg by ψ^(n/d). One sweep, no tables, no bit-reversal pass, same math (<code class="inline">ntt.hpp</code>). That is the entire difference — and exactly what this repo implements.</p>
       </div>
     </section>
 
     <!-- ============================ 10. IN CODE ============================ -->
     <section id="s10" class="reveal">
       <div class="sec-head"><div class="sec-num">10</div><h2>The same shape, hiding in the code</h2></div>
-      <p>Here is the actual loop from this repo's CPU reference (<code class="inline">include/ntt/ntt.hpp</code>, the <code class="inline">cyclic_ct</code> function). Read the comments with chapter 7 open next to it — every line is a part of the picture:</p>
-      <pre class="code"><span class="k">for</span> (<span class="t">uint64_t</span> len = <span class="hl">2</span>; len &lt;= n_; len &lt;&lt;= <span class="hl">1</span>) {          <span class="c">// the stages — partner distance len/2 doubles: 1, 2, 4</span>
-  <span class="k">const</span> <span class="t">uint64_t</span> wlen = <span class="f">pow_mod</span>(root, n_ / len, q_);
-  <span class="k">for</span> (<span class="t">uint64_t</span> i = <span class="hl">0</span>; i &lt; n_; i += <span class="hl">len</span>) {            <span class="c">// each block of `len` wires (a shaded box in the picture)</span>
+      <p>Here is the actual loop from this repo's CPU reference (<code class="inline">include/ntt/ntt.hpp</code>, the <code class="inline">forward</code> DIF sweep — twist folded in as ladder constants, natural values in, bit-reversed values out). Read the comments with chapter 7 open next to it — every line is a part of the picture:</p>
+      <pre class="code"><span class="k">for</span> (<span class="t">uint64_t</span> d = n_ / <span class="hl">2</span>; d &gt;= <span class="hl">1</span>; d &gt;&gt;= <span class="hl">1</span>) {      <span class="c">// the stages — pair distance halves: n/2, n/4, …, 1</span>
+  <span class="k">const</span> <span class="t">uint64_t</span> c = <span class="f">pow_mod</span>(psi_, d, q_);           <span class="c">// ladder constant ψ^d — the twist, folded in</span>
+  <span class="k">const</span> <span class="t">uint64_t</span> stride = <span class="f">pow_mod</span>(psi_, n_ / d, q_); <span class="c">// the cyclic stride in disguise: ω^(n/2d)</span>
+  <span class="k">for</span> (<span class="t">uint64_t</span> i = <span class="hl">0</span>; i &lt; n_; i += <span class="hl">2*d</span>) {         <span class="c">// each block of 2d wires</span>
     <span class="t">uint64_t</span> w = <span class="hl">1</span>;
-    <span class="k">for</span> (<span class="t">uint64_t</span> j = <span class="hl">0</span>; j &lt; len / <span class="hl">2</span>; ++j) {
-      <span class="k">const</span> <span class="t">uint64_t</span> u = a[i + j];                           <span class="c">// top input    ←┐</span>
-      <span class="k">const</span> <span class="t">uint64_t</span> v = <span class="f">mul_mod</span>(a[i + j + <span class="hl">len/2</span>], w, q_); <span class="c">// bottom × w  ←┤ ONE BUTTERFLY</span>
-      a[i + j]           = <span class="f">add_mod</span>(u, v, q_);           <span class="c">// top wing: u+v ┘</span>
-      a[i + j + <span class="hl">len/2</span>]   = <span class="f">sub_mod</span>(u, v, q_);           <span class="c">// bottom wing: u−v</span>
-      w = <span class="f">mul_mod</span>(w, wlen, q_);
+    <span class="k">for</span> (<span class="t">uint64_t</span> j = <span class="hl">0</span>; j &lt; d; ++j) {
+      <span class="k">const</span> <span class="t">uint64_t</span> u = a[i + j];                            <span class="c">// top input        ←┐</span>
+      <span class="k">const</span> <span class="t">uint64_t</span> cv = <span class="f">mul_mod</span>(c, a[i + j + <span class="hl">d</span>], q_);    <span class="c">// bottom × ψ^d    ←┤ ONE BUTTERFLY</span>
+      a[i + j]     = <span class="f">add_mod</span>(u, cv, q_);                       <span class="c">// top wing: u+cv  ┘</span>
+      a[i + j + d] = <span class="f">mul_mod</span>(<span class="f">sub_mod</span>(u, cv, q_), w, q_); <span class="c">// bottom wing: (u−cv)·w</span>
+      w = <span class="f">mul_mod</span>(w, stride, q_);
     }
   }
 }</pre>
@@ -876,7 +918,7 @@ x^N = −1    "negacyclic" — wrap it back with a <b>minus</b></div>
 
   /* =========================================================
      Chapter 8 — the N = 8 network (mod 17, ω = 2)
-     Implements exactly the repo's cyclic_ct schedule.
+     Implements exactly the repo's ct() stage schedule.
      ========================================================= */
   (function () {
     var Q = 17, N = 8, OMEGA = 2;                 // ω = 2 has order 8 mod 17 (2^4 = 16 ≡ −1)
