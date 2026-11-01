@@ -13,6 +13,10 @@
 
 namespace {
 
+// Forward transform, one "LIMB k" section per RNS prime: the vector
+// reduced mod q_k, run through the negacyclic NTT, coefficients printed
+// one per line. tests/oracle/*.py both generate the input file and parse
+// this output, cross-checking it against a big-int Python transform.
 int cmd_transform(const ntt::VectorFile& vf) {
   for (size_t k = 0; k < vf.q.size(); ++k) {
     const ntt::NegacyclicNtt ntt(vf.n, vf.q[k], vf.psi[k]);
@@ -26,6 +30,9 @@ int cmd_transform(const ntt::VectorFile& vf) {
   return 0;
 }
 
+// Cheapest end-to-end check: forward followed by inverse must reproduce
+// the input exactly, limb by limb — any drift means the two transforms
+// are not true inverses (wrong N^-1, wrong untwist, stage bug).
 int cmd_identity(const ntt::VectorFile& vf) {
   for (size_t k = 0; k < vf.q.size(); ++k) {
     const ntt::NegacyclicNtt ntt(vf.n, vf.q[k], vf.psi[k]);

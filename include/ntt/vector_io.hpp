@@ -44,6 +44,9 @@ inline std::vector<std::string> tokenize(std::istream& in) {
 
 }  // namespace detail
 
+// Strict single-pass parser: tokenizes the whole file first (comments
+// stripped), then pulls tokens in order so every structural mistake
+// surfaces as a named error rather than a misread.
 inline VectorFile read_vector_file(const std::string& path) {
   std::ifstream in(path);
   if (!in) throw std::runtime_error("cannot open vector file: " + path);
@@ -58,15 +61,23 @@ inline VectorFile read_vector_file(const std::string& path) {
   VectorFile vf;
   vf.n = std::stoull(next());
   const uint64_t num_primes = std::stoull(next());
+  // n power-of-two for the same reason as the constructor: the stage
+  // schedule pairs wire i with i + len/2.
   if (vf.n < 2 || (vf.n & (vf.n - 1)) != 0)
     throw std::runtime_error("vector file: N must be a power of two >= 2");
   if (num_primes == 0) throw std::runtime_error("vector file: need >= 1 prime");
 
+  // Per-limb (q, psi) pairs chosen by tests/oracle/gen_vectors.py: each q
+  // satisfies (2n) | (q-1) and each psi has order exactly 2n mod its q.
   for (uint64_t k = 0; k < num_primes; ++k) {
     vf.q.push_back(std::stoull(next()));
     vf.psi.push_back(std::stoull(next()));
   }
   if (next() != "COEFFS") throw std::runtime_error("vector file: expected COEFFS");
+  // Coefficients stay decimal strings on purpose: they are drawn from
+  // [0, Q) for the full RNS product Q — hundreds of bits, far beyond
+  // uint64 — and every consumer reduces them per-limb on demand.
+  // Digits-only check keeps the format strictly decimal: no signs, no hex.
   for (uint64_t i = 0; i < vf.n; ++i) {
     std::string c = next();
     for (char ch : c)
@@ -76,7 +87,8 @@ inline VectorFile read_vector_file(const std::string& path) {
   return vf;
 }
 
-// Reduce an arbitrary-precision decimal string mod q, Horner over digits.
+// Reduce an arbitrary-precision decimal string mod q, Horner over digits:
+// ((d0*10 + d1)*10 + d2)... — one mul-add-mod per digit, no bignum needed.
 // Requires q < 2^60 so that r*10 + 9 cannot overflow uint64_t.
 inline uint64_t reduce_decimal_mod(const std::string& decimal, uint64_t q) {
   if (q >= (uint64_t{1} << 60)) throw std::invalid_argument("q too large for decimal reduce");

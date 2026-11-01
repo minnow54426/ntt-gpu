@@ -23,6 +23,9 @@ void check(bool ok, const std::string& what) {
   }
 }
 
+// Pins the primitives: wrapping behavior, Fermat's little theorem, and
+// inverse roundtrips. If anything here fails, every failure above it is
+// meaningless — these are the axioms the rest is built on.
 void test_mod_arith() {
   const uint64_t q = 1000000007ULL;  // known prime
   check(ntt::add_mod(q - 1, 2, q) == 1, "add_mod wraps");
@@ -44,7 +47,9 @@ void test_bitrev() {
   check(ntt::log2_of_pow2(1) == 0 && ntt::log2_of_pow2(1024) == 10, "log2");
 }
 
-// Deterministic pseudo-random generator so failures reproduce exactly.
+// Deterministic pseudo-random generator so failures reproduce exactly:
+// Knuth's MMIX multiplier and increment, seeded explicitly per limb.
+// Same seed -> same "random" operands -> a failing run can be replayed.
 struct Lcg {
   uint64_t state;
   explicit Lcg(uint64_t seed) : state(seed) {}
@@ -68,6 +73,10 @@ std::vector<uint64_t> schoolbook(const std::vector<uint64_t>& a,
   return c;
 }
 
+// The vector-file gates, per RNS limb: (1) inverse(forward(a)) == a, and
+// (2) ntt_multiply == the O(N^2) schoolbook product mod x^N+1. The third
+// gate — C++ vs the Python big-int oracle, with CRT reconstruction across
+// limbs — lives in tests/oracle/test_vectors.py.
 void test_with_vectors(const ntt::VectorFile& vf) {
   for (size_t k = 0; k < vf.q.size(); ++k) {
     const ntt::NegacyclicNtt ntt(vf.n, vf.q[k], vf.psi[k]);

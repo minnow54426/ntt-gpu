@@ -56,6 +56,12 @@ def main() -> int:
     for k, (q, psi) in enumerate(zip(primes, psis)):
         a = [c % q for c in coeffs]
         want = negacyclic_ntt_naive(a, q, psi)
+        # The reference forward is DIF: it emits the values in BIT-REVERSED
+        # evaluation order (see ntt.hpp) so that forward -> multiply ->
+        # inverse needs no bit-reversal pass. Apply the same permutation to
+        # the definitional oracle output before comparing.
+        lg = n.bit_length() - 1
+        want = [want[int(bin(j)[2:].zfill(lg)[::-1], 2)] for j in range(n)]
         got = limb_outputs[k]
         if got != want:
             for j in (x for x in range(n) if got[x] != want[x]):
