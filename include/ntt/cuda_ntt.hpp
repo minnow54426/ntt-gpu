@@ -1,0 +1,77 @@
+#pragma once
+// The CUDA backend's public face — deliberately free of CUDA headers so
+// ordinary C++ TUs (src/cuda_cli.cpp) can drive it; the implementation and
+// every cudaRuntime call live in src/cuda/ntt_kernels.cu (pimpl).
+//
+// Contract: identical to the CPU reference (include/ntt/ntt.hpp).
+// forward consumes natural-order coefficients and emits values in
+// bit-reversed evaluation order; inverse is its exact inverse; multiply
+// is the ring product mod x^n+1. The GPU gates assert ARRAY equality
+// with NegacyclicNtt on identical vectors — never approximate agreement.
+//
+// Data layout: one flat limb-major buffer of limbs()*n values; every
+// launch batches the RNS limbs as blockIdx.y, so one transform call
+// covers all limbs and pointwise products stay limb-local.
+
+#include <cstdint>
+#include <iosfwd>
+#include <vector>
+
+namespace ntt {
+class NegacyclicNtt;  // complete type in ntt/ntt.hpp; a reference here
+}
+
+namespace ntt::cuda {
+
+class CudaNttTransform {
+ public:
+  // n: power-of-two transform length; q[k]/psi[k]: per-limb prime and
+  // primitive 2n-th root. Parameters are validated by constructing the
+  // CPU reference per limb (throws the same exceptions as
+  // NegacyclicNtt) before anything is allocated; twiddle tables are
+  // built with the reference arithmetic and uploaded once.
+  CudaNttTransform(uint64_t n, const std::vector<uint64_t>& q,
+                   const std::vector<uint64_t>& psi);
+  ~CudaNttTransform();
+
+  CudaNttTransform(const CudaNttTransform&) = delete;
+  CudaNttTransform& operator=(const CudaNttTransform&) = delete;
+
+  uint64_t n() const;
+  uint64_t limbs() const;
+  uint64_t q(uint64_t limb) const;
+  // The CPU reference for limb k on the exact same parameters — verify
+  // and bench compare against this instead of re-deriving it, so GPU and
+  // ref can never disagree about the inputs they were given.
+  const ntt::NegacyclicNtt& ref(uint64_t limb) const;
+
+  // In place on limb-major host data (size limbs()*n): upload, run the
+  // whole stage schedule on device, download. Not const: the device
+  // buffers are scratch state.
+  void forward(std::vector<uint64_t>& a);
+  void inverse(std::vector<uint64_t>& a);
+  // a *= b elementwise in the value domain (both already transformed,
+  // same bit-reversed order — so no unscrambling between them).
+  void pointwise_multiply(std::vector<uint64_t>& a,
+                          const std::vector<uint64_t>& b);
+  // The full ring product: forward(a), forward(b), pointwise, inverse.
+  std::vector<uint64_t> multiply(std::vector<uint64_t> a,
+                                 const std::vector<uint64_t>& b);
+
+ private:
+  struct Impl;  // CUDA pointers and launch geometry live in the .cu
+  Impl* impl_;
+};
+
+// Timing sweep for the bench subcommand (implemented in the .cu): for
+// each n = 2^min_exp .. 2^max_exp, fresh 46-bit parameters (param_gen.hpp,
+// `limbs` of them), warmup + timed repetitions of forward / inverse /
+// multiply, wall clock around each public call (transfers included — the
+// table header says so) plus the CPU reference for scale. Prints to
+// `out`, headed by the device/driver/toolkit names — numbers are only
+// meaningful attached to that hardware header, and are never quoted from
+// an unnamed machine (README rule).
+void run_bench(uint32_t min_exp, uint32_t max_exp, uint64_t limbs,
+               std::ostream& out);
+
+}  // namespace ntt::cuda

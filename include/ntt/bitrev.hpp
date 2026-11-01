@@ -5,17 +5,29 @@
 #include <cstdint>
 #include <vector>
 
+// Host+device qualifier (mirrors mod_arith.hpp): the CUDA kernels call
+// log2_of_pow2/bit_reverse from device code; bit_reverse_permute stays
+// host-only (std::vector, and no bit-reversal pass exists in the shipped
+// schedule — it is kept as documented, tested machinery).
+#if !defined(NTT_HD)
+#if defined(__CUDACC__)
+#define NTT_HD __host__ __device__ inline
+#else
+#define NTT_HD inline
+#endif
+#endif
+
 namespace ntt {
 
 // log2 of a power of two n.
-inline uint64_t log2_of_pow2(uint64_t n) {
+NTT_HD uint64_t log2_of_pow2(uint64_t n) {
   uint64_t lg = 0;
   while ((uint64_t{1} << lg) < n) ++lg;
   return lg;
 }
 
 // Reverses the low lg bits of x.
-inline uint64_t bit_reverse(uint64_t x, uint64_t lg) {
+NTT_HD uint64_t bit_reverse(uint64_t x, uint64_t lg) {
   uint64_t r = 0;
   for (uint64_t i = 0; i < lg; ++i) {
     r = (r << 1) | (x & 1);

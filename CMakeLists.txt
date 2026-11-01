@@ -55,3 +55,62 @@ add_test(NAME device_schedule_check COMMAND ntt_device_sim ${VEC} ${VEC64} ${VEC
 set_tests_properties(device_schedule_check PROPERTIES
   FIXTURES_REQUIRED "VECTORS;VECTORS_N64;VECTORS_N4K")
 
+# --- Layer 2b: the CUDA backend, auto-detected ---------------------------
+# A machine without nvcc (e.g. the dev Mac) gets exactly the build above;
+# a machine with a toolkit gets ntt_cuda_cli and the GPU gates for free.
+# AutoDL images often keep nvcc only in /usr/local/cuda/bin — seed the
+# compiler from there before probing.
+find_program(NTT_NVCC_HINT nvcc PATHS /usr/local/cuda/bin NO_DEFAULT_PATH)
+if(NOT CMAKE_CUDA_COMPILER AND NTT_NVCC_HINT)
+  set(CMAKE_CUDA_COMPILER ${NTT_NVCC_HINT} CACHE FILEPATH "nvcc (from /usr/local/cuda/bin)")
+endif()
+include(CheckLanguage)
+check_language(CUDA)
+if(CMAKE_CUDA_COMPILER)
+  enable_language(CUDA)
+  set(CMAKE_CUDA_STANDARD 20)
+  set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+  # Default arch set: 89 (RTX 4090) plus 120 (RTX 5090, needs CUDA 12.8);
+  # a plain value also embeds compute_89 PTX, which a 5090 driver JITs —
+  # so either default runs on both rentable cards. Override with
+  # -DCMAKE_CUDA_ARCHITECTURES=native (CMake >= 3.24) on a single known box.
+  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+      set(CMAKE_CUDA_ARCHITECTURES 89 120)
+    else()
+      set(CMAKE_CUDA_ARCHITECTURES 89)
+    endif()
+  endif()
+  add_executable(ntt_cuda_cli src/cuda_cli.cpp src/cuda/ntt_kernels.cu)
+  target_include_directories(ntt_cuda_cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  # Warnings on the host pass only: nvcc device-side --Werror would break
+  # the build on its own unrolling notes.
+  target_compile_options(ntt_cuda_cli PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra,-Werror>)
+
+  # The existing Python oracle, verbatim, against the CUDA binary (output
+  # is byte-identical to ntt_cli by construction — this gate proves it).
+  add_test(NAME cuda_oracle_crosscheck
+           COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/test_vectors.py
+                   $<TARGET_FILE:ntt_cuda_cli> ${VEC})
+  set_tests_properties(cuda_oracle_crosscheck PROPERTIES FIXTURES_REQUIRED VECTORS)
+
+  # Byte-equality of the two binaries' transform output at two sizes —
+  # valid at any n, including sizes where the O(N^2) Python oracle is
+  # hopeless (extend the list on the box with a 2^18 fixture if desired).
+  add_test(NAME cuda_matches_ref COMMAND bash -c
+    "set -e; C=$<TARGET_FILE:ntt_cuda_cli>; R=$<TARGET_FILE:ntt_cli>; \
+     \$C ${VEC} transform > ${CMAKE_CURRENT_BINARY_DIR}/cu1 && \$R ${VEC} transform > ${CMAKE_CURRENT_BINARY_DIR}/rf1 && cmp cu1 rf1 && \
+     \$C ${VEC4K} transform > ${CMAKE_CURRENT_BINARY_DIR}/cu2 && \$R ${VEC4K} transform > ${CMAKE_CURRENT_BINARY_DIR}/rf2 && cmp cu2 rf2"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  set_tests_properties(cuda_matches_ref PROPERTIES
+    FIXTURES_REQUIRED "VECTORS;VECTORS_N4K")
+
+  # In-process: GPU fwd/roundtrip/multiply vs the CPU reference on the
+  # fixtures plus a generated n=65536 case.
+  add_test(NAME cuda_verify
+           COMMAND $<TARGET_FILE:ntt_cuda_cli> verify ${VEC} ${VEC4K})
+  set_tests_properties(cuda_verify PROPERTIES
+    FIXTURES_REQUIRED "VECTORS;VECTORS_N4K")
+endif()

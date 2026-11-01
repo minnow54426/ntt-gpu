@@ -20,3 +20,7 @@ __pycache__/
 # benchmark scratch
 bench-results-*/
 .cache/
+
+# artifacts from scripts/autodl_setup.sh on a rented box
+VERDICT.txt
+bench_latest.txt
