@@ -25,6 +25,17 @@ inline uint64_t bit_reverse(uint64_t x, uint64_t lg) {
 }
 
 // In-place bit-reversal permutation of v (v.size() must be a power of two).
+//
+// One forward pass suffices because reversing bits twice returns the original
+// index: bitrev(bitrev(i)) == i. The permutation is therefore a set of
+// disjoint pairs (i, j) that point at each other, plus self-mapped slots
+// (bitrev(i) == i) that stay put — visiting i already reveals both members
+// of its pair.
+//
+// The `i < j` guard swaps each pair exactly once, from its smaller index.
+// Without it every pair would be swapped twice (once from i, once from j),
+// and the second swap would undo the first, leaving v unchanged. Self-mapped
+// slots (i == j) are skipped by the same guard.
 inline void bit_reverse_permute(std::vector<uint64_t>& v) {
   const uint64_t n = v.size();
   if (n < 2) return;
