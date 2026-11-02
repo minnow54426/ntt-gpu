@@ -63,7 +63,7 @@ log "configure + build"
 ARCH="${NTT_CUDA_ARCH:-}"
 if [ -z "$ARCH" ]; then
   case "$NVCC_LINE" in
-    *"release 12.8"*|*"release 12.9"*|*"release 13"*) ARCH="89 120" ;;
+    *"release 12.8"*|*"release 12.9"*|*"release 13"*) ARCH="89;120" ;;
     *) ARCH="89" ;;
   esac
 fi
