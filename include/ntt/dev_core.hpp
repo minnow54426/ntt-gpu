@@ -98,4 +98,62 @@ NTT_DEV void dev_dit_stage(uint64_t* tile, uint64_t tile_len, uint64_t d,
   }
 }
 
+// --- pass 1 of the two-pass split: strided-group ("column") stages ---------
+//
+// The whole schedule is the user-shaped two-pass split: N values = 256
+// strided groups x 256 contiguous groups (docs/gpu-ntt-explained.html,
+// chapter 4). Every stage whose distance d is a multiple of 256 pairs
+// values with the SAME offset r = u mod 256 — pair (u, u+d) is
+// (256q + r, 256(q + d/256) + r) — so the far stages live inside the
+// strided group r = {r, r+256, ...}. Gathered into a tile indexed by q,
+// the pair is (q, q + delta) with delta = d/256, and it runs with the
+// ORIGINAL global tables: ladder pp[delta << 8] (= psi^d) and twiddle
+// index (n >> (8 + lg)) * ((j << 8) | r) — which is exactly the global
+// u mod 2d folded into local coordinates. No new twiddle math: the
+// butterflies are the reference butterflies, regrouped.
+//
+// The near stages (d < 256) pair within contiguous 256-tiles and use
+// dev_dif_stage/dev_dit_stage unchanged with tile_len = 256 (or n when
+// n < 256): the whole forward is pass 1 (strided groups, delta =
+// sub_len/2 .. 1) then pass 2 (contiguous tiles, d = min(n/2, 128) .. 1),
+// and the inverse mirrors. The "mix" between passes is pure data
+// movement: pass 1 scatters strided, pass 2 gathers contiguous.
+
+NTT_DEV void dev_dif_col_stage(uint64_t* tile, uint64_t sub_len,
+                               uint64_t delta, uint64_t n,
+                               const uint64_t* pp, uint64_t mod,
+                               uint32_t tid, uint32_t nthr, uint64_t r) {
+  const uint64_t lg = log2_of_pow2(delta);  // delta is a power of two
+  for (uint64_t p = tid; p < sub_len / 2; p += nthr) {
+    const uint64_t g = p >> lg;              // which 2*delta-wide group
+    const uint64_t j = p & (delta - 1);      // offset inside the group
+    const uint64_t u = (g << (lg + 1)) + j;  // pair, in q coordinates
+    const uint64_t v = u + delta;
+    const uint64_t x = tile[u];
+    const uint64_t cv = mul_mod(pp[delta << 8], tile[v], mod);  // psi^d
+    tile[u] = add_mod(x, cv, mod);
+    tile[v] = mul_mod(sub_mod(x, cv, mod),
+                      pp[(n >> (8 + lg)) * ((j << 8) | r)], mod);
+  }
+}
+
+// DIT mirror: the exact inverse butterfly, same q-coordinates and tables.
+NTT_DEV void dev_dit_col_stage(uint64_t* tile, uint64_t sub_len,
+                               uint64_t delta, uint64_t n,
+                               const uint64_t* pp, uint64_t mod,
+                               uint32_t tid, uint32_t nthr, uint64_t r) {
+  const uint64_t lg = log2_of_pow2(delta);
+  for (uint64_t p = tid; p < sub_len / 2; p += nthr) {
+    const uint64_t g = p >> lg;
+    const uint64_t j = p & (delta - 1);
+    const uint64_t u = (g << (lg + 1)) + j;
+    const uint64_t v = u + delta;
+    const uint64_t x = tile[u];
+    const uint64_t t = mul_mod(tile[v], pp[(n >> (8 + lg)) * ((j << 8) | r)],
+                               mod);  // y * w^-1
+    tile[u] = add_mod(x, t, mod);
+    tile[v] = mul_mod(sub_mod(x, t, mod), pp[delta << 8], mod);  // * psi^-d
+  }
+}
+
 }  // namespace ntt

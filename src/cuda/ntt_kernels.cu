@@ -46,16 +46,60 @@ namespace {
 // Must match ScheduleSim (src/device_sim.cpp): the tile width B and
 // block size T define the two-phase split the simulator already proved
 // against the CPU reference at n = 64 / 1024 / 4096.
-constexpr uint32_t kThreads = 256;
-constexpr uint64_t kTile = 1024;
+constexpr uint32_t kThreads = 256;  // T: threads per block
+constexpr uint64_t kSplit = 256;    // the two-pass split width: groups of 256
 
-// --- shared-memory phase: one block per B-wide tile per limb ------------
-// The tile hosts stages of the GLOBAL transform: dev_dif/dev_dit take
-// the global n for twiddle scales (the trap dev_core.hpp pins). All
-// threads reach every __syncthreads(): the barriers sit between stages,
-// never inside conditionals or the pair loop.
-__global__ void dif_shared_kernel(uint64_t* a, const uint64_t* pp,
-                                  const uint64_t* q, uint64_t n, uint32_t B) {
+// --- pass 1: one block per strided group ----------------------------------
+// The far stages (d a multiple of 256) pair values sharing r = u mod 256,
+// so group r = {r, r+256, ...} is self-contained: gather it to the
+// counter, run sub/2 stages (barriers between, never inside), scatter.
+// Launched only when n > 256 (sub = n/256 >= 2). The mix between passes
+// is pure data movement: this kernel scatters strided, the tile pass
+// gathers contiguous.
+__global__ void dif_col_kernel(uint64_t* a, const uint64_t* pp,
+                               const uint64_t* q, uint64_t n, uint32_t sub) {
+  extern __shared__ uint64_t smem[];
+  const uint64_t r = blockIdx.x;  // the strided group id: offset mod 256
+  uint64_t* al = a + static_cast<uint64_t>(blockIdx.y) * n;
+  const uint64_t* pl = pp + static_cast<uint64_t>(blockIdx.y) * (n + 1);
+  const uint64_t ql = q[blockIdx.y];
+  for (uint32_t t = threadIdx.x; t < sub; t += blockDim.x)  // gather
+    smem[t] = al[r + (static_cast<uint64_t>(t) << 8)];
+  __syncthreads();
+  for (uint64_t delta = sub / 2; delta >= 1; delta >>= 1) {
+    dev_dif_col_stage(smem, sub, delta, n, pl, ql, threadIdx.x,
+                      blockDim.x, r);
+    __syncthreads();
+  }
+  for (uint32_t t = threadIdx.x; t < sub; t += blockDim.x)  // scatter
+    al[r + (static_cast<uint64_t>(t) << 8)] = smem[t];
+}
+
+__global__ void dit_col_kernel(uint64_t* a, const uint64_t* pp,
+                               const uint64_t* q, uint64_t n, uint32_t sub) {
+  extern __shared__ uint64_t smem[];
+  const uint64_t r = blockIdx.x;
+  uint64_t* al = a + static_cast<uint64_t>(blockIdx.y) * n;
+  const uint64_t* pl = pp + static_cast<uint64_t>(blockIdx.y) * (n + 1);
+  const uint64_t ql = q[blockIdx.y];
+  for (uint32_t t = threadIdx.x; t < sub; t += blockDim.x)
+    smem[t] = al[r + (static_cast<uint64_t>(t) << 8)];
+  __syncthreads();
+  for (uint64_t delta = 1; delta <= sub / 2; delta <<= 1) {  // DIT order
+    dev_dit_col_stage(smem, sub, delta, n, pl, ql, threadIdx.x,
+                      blockDim.x, r);
+    __syncthreads();
+  }
+  for (uint32_t t = threadIdx.x; t < sub; t += blockDim.x)
+    al[r + (static_cast<uint64_t>(t) << 8)] = smem[t];
+}
+
+// --- pass 2: one block per contiguous 256-tile -----------------------------
+// The near stages (d <= 128) pair within one 256-wide window — dev_dif/
+// dev_dit_stage unchanged, tile_len = min(256, n) (the whole transform
+// when n <= 256, which is also the n = 64 fixture's path).
+__global__ void dif_tile_kernel(uint64_t* a, const uint64_t* pp,
+                                const uint64_t* q, uint64_t n, uint32_t B) {
   extern __shared__ uint64_t smem[];
   uint64_t* al = a + static_cast<uint64_t>(blockIdx.y) * n;
   const uint64_t* pl = pp + static_cast<uint64_t>(blockIdx.y) * (n + 1);
@@ -72,8 +116,8 @@ __global__ void dif_shared_kernel(uint64_t* a, const uint64_t* pp,
     al[base + t] = smem[t];
 }
 
-__global__ void dit_shared_kernel(uint64_t* a, const uint64_t* pp,
-                                  const uint64_t* q, uint64_t n, uint32_t B) {
+__global__ void dit_tile_kernel(uint64_t* a, const uint64_t* pp,
+                                const uint64_t* q, uint64_t n, uint32_t B) {
   extern __shared__ uint64_t smem[];
   uint64_t* al = a + static_cast<uint64_t>(blockIdx.y) * n;
   const uint64_t* pl = pp + static_cast<uint64_t>(blockIdx.y) * (n + 1);
@@ -82,7 +126,7 @@ __global__ void dit_shared_kernel(uint64_t* a, const uint64_t* pp,
   for (uint32_t t = threadIdx.x; t < B; t += blockDim.x)
     smem[t] = al[base + t];
   __syncthreads();
-  for (uint64_t d = 1; d <= B / 2; d <<= 1) {
+  for (uint64_t d = 1; d <= B / 2; d <<= 1) {  // DIT order
     dev_dit_stage(smem, B, d, n, pl, ql, threadIdx.x, blockDim.x);
     __syncthreads();
   }
@@ -90,65 +134,11 @@ __global__ void dit_shared_kernel(uint64_t* a, const uint64_t* pp,
     al[base + t] = smem[t];
 }
 
-// --- global phase: one launch per stage, grid-stride over the pairs -----
-// The shared body treats the global thread id/count as tid/nthr — the
-// same disjoint pair set the simulator walks serially, so the result is
-// identical regardless of launch geometry. n/2 pairs fit 32 bits for
-// every n this repo targets (n <= 2^18).
-__global__ void dif_global_kernel(uint64_t* a, const uint64_t* pp,
-                                  const uint64_t* q, uint64_t n, uint64_t d) {
-  uint64_t* al = a + static_cast<uint64_t>(blockIdx.y) * n;
-  const uint64_t* pl = pp + static_cast<uint64_t>(blockIdx.y) * (n + 1);
-  const uint64_t tid =
-      static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-  const uint64_t nthr = static_cast<uint64_t>(gridDim.x) * blockDim.x;
-  dev_dif_stage(al, n, d, n, pl, q[blockIdx.y],
-                static_cast<uint32_t>(tid), static_cast<uint32_t>(nthr));
-}
-
-__global__ void dit_global_kernel(uint64_t* a, const uint64_t* pp,
-                                  const uint64_t* q, uint64_t n, uint64_t d) {
-  uint64_t* al = a + static_cast<uint64_t>(blockIdx.y) * n;
-  const uint64_t* pl = pp + static_cast<uint64_t>(blockIdx.y) * (n + 1);
-  const uint64_t tid =
-      static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-  const uint64_t nthr = static_cast<uint64_t>(gridDim.x) * blockDim.x;
-  dev_dit_stage(al, n, d, n, pl, q[blockIdx.y],
-                static_cast<uint32_t>(tid), static_cast<uint32_t>(nthr));
-}
-
-// --- elementwise: the n^-1 scale and the pointwise product --------------
-__global__ void scale_kernel(uint64_t* a, const uint64_t* n_inv,
-                             const uint64_t* q, uint64_t n, uint64_t limbs) {
-  const uint64_t total = limbs * n;
-  const uint64_t stride =
-      static_cast<uint64_t>(gridDim.x) * blockDim.x;
-  for (uint64_t i = static_cast<uint64_t>(blockIdx.x) * blockDim.x +
-                    threadIdx.x;
-       i < total; i += stride) {
-    const uint64_t k = i / n;  // limb-major: the limb owns n contiguous
-    a[i] = mul_mod(a[i], n_inv[k], q[k]);
-  }
-}
-
-__global__ void pointwise_kernel(uint64_t* a, const uint64_t* b,
-                                 const uint64_t* q, uint64_t n,
-                                 uint64_t limbs) {
-  const uint64_t total = limbs * n;
-  const uint64_t stride =
-      static_cast<uint64_t>(gridDim.x) * blockDim.x;
-  for (uint64_t i = static_cast<uint64_t>(blockIdx.x) * blockDim.x +
-                    threadIdx.x;
-       i < total; i += stride) {
-    a[i] = mul_mod(a[i], b[i], q[i / n]);
-  }
-}
-
 }  // namespace
 
 // --- Impl: device buffers + launch geometry ------------------------------
 struct CudaNttTransform::Impl {
-  uint64_t n = 0, P = 0, B = 0;
+  uint64_t n = 0, P = 0, B2 = 0, sub = 0;
   uint32_t T = kThreads;
   std::vector<uint64_t> q;            // host copy (reporting)
   std::vector<NegacyclicNtt> refs;    // per-limb CPU reference: the contract
@@ -158,7 +148,7 @@ struct CudaNttTransform::Impl {
   uint64_t* d_pp_inv = nullptr;       // psi^-e tables,     [P][n+1]
   uint64_t* d_q = nullptr;            // per-limb primes,   [P]
   uint64_t* d_ninv = nullptr;         // per-limb n^-1,     [P]
-  uint32_t pairs_blocks = 0;          // grid.x for global stages: ceil(n/2/T)
+  uint32_t tile_blocks = 0;           // grid.x for the tile pass: max(1, n/256)
   uint32_t flat_blocks = 0;           // grid.x for elementwise: ceil(P*n/T)
 
   ~Impl() {  // noexcept by rule: frees ignore errors
@@ -174,30 +164,32 @@ struct CudaNttTransform::Impl {
 namespace {
 
 // Device-resident drivers, one per public operation — exactly the launch
-// sequences src/device_sim.cpp walks serially (global phase, then tiles
-// for forward; tiles, then global phase, then scale for inverse).
+// sequences src/device_sim.cpp walks: forward = strided pass then tile
+// pass; inverse = tile pass, strided pass, n^-1 scale. Two launches per
+// transform (one when n <= 256).
 void forward_dev(CudaNttTransform::Impl& m, uint64_t* buf) {
-  for (uint64_t d = m.n / 2; d >= m.B; d >>= 1) {
-    dif_global_kernel<<<dim3(m.pairs_blocks, static_cast<unsigned>(m.P)),
-                        m.T>>>(buf, m.d_pp, m.d_q, m.n, d);
+  if (m.n > 256) {  // sub = n/256 strided groups, self-contained
+    dif_col_kernel<<<dim3(kSplit, static_cast<unsigned>(m.P)), m.T,
+                     m.sub * sizeof(uint64_t)>>>(buf, m.d_pp, m.d_q, m.n,
+                                                 static_cast<uint32_t>(m.sub));
     CHECK_CUDA(cudaGetLastError());
   }
-  dif_shared_kernel<<<dim3(static_cast<unsigned>(m.n / m.B),
-                           static_cast<unsigned>(m.P)),
-                      m.T, m.B * sizeof(uint64_t)>>>(
-      buf, m.d_pp, m.d_q, m.n, static_cast<uint32_t>(m.B));
+  dif_tile_kernel<<<dim3(m.tile_blocks, static_cast<unsigned>(m.P)), m.T,
+                    m.B2 * sizeof(uint64_t)>>>(buf, m.d_pp, m.d_q, m.n,
+                                               static_cast<uint32_t>(m.B2));
   CHECK_CUDA(cudaGetLastError());
 }
 
 void inverse_dev(CudaNttTransform::Impl& m, uint64_t* buf) {
-  dit_shared_kernel<<<dim3(static_cast<unsigned>(m.n / m.B),
-                           static_cast<unsigned>(m.P)),
-                      m.T, m.B * sizeof(uint64_t)>>>(
-      buf, m.d_pp_inv, m.d_q, m.n, static_cast<uint32_t>(m.B));
+  dit_tile_kernel<<<dim3(m.tile_blocks, static_cast<unsigned>(m.P)), m.T,
+                    m.B2 * sizeof(uint64_t)>>>(buf, m.d_pp_inv, m.d_q, m.n,
+                                               static_cast<uint32_t>(m.B2));
   CHECK_CUDA(cudaGetLastError());
-  for (uint64_t d = m.B; d <= m.n / 2; d <<= 1) {
-    dit_global_kernel<<<dim3(m.pairs_blocks, static_cast<unsigned>(m.P)),
-                        m.T>>>(buf, m.d_pp_inv, m.d_q, m.n, d);
+  if (m.n > 256) {
+    dit_col_kernel<<<dim3(kSplit, static_cast<unsigned>(m.P)), m.T,
+                     m.sub * sizeof(uint64_t)>>>(buf, m.d_pp_inv, m.d_q,
+                                                 m.n,
+                                                 static_cast<uint32_t>(m.sub));
     CHECK_CUDA(cudaGetLastError());
   }
   scale_kernel<<<m.flat_blocks, m.T>>>(buf, m.d_ninv, m.d_q, m.n, m.P);
@@ -216,7 +208,8 @@ CudaNttTransform::CudaNttTransform(uint64_t n, const std::vector<uint64_t>& q,
   m.n = n;
   m.P = q.size();
   m.q = q;
-  m.B = std::min<uint64_t>(kTile, n);
+  m.B2 = std::min<uint64_t>(kSplit, n);  // tile width (whole transform if n < 256)
+  m.sub = n >> 8;                        // strided-group length (0 when n < 256)
   // Tables from the reference arithmetic; NegacyclicNtt's constructor
   // validates every wheel/root (throws) before any allocation happens.
   std::vector<uint64_t> pp, pp_inv, ninv;
@@ -249,8 +242,8 @@ CudaNttTransform::CudaNttTransform(uint64_t n, const std::vector<uint64_t>& q,
                         cudaMemcpyHostToDevice));
   CHECK_CUDA(cudaMemcpy(m.d_ninv, ninv.data(), m.P * sizeof(uint64_t),
                         cudaMemcpyHostToDevice));
-  m.pairs_blocks =
-      static_cast<uint32_t>((n / 2 + kThreads - 1) / kThreads);
+  m.tile_blocks =
+      static_cast<uint32_t>(std::max<uint64_t>(1, n / kSplit));
   m.flat_blocks =
       static_cast<uint32_t>((words + kThreads - 1) / kThreads);
 }

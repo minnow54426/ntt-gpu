@@ -73,7 +73,14 @@ Two backends behind one interface:
 The CUDA port's index math lives once in `include/ntt/dev_core.hpp`, compiled
 by the Mac simulator and by the kernels alike, so schedule and device cannot
 drift; the reference arithmetic (`mod_arith.hpp`) is `__host__ __device__`, so
-the GPU runs literally the reference `mul_mod`. v1 uses the `__uint128_t`
+the GPU runs literally the reference `mul_mod`. The schedule is a two-pass
+split at 256: pass 1 over 256 strided groups (the far stages, whose pair
+distance is a multiple of 256, pair values sharing their offset mod 256),
+pass 2 over contiguous 256-tiles (the near stages). All 16 stages at
+N = 65,536 run on shared-memory counters; the "mix" between passes is pure
+data movement (scatter strided, gather contiguous), so VRAM traffic is 4
+round-trips per value instead of the 14 a global-memory phase would cost —
+and one forward is 2 kernel launches. v1 uses the `__uint128_t`
 division lowering on device — emulated there, and honestly slow; the bench
 table quantifies exactly that pre-Barrett gap, and Barrett/Montgomery lands
 later behind the same signature with a dedicated cross-check. The simulator

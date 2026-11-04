@@ -4,7 +4,7 @@
 // the single source of schedule truth) with std::vector tiles and a serial
 // loop over thread ids standing in for thread blocks, and checks the result
 // against the CPU reference on identical vectors. Green here means the
-// index arithmetic, stage order, two-phase split, and twiddle tables are
+// index arithmetic, stage order, two-pass split, and twiddle tables are
 // right — proven on this machine, before any GPU is rented.
 //
 // Catches: index bugs, wrong stage sequence, tile-local-NTT mistakes,
@@ -26,7 +26,9 @@
 #include "ntt/ntt.hpp"
 #include "ntt/vector_io.hpp"
 
+using ntt::dev_dif_col_stage;
 using ntt::dev_dif_stage;
+using ntt::dev_dit_col_stage;
 using ntt::dev_dit_stage;
 using ntt::inv_mod;
 using ntt::mul_mod;
@@ -89,39 +91,61 @@ class ScheduleSim {
   const ntt::NegacyclicNtt& ref(size_t k) const { return refs_[k]; }
 
   // Natural coefficients in, values out in bit-reversed order — same
-  // contract as NegacyclicNtt::forward, which the gates assert exactly.
+  // contract as NegacyclicNtt::forward, asserted exactly by the gates.
+  // The schedule is the two-pass split: pass 1 over 256 strided groups
+  // (the far stages, d a multiple of 256), pass 2 over contiguous
+  // 256-tiles (the near stages), mirroring the kernels below.
   void forward(std::vector<uint64_t>& a, size_t k) const {
     check_size(a);
-    // Global phase: d = n/2 down to B (vacuous when n <= B — the fixture
-    // size n = 1024 IS this edge). On GPU: one dif_global launch per stage,
-    // grid-stride over the n/2 pairs; here: T threads cover the same pairs.
-    for (uint64_t d = n_ / 2; d >= B_; d >>= 1)
-      launch(dev_dif_stage, a.data(), n_, d, n_, pp_[k].data(), q_[k]);
-    // Shared phase: d = B/2 down to 1, one B-wide tile at a time. On GPU:
-    // tile staged in dynamic shared memory with __syncthreads() between
-    // stages; here: the tile is a vector and stages run serially.
-    for (uint64_t base = 0; base < n_; base += B_) {
-      std::vector<uint64_t> smem(a.begin() + base, a.begin() + base + B_);
-      for (uint64_t d = B_ / 2; d >= 1; d >>= 1)
-        launch(dev_dif_stage, smem.data(), B_, d, n_, pp_[k].data(), q_[k]);
+    // Pass 1 — strided groups: pair (u, u+d) with d = 256*delta shares
+    // r = u mod 256, so group r = {r, r+256, ...} runs its far stages
+    // alone: one gather, sub/2 stages, one scatter.
+    const uint64_t sub = n_ >> 8;  // group length (0 when n < 256)
+    if (sub >= 2) {
+      for (uint64_t r = 0; r < 256; ++r) {
+        std::vector<uint64_t> tile(sub);
+        for (uint64_t qi = 0; qi < sub; ++qi) tile[qi] = a[r + (qi << 8)];
+        for (uint64_t delta = sub / 2; delta >= 1; delta >>= 1)
+          launch_col(dev_dif_col_stage, tile.data(), sub, delta,
+                     pp_[k].data(), q_[k], r);
+        for (uint64_t qi = 0; qi < sub; ++qi) a[r + (qi << 8)] = tile[qi];
+      }
+    }
+    // Pass 2 — contiguous tiles: stages d < 256 pair within one
+    // 256-wide window (the whole transform when n <= 256).
+    const uint64_t B2 = std::min<uint64_t>(256, n_);
+    for (uint64_t base = 0; base < n_; base += B2) {
+      std::vector<uint64_t> smem(a.begin() + base, a.begin() + base + B2);
+      for (uint64_t d = B2 / 2; d >= 1; d >>= 1)
+        launch(dev_dif_stage, smem.data(), B2, d, n_, pp_[k].data(), q_[k]);
       std::copy(smem.begin(), smem.end(), a.begin() + base);
     }
   }
 
-  // Bit-reversed values in, natural coefficients out: the shared phase
-  // first (d = 1 up to B/2), then the global phase (d = B up to n/2), then
-  // the elementwise n^-1 scale — the mirror of forward's stage order.
+  // Bit-reversed values in, natural coefficients out: the mirror of
+  // forward — contiguous stages first (d = 1 .. B2/2), then the strided
+  // stages (delta = 1 .. sub/2), then the elementwise n^-1 scale.
   void inverse(std::vector<uint64_t>& a, size_t k) const {
     check_size(a);
-    for (uint64_t base = 0; base < n_; base += B_) {
-      std::vector<uint64_t> smem(a.begin() + base, a.begin() + base + B_);
-      for (uint64_t d = 1; d <= B_ / 2; d <<= 1)
-        launch(dev_dit_stage, smem.data(), B_, d, n_, pp_inv_[k].data(),
+    const uint64_t sub = n_ >> 8;
+    const uint64_t B2 = std::min<uint64_t>(256, n_);
+    for (uint64_t base = 0; base < n_; base += B2) {
+      std::vector<uint64_t> smem(a.begin() + base, a.begin() + base + B2);
+      for (uint64_t d = 1; d <= B2 / 2; d <<= 1)
+        launch(dev_dit_stage, smem.data(), B2, d, n_, pp_inv_[k].data(),
                q_[k]);
       std::copy(smem.begin(), smem.end(), a.begin() + base);
     }
-    for (uint64_t d = B_; d <= n_ / 2; d <<= 1)
-      launch(dev_dit_stage, a.data(), n_, d, n_, pp_inv_[k].data(), q_[k]);
+    if (sub >= 2) {
+      for (uint64_t r = 0; r < 256; ++r) {
+        std::vector<uint64_t> tile(sub);
+        for (uint64_t qi = 0; qi < sub; ++qi) tile[qi] = a[r + (qi << 8)];
+        for (uint64_t delta = 1; delta <= sub / 2; delta <<= 1)
+          launch_col(dev_dit_col_stage, tile.data(), sub, delta,
+                     pp_inv_[k].data(), q_[k], r);
+        for (uint64_t qi = 0; qi < sub; ++qi) a[r + (qi << 8)] = tile[qi];
+      }
+    }
     for (uint64_t i = 0; i < n_; ++i)
       a[i] = mul_mod(a[i], n_inv_[k], q_[k]);
   }
@@ -151,6 +175,18 @@ class ScheduleSim {
               uint64_t n, const uint64_t* pp, uint64_t q) const {
     for (uint32_t tid = 0; tid < T_; ++tid)
       fn(tile, tile_len, d, n, pp, q, tid, T_);
+  }
+
+  using ColFn = void (*)(uint64_t*, uint64_t, uint64_t, uint64_t,
+                         const uint64_t*, uint64_t, uint32_t, uint32_t,
+                         uint64_t);
+
+  // One strided-group "kernel launch": every thread runs its slice of
+  // the group's stage, r = the group's offset mod 256.
+  void launch_col(ColFn fn, uint64_t* tile, uint64_t sub, uint64_t delta,
+                  const uint64_t* tab, uint64_t mod, uint64_t r) const {
+    for (uint32_t tid = 0; tid < T_; ++tid)
+      fn(tile, sub, delta, n_, tab, mod, tid, T_, r);
   }
 
   void check_size(const std::vector<uint64_t>& a) const {
