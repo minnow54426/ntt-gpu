@@ -59,6 +59,30 @@ output at n = 1024 and 4096; valid at any size, use a 2^18 fixture freely),
 and `cuda_verify` (in-process GPU-vs-ref forward/roundtrip/multiply on the
 fixtures plus a generated n = 65536 case).
 
+### Exact OpenFHE compatibility
+
+The OpenFHE gate pins **OpenFHE 1.6.1** at commit
+`b59e1f291965f14fbee5172cd83a20f5b856204f`, builds it under the ignored
+`build/` tree, and compares the public `NativePoly` coefficient/evaluation
+conversion against `NegacyclicNtt` element for element:
+
+```sh
+bash scripts/openfhe_setup.sh
+```
+
+`openfhe_exact_compat` covers `N = 4096, 8192, 16384, 32768, 65536`, two
+OpenFHE-selected CKKS-sized modulus widths (50 and 59 bits), zero, maximum,
+ramp, and deterministic-random coefficient inputs, plus independent random
+evaluation-domain inputs for inverse transforms. Equality includes OpenFHE's
+exact bit-reversed evaluation ordering; this is not a decrypt-tolerance test.
+The CUDA gates already require GPU output to equal the same CPU reference, so
+the two exact gates compose to OpenFHE == reference == CUDA on GPU hardware.
+
+The ordinary dependency-free build remains unchanged. To reuse an existing
+OpenFHE installation instead of the setup script, configure with
+`-DNTT_ENABLE_OPENFHE_COMPAT=ON` and point `CMAKE_PREFIX_PATH` at its install
+prefix; CMake requires version 1.6.1 exactly.
+
 Architecture default: sm_89 + sm_120 when the toolkit is ≥ 12.8, else sm_89
 (the build embeds compute_89 PTX, which a 5090 driver JITs) — one build runs
 on both rentable cards. Override with `-DCMAKE_CUDA_ARCHITECTURES=native`

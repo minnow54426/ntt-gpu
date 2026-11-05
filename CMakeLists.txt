@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # for clangd
 
+option(NTT_ENABLE_OPENFHE_COMPAT
+       "Build exact transform compatibility tests against OpenFHE 1.6.1" OFF)
+
 add_executable(ntt_cli src/cli.cpp)
 add_executable(ntt_tests tests/unit_tests.cpp)
 # Layer 2a: the GPU stage schedule, proven on CPU before any rental. Same
@@ -54,6 +57,29 @@ set_tests_properties(gen_vectors_n4096 PROPERTIES FIXTURES_SETUP VECTORS_N4K)
 add_test(NAME device_schedule_check COMMAND ntt_device_sim ${VEC} ${VEC64} ${VEC4K})
 set_tests_properties(device_schedule_check PROPERTIES
   FIXTURES_REQUIRED "VECTORS;VECTORS_N64;VECTORS_N4K")
+
+# --- OpenFHE compatibility gate ------------------------------------------
+# This is opt-in because OpenFHE is deliberately not a dependency of the
+# standalone correctness build. scripts/openfhe_setup.sh fetches the pinned
+# release, builds it locally, and configures this target.
+if(NTT_ENABLE_OPENFHE_COMPAT)
+  find_package(OpenFHE 1.6.1 EXACT CONFIG REQUIRED)
+  add_executable(ntt_openfhe_compat tests/openfhe_compat_tests.cpp)
+  target_include_directories(ntt_openfhe_compat PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_include_directories(ntt_openfhe_compat SYSTEM PRIVATE
+    ${OpenFHE_INCLUDE}
+    ${OpenFHE_INCLUDE}/core)
+  target_compile_options(ntt_openfhe_compat PRIVATE -Wall -Wextra -Werror)
+  if(TARGET OPENFHEcore_static)
+    target_link_libraries(ntt_openfhe_compat PRIVATE OPENFHEcore_static)
+  elseif(TARGET OPENFHEcore)
+    target_link_libraries(ntt_openfhe_compat PRIVATE OPENFHEcore)
+  else()
+    message(FATAL_ERROR "OpenFHE package has no core library target")
+  endif()
+  add_test(NAME openfhe_exact_compat COMMAND ntt_openfhe_compat)
+endif()
 
 # --- Layer 2b: the CUDA backend, auto-detected ---------------------------
 # A machine without nvcc (e.g. the dev Mac) gets exactly the build above;
