@@ -18,7 +18,20 @@ automatically wherever nvcc exists.
     - [x] 2b — the kernels themselves (`src/cuda/ntt_kernels.cu`), thin wrappers
       around the proven schedule; GPU gates register automatically under nvcc
     - [ ] 2c — first run on a rented GPU (see below), bench table recorded
+    - [ ] 2d — systematic benchmark and autotuning matrix across GPU launch
+      parameters and NTT implementations; select winners per ring size, RNS
+      tower count, and latency/throughput objective
 - **v0.2 (2027-04-30):** key-switching / automorphism kernels; first upstream PRs.
+
+Benchmarking and tuning are part of the implementation, not a final reporting
+step. The primary target is RTX 5090 (`sm_120`), with RTX 4090 (`sm_89`) as the
+cross-architecture control. The matrix includes `N = 4096..65536`, realistic
+CKKS modulus widths and tower counts, threads/block, values/thread, radix,
+register and shared-memory use, split/tile shape, batch size, streams, twiddle
+representation, and transfer policy. It compares the correctness baseline,
+optimized two-pass variants, radix-4/8 register staging, and a coalesced
+Four-Step/transpose path. Kernel-only and end-to-end results are reported
+separately. See [`docs/benchmark-tuning-plan.md`](docs/benchmark-tuning-plan.md).
 
 ## Build & test
 
@@ -104,6 +117,11 @@ odd powers of ψ, where x^N+1 splits into linear factors.
   blocks, SMs, the 4090/5090 numbers), then how this repo splits the NTT into
   strided groups and contiguous tiles so every stage runs on a shared-memory
   counter.
+- [`docs/gpu-ntt-survey.md`](docs/gpu-ntt-survey.md) — primary-source survey of
+  GPU NTT and CKKS implementations, with the techniques this project can absorb.
+- [`docs/benchmark-tuning-plan.md`](docs/benchmark-tuning-plan.md) — reproducible
+  benchmark matrix and tuning/selection rules for GPU parameters and kernel
+  variants.
 
 ## Provenance
 
