@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 4 L28 28 M28 4 L4 28' stroke='%23C2410C' stroke-width='5' stroke-linecap='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,600&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
 <style>
   :root {
     --paper: #F7F1E5;
@@ -77,6 +77,27 @@
   .hero-art .caption {
     font-family: var(--mono); font-size: 12px; color: var(--ink-faint); text-align: center; margin-top: 8px;
   }
+
+  /* A short reading path before the full derivation. */
+  .quick-start {
+    margin: 4px 0 36px; padding: 24px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 18px;
+  }
+  .quick-start h2 { font-size: 25px; margin-bottom: 6px; }
+  .quick-start > p { color: var(--ink-soft); font-size: 17px; max-width: 52em; }
+  .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 18px; }
+  .quick-step { padding: 16px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
+  .quick-step b { display: block; font-family: var(--mono); font-size: 12px; color: var(--accent); margin-bottom: 6px; }
+  .quick-step span { display: block; font-size: 16px; line-height: 1.42; color: var(--ink-soft); }
+  .read-path { margin-top: 16px; font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint); }
+  .read-path a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  details.deep-dive { margin: 22px 0; }
+  details.deep-dive > summary {
+    cursor: pointer; font-family: var(--mono); font-size: 13px; font-weight: 600;
+    color: var(--accent); padding: 11px 14px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--card);
+  }
+  details.deep-dive[open] > summary { margin-bottom: 16px; }
   .flow-path { stroke-dasharray: 7 9; }
   @media (prefers-reduced-motion: no-preference) {
     .flow-path { animation: dash 2.6s linear infinite; }
@@ -294,6 +315,17 @@
     header.hero { grid-template-columns: 1fr; padding-top: 56px; }
     .sec-num { font-size: 38px; min-width: 48px; }
     .page { padding: 0 18px 100px; }
+    .quick-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 560px) {
+    body { font-size: 17px; }
+    header.hero { padding-top: 38px; gap: 24px; }
+    .hero-sub { font-size: 19px; }
+    .quick-grid { grid-template-columns: 1fr; }
+    .quick-start { padding: 18px; }
+    .widget { padding: 18px 14px; }
+    .sec-head { gap: 10px; }
+    .sec-num { font-size: 30px; min-width: 38px; }
   }
 </style>
 </head>
@@ -304,12 +336,12 @@
   <header class="hero">
     <div>
       <div class="kicker">ntt-gpu · a beginner's field guide</div>
-      <h1>Butterflies <em>all the way down.</em></h1>
-      <p class="hero-sub">The fastest known way to multiply two long lists of numbers, derived from zero: one equation, expanded by hand, until only a single tiny unit remains.</p>
+      <h1>How an NTT <em>really works.</em></h1>
+      <p class="hero-sub">An NTT turns one expensive polynomial multiplication into many small, repeated butterfly operations.</p>
       <div class="hero-meta">
         <span class="chip"><b>no</b> prerequisites</span>
-        <span class="chip">worked numbers: mod <b>5</b> and mod <b>17</b></span>
-        <span class="chip">every diagram is <b>clickable</b></span>
+        <span class="chip">examples use mod <b>5</b> and mod <b>17</b></span>
+        <span class="chip">interactive diagrams</span>
       </div>
     </div>
     <div class="hero-art">
@@ -345,43 +377,55 @@
     </div>
   </header>
 
+  <aside class="quick-start" aria-labelledby="quick-title">
+    <h2 id="quick-title">The idea in four steps</h2>
+    <p>Read this first. The chapters below explain why each step is valid.</p>
+    <div class="quick-grid">
+      <div class="quick-step"><b>1 · START</b><span>A polynomial is stored as a list of coefficients.</span></div>
+      <div class="quick-step"><b>2 · TRANSFORM</b><span>The NTT evaluates that list at special modular points.</span></div>
+      <div class="quick-step"><b>3 · REUSE</b><span>A butterfly computes one shared sum-and-difference pair.</span></div>
+      <div class="quick-step"><b>4 · REPEAT</b><span>N/2 butterflies across log₂N stages finish the transform.</span></div>
+    </div>
+    <p class="read-path">Shortest path: <a href="#s1">data</a> → <a href="#s3">NTT</a> → <a href="#s6">butterfly</a> → <a href="#s7">network</a> → <a href="#s9">negacyclic</a>. The other chapters are optional detail.</p>
+  </aside>
+
   <div class="layout">
     <!-- ============================ TOC ============================ -->
     <nav class="toc" aria-label="Table of contents">
       <div class="toc-title">Contents</div>
-      <a href="#s1"><span class="n">01</span>The data is a list</a>
-      <a href="#s2"><span class="n">02</span>The wheel of powers</a>
-      <a href="#s3"><span class="n">03</span>The NTT equation</a>
-      <a href="#s4"><span class="n">04</span>The direct cost</a>
-      <a href="#s5"><span class="n">05</span>Expand &amp; find repeats</a>
-      <a href="#s6"><span class="n">06</span>Meet the butterfly</a>
-      <a href="#s7"><span class="n">07</span>The whole machine</a>
-      <a href="#s8"><span class="n">08</span>The score</a>
-      <a href="#s9"><span class="n">09</span>The negacyclic variant</a>
-      <a href="#s10"><span class="n">10</span>Same shape in code</a>
+      <a href="#s1"><span class="n">01</span>Input: coefficients</a>
+      <a href="#s2"><span class="n">02</span>Special points</a>
+      <a href="#s3"><span class="n">03</span>What the NTT does</a>
+      <a href="#s4"><span class="n">04</span>Why direct is slow</a>
+      <a href="#s5"><span class="n">05</span>Where reuse appears</a>
+      <a href="#s6"><span class="n">06</span>One butterfly</a>
+      <a href="#s7"><span class="n">07</span>Full N = 8 network</a>
+      <a href="#s8"><span class="n">08</span>Work saved</a>
+      <a href="#s9"><span class="n">09</span>Negacyclic NTT</a>
+      <a href="#s10"><span class="n">10</span>Code mapping</a>
     </nav>
 
     <main>
 
     <!-- ============================ 1. THE DATA ============================ -->
     <section id="s1" class="reveal">
-      <div class="sec-head"><div class="sec-num">01</div><h2>The data is just a list of numbers</h2></div>
-      <p>Forget everything else. The only object this page needs is a <b>list of N numbers</b> — in math language, a polynomial. Like this:</p>
+      <div class="sec-head"><div class="sec-num">01</div><h2>Start with coefficients</h2></div>
+      <p>The input is a <b>list of N numbers</b>. In this page, that list represents a polynomial:</p>
       <div class="chips-row" aria-label="An example list of eight numbers as chips">
         <span class="numchip">3<small>slot 0</small></span><span class="numchip">7<small>slot 1</small></span>
         <span class="numchip">1<small>slot 2</small></span><span class="numchip">9<small>slot 3</small></span>
         <span class="numchip">4<small>slot 4</small></span><span class="numchip">0<small>slot 5</small></span>
         <span class="numchip">5<small>slot 6</small></span><span class="numchip">2<small>slot 7</small></span>
       </div>
-      <p class="dim">N is big — 1024 to 65536 entries — and the one operation that must be fast is:</p>
+      <p class="dim">For this project, N ranges from 4,096 to 65,536. We need to multiply two such lists efficiently:</p>
       <div class="math" style="width:100%; text-align:center;">multiply two lists of length N,  get back a list of length N</div>
       <p class="dim">The NTT (Number Theoretic Transform) is how that multiplication gets done fast. (How the product stays length N — the fold rule — is chapter 9's story.)</p>
     </section>
 
     <!-- ============================ 2. THE WHEEL ============================ -->
     <section id="s2" class="reveal">
-      <div class="sec-head"><div class="sec-num">02</div><h2>The wheel: powers of a root of unity</h2></div>
-      <p>Meet the number the whole transform runs on. Watch it being born, mod 17 — start at 1 and keep multiplying by 2:</p>
+      <div class="sec-head"><div class="sec-num">02</div><h2>Choose special modular points</h2></div>
+      <p>Modulo 17, start at 1 and keep multiplying by 2. After eight different values, the sequence returns to 1:</p>
       <div class="widget">
         <div class="w-title">The wheel — the eight powers of 2, mod 17 · start at 1, keep multiplying by 2</div>
         <div class="w-row">
@@ -428,6 +472,8 @@
       </div>
       <p>Eight <b>different</b> numbers, then the ninth step lands back on 1. The powers of 2 form a closed loop of exactly 8 points — a <b>wheel</b>. Such a number is a <b>root of unity</b> ("unity" just means 1): <span class="m">ω^N = 1</span>, and <b>primitive</b> if no earlier power comes home. Everything the NTT relies on is a property of this wheel:</p>
       <p class="dim">Nothing sacred about 2 — mod 17 offers four primitive 8th roots: 2, 8, 9, 15. Each walks the <i>same</i> eight points in a different order; 2 just gives the easiest multiplication table.</p>
+      <details class="deep-dive">
+        <summary>Optional: why these points make the NTT fast</summary>
       <div class="reasons">
         <div class="reason"><div class="r-num">i.</div><h4>Closed: multiply = move</h4><p>Powers never leave the wheel: <span class="m">ωᵃ·ωᵇ = ω^(a+b)</span> — multiplying just adds positions, a clock for multiplication (the logarithm trick). <b>Why:</b> one number generates all N plug-in points, one multiplication each.</p></div>
         <div class="reason"><div class="r-num">ii.</div><h4>Distinct: nothing is lost</h4><p>A primitive root visits N <i>different</i> points, so N plugged-in values pin the list down exactly — the coordinates are reversible. <b>Why:</b> the transform has an inverse. The one demand on the prime: N | q−1 (<code class="inline">ntt.hpp:61</code>).</p></div>
@@ -438,11 +484,12 @@
         <h4>Why not just any N distinct numbers?</h4>
         <p>Any N distinct points make chapter 3's trick <i>correct</i>. Only wheel points make it <i>fast</i>: the shared brackets of chapter 5 are this wheel's symmetries showing up as algebra. The speed of the NTT <b>is</b> wheel symmetry.</p>
       </div>
+      </details>
     </section>
 
     <!-- ============================ 3. THE EQUATION ============================ -->
     <section id="s3" class="reveal">
-      <div class="sec-head"><div class="sec-num">03</div><h2>The equation of the NTT</h2></div>
+      <div class="sec-head"><div class="sec-num">03</div><h2>What the NTT does</h2></div>
       <p>A list like <span class="m">(2, 1)</span> is a tiny machine: plug a number t in for x, get a value out. And plugged-in values multiply one by one:</p>
       <div class="math">(A·B)(plug in t)  =  A(plug in t)  ×  B(plug in t)</div>
       <p><b>One multiplication, no crossing terms</b> — and it holds for <i>every</i> t. Both roads below use <span class="m">t = 2</span> (mod 5); change any coefficient and they still agree:</p>
@@ -496,7 +543,7 @@
 
     <!-- ============================ 4. THE DIRECT COST ============================ -->
     <section id="s4" class="reveal">
-      <div class="sec-head"><div class="sec-num">04</div><h2>Computing the equation directly is hopeless</h2></div>
+      <div class="sec-head"><div class="sec-num">04</div><h2>Direct evaluation is too expensive</h2></div>
       <p>The equation demands N outputs, each a sum of N products — computed one by one, that's <span class="m">N × N</span> multiplications per transform:</p>
       <div class="widget">
         <div class="w-title">Interactive · feel the N² pain</div>
@@ -515,8 +562,10 @@
 
     <!-- ============================ 5. EXPANSION ============================ -->
     <section id="s5" class="reveal">
-      <div class="sec-head"><div class="sec-num">05</div><h2>Expand the equation — the repeats jump out</h2></div>
+      <div class="sec-head"><div class="sec-num">05</div><h2>Repeated work becomes visible</h2></div>
       <p>Here is the fast algorithm, discovered the honest way. Chapter 3's equation makes every output a sum of four products, and chapter 4 says computing them separately costs N×N. So take a list of four numbers <span class="m">a = (a₀, a₁, a₂, a₃)</span> and write <b>all four outputs out longhand</b>, hunting for work that repeats. (Remember ω has order 4 here — <span class="m">ω⁴ = 1</span> — so exponents wrap: ω⁶ = ω², ω⁹ = ω.)</p>
+      <details class="deep-dive">
+        <summary>Optional: show the N = 4 algebra</summary>
       <div class="math" style="display:block;">A₀ = a₀ + a₁ + a₂ + a₃
 A₁ = a₀ + a₁ω + a₂ω² + a₃ω³
 A₂ = a₀ + a₁ω² + a₂ + a₃ω²
@@ -541,6 +590,7 @@ out[j+N/2]  =  E  −  w·O     ← same E, same O, same w — only the sign fli
         <h4>Where does that minus come from? Wheel property iii</h4>
         <p>Halfway around, every point is the negative of its mirror: <span class="m">ω^(j+N/2) = −ωʲ</span> (mod 17, ω = 4: ω² = 16 = −1). The repo checks this exact fact at <code class="inline">ntt.hpp:66</code>: <code class="inline">psi^n == q−1</code>.</p>
       </div>
+      </details>
       <p>The same derivation with real numbers — set the coefficients yourself:</p>
       <div class="widget">
         <div class="w-title">Interactive · both levels, real numbers — mod 17, ω = 4 (ω² = 16 ≡ −1)</div>
@@ -631,7 +681,7 @@ out[j+N/2]  =  E  −  w·O     ← same E, same O, same w — only the sign fli
 
     <!-- ============================ 7. THE NETWORK ============================ -->
     <section id="s7" class="reveal">
-      <div class="sec-head"><div class="sec-num">07</div><h2>The whole machine, N = 8</h2></div>
+      <div class="sec-head"><div class="sec-num">07</div><h2>Connect butterflies into stages</h2></div>
       <p>Eight wires, values flowing left to right; every X is one butterfly. <b>Press play</b> (arithmetic mod 17, ω = 2), or click any butterfly to inspect it. The partner distance doubles each stage — 1, 2, 4 — the recursion of chapter 5, unrolled one level more and laid out flat.</p>
       <div class="widget">
         <div class="w-title">Interactive · the N = 8 butterfly network (mod 17)</div>
@@ -663,7 +713,7 @@ out[j+N/2]  =  E  −  w·O     ← same E, same O, same w — only the sign fli
 
     <!-- ============================ 8. THE SCORE ============================ -->
     <section id="s8" class="reveal">
-      <div class="sec-head"><div class="sec-num">08</div><h2>The score</h2></div>
+      <div class="sec-head"><div class="sec-num">08</div><h2>How much work is saved?</h2></div>
       <p>Count the X's in the picture: 4 per stage × 3 stages = <b>12 butterflies</b> for N = 8, against the 64 products of computing chapter 3's equation output-by-output. In general: <span class="m">(N/2) · log₂(N)</span> butterflies versus <span class="m">N²</span> products. The two complexities, side by side:</p>
       <div class="widget">
         <div class="w-title">Interactive · direct N² vs butterflies (N/2)·log₂N — log–log plot</div>
@@ -682,7 +732,7 @@ out[j+N/2]  =  E  −  w·O     ← same E, same O, same w — only the sign fli
 
     <!-- ============================ 9. NEGACYCLIC ============================ -->
     <section id="s9" class="reveal">
-      <div class="sec-head"><div class="sec-num">09</div><h2>The negacyclic variant: the fold rule</h2></div>
+      <div class="sec-head"><div class="sec-num">09</div><h2>CKKS uses the negacyclic form</h2></div>
       <p>One loose end from chapter 1: the operation there was "multiply two lists, <b>get back a list of the same length N</b>." But plain multiplication lengthens the list:</p>
       <div class="math">(2 + x) · (3 + 2x)  =  6 + 7x + 2x²      ← grew from 2 slots to 3</div>
       <p>If every multiplication grew the list, nothing could chain. The fix is one fold rule, in exactly two flavors:</p>
@@ -722,7 +772,7 @@ x^N = −1    "negacyclic" — wrap it back with a <b>minus</b></div>
 
     <!-- ============================ 10. IN CODE ============================ -->
     <section id="s10" class="reveal">
-      <div class="sec-head"><div class="sec-num">10</div><h2>The same shape, hiding in the code</h2></div>
+      <div class="sec-head"><div class="sec-num">10</div><h2>Map the picture to code</h2></div>
       <p>Here is the actual loop from this repo's CPU reference (<code class="inline">include/ntt/ntt.hpp</code>, the <code class="inline">forward</code> DIF sweep — twist folded in as ladder constants, natural values in, bit-reversed values out). Read the comments with chapter 7 open next to it — every line is a part of the picture:</p>
       <pre class="code"><span class="k">for</span> (<span class="t">uint64_t</span> d = n_ / <span class="hl">2</span>; d &gt;= <span class="hl">1</span>; d &gt;&gt;= <span class="hl">1</span>) {      <span class="c">// the stages — pair distance halves: n/2, n/4, …, 1</span>
   <span class="k">const</span> <span class="t">uint64_t</span> c = <span class="f">pow_mod</span>(psi_, d, q_);           <span class="c">// ladder constant ψ^d — the twist, folded in</span>
