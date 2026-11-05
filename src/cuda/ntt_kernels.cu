@@ -43,9 +43,9 @@
 namespace ntt::cuda {
 namespace {
 
-// Must match ScheduleSim (src/device_sim.cpp): the tile width B and
-// block size T define the two-phase split the simulator already proved
-// against the CPU reference at n = 64 / 1024 / 4096.
+// Must match ScheduleSim (src/device_sim.cpp): the split width (groups
+// of 256) and block size T define the two-pass schedule the simulator
+// already proved against the CPU reference at n = 64 / 512 / 1024 / 4096.
 constexpr uint32_t kThreads = 256;  // T: threads per block
 constexpr uint64_t kSplit = 256;    // the two-pass split width: groups of 256
 

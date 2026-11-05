@@ -21,16 +21,19 @@
 //     where pp holds powers of psi.
 //   inverse (DIT): the same stages from d = 1 up; pp holds powers of
 //     psi^-1; butterfly (x, y) -> (x + y*pp[(n/d)*j], (x - y*pp[(n/d)*j]) * pp[d]).
-//   The two-phase GPU split (global stages first at tile_len = n, then
-//   shared-memory stages at tile_len = B = min(1024, n)) walks the SAME
-//   d-sequence — B is a power of two <= n, so no stage is skipped, added,
-//   or reordered.
+//   The GPU runs the SAME d-sequence as a two-pass split at 256:
+//   pass 1 gathers each strided group {r, r+256, ...} onto a counter and
+//   runs the far stages (d a multiple of 256) via dev_*_col_stage;
+//   pass 2 gathers each contiguous 256-tile and runs the near stages via
+//   dev_*_stage with tile_len = min(256, n). B is a power of two <= n,
+//   so no stage is skipped, added, or reordered.
 //
 // Two traps this file exists to pin:
-//   - the shared phase runs stages of the GLOBAL transform inside a B-wide
-//     tile: the twiddle scale (n/d)*j and the ladder constant pp[d] use the
-//     global n and global d, never the tile length (a tile-local NTT of
-//     size B would be silently wrong);
+//   - every stage is a stage of the GLOBAL transform, whatever it is
+//     grouped over: the twiddle scale (n/d)*j and the ladder constant
+//     pp[d] use the global n and global d, never the group or tile length
+//     (a group-local NTT would be silently wrong — the col stages fold
+//     the global exponents into q-coordinates explicitly);
 //   - within one stage the n/2 pairs are disjoint (each index belongs to
 //     exactly one pair), so any thread interleaving is race-free AND
 //     produces the identical array — which is why the simulator may run
@@ -53,16 +56,15 @@ namespace ntt {
 
 // One DIF (forward) stage, one thread's slice of the pairs.
 //   tile     — the array segment this stage operates on: the whole limb
-//              (global phase, tile_len = n) or one B-wide shared-memory
-//              tile (shared phase, tile_len = B). The caller guarantees
-//              tile_len is a multiple of 2*d.
+//              (tile_len = n, when a transform fits one pass-2 tile) or
+//              one 256-wide pass-2 tile (tile_len = B). The caller
+//              guarantees tile_len is a multiple of 2*d.
 //   d        — pair distance for this stage, a power of two <= tile_len/2.
 //   n        — the GLOBAL transform length (twiddle exponents use n).
 //   pp       — powers of psi: pp[e] = psi^e for e in [0, n].
 //   tid/nthr — this thread's index and count (simulator: 0..T; kernel:
-//              global phase passes the grid-stride pair index/step, shared
-//              phase passes threadIdx.x/blockDim.x — both cover [0, pairs)
-//              and pairs are disjoint, so either slicing is exact).
+//              pass 2 passes threadIdx.x/blockDim.x — both cover
+//              [0, pairs) and pairs are disjoint, so either is exact).
 NTT_DEV void dev_dif_stage(uint64_t* tile, uint64_t tile_len, uint64_t d,
                            uint64_t n, const uint64_t* pp, uint64_t q,
                            uint32_t tid, uint32_t nthr) {

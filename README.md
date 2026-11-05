@@ -99,6 +99,11 @@ odd powers of ψ, where x^N+1 splits into linear factors.
   dependency-free beginner's explainer: why the NTT is built from butterfly units,
   from the one-line definition through the negacyclic fold rule to the full N=8
   network (open in any browser).
+- [`docs/gpu-ntt-explained.html`](docs/gpu-ntt-explained.html) — the GPU port
+  explained from zero: the machine's concepts and real parameters (threads,
+  blocks, SMs, the 4090/5090 numbers), then how this repo splits the NTT into
+  strided groups and contiguous tiles so every stage runs on a shared-memory
+  counter.
 
 ## Provenance
 

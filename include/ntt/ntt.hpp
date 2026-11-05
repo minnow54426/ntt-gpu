@@ -31,7 +31,9 @@
 // forward -> multiply -> inverse contains no permutation anywhere. Every
 // twiddle is still an odd power of psi (psi^d on the add leg, psi^(n/d)
 // strides): the twist and the cyclic machinery, merged.
-// The CUDA port reproduces this exact schedule.
+// The CUDA port runs this same stage sequence, regrouped as a two-pass
+// split at 256 (see include/ntt/dev_core.hpp) — identical values out,
+// bit-reversed order included.
 //
 // A visual walkthrough of everything below — the wheel of powers, the
 // expansion where shared brackets turn into butterflies, and this exact
