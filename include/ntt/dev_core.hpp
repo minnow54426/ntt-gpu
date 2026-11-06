@@ -55,48 +55,62 @@
 namespace ntt {
 
 // One DIF (forward) stage, one thread's slice of the pairs.
-//   tile     — the array segment this stage operates on: the whole limb
-//              (tile_len = n, when a transform fits one pass-2 tile) or
-//              one 256-wide pass-2 tile (tile_len = B). The caller
-//              guarantees tile_len is a multiple of 2*d.
-//   d        — pair distance for this stage, a power of two <= tile_len/2.
-//   n        — the GLOBAL transform length (twiddle exponents use n).
-//   pp       — powers of psi: pp[e] = psi^e for e in [0, n].
-//   tid/nthr — this thread's index and count (simulator: 0..T; kernel:
-//              pass 2 passes threadIdx.x/blockDim.x — both cover
-//              [0, pairs) and pairs are disjoint, so either is exact).
-NTT_DEV void dev_dif_stage(uint64_t* tile, uint64_t tile_len, uint64_t d,
-                           uint64_t n, const uint64_t* pp, uint64_t q,
-                           uint32_t tid, uint32_t nthr) {
-  const uint64_t lg = log2_of_pow2(d);  // d is a power of two
-  for (uint64_t p = tid; p < tile_len / 2; p += nthr) {
-    const uint64_t g = p >> lg;              // which 2d-wide group
-    const uint64_t j = p & (d - 1);          // offset inside the group
-    const uint64_t u = (g << (lg + 1)) + j;  // = i + j in ntt.hpp's loop
-    const uint64_t v = u + d;
-    const uint64_t x = tile[u];
-    const uint64_t cv = mul_mod(pp[d], tile[v], q);  // psi^d on the v leg
-    tile[u] = add_mod(x, cv, q);
-    tile[v] = mul_mod(sub_mod(x, cv, q), pp[(n >> lg) * j], q);
+//   tile_values          — the contiguous values operated on by this stage.
+//   tile_length          — number of values in tile_values.
+//   global_pair_distance — distance between the two butterfly inputs.
+//   transform_length     — length of the complete transform, not the tile.
+//   twiddle_powers       — psi^e for every exponent e in [0, n].
+//   modulus              — prime modulus for the current RNS limb.
+//   thread_index/count   — grid-stride ownership of disjoint butterflies.
+NTT_DEV void dev_dif_stage(uint64_t *tile_values, uint64_t tile_length,
+                           uint64_t global_pair_distance, uint64_t transform_length,
+                           const uint64_t *twiddle_powers, uint64_t modulus,
+                           uint32_t thread_index, uint32_t thread_count) {
+  const uint64_t pair_distance_log2 =
+      log2_of_pow2(global_pair_distance); // distance is a power of two
+  for (uint64_t pair_index = thread_index; pair_index < tile_length / 2;
+       pair_index += thread_count) {
+    const uint64_t butterfly_group_index = pair_index >> pair_distance_log2;
+    const uint64_t offset_within_group = pair_index & (global_pair_distance - 1);
+    const uint64_t upper_index =
+        (butterfly_group_index << (pair_distance_log2 + 1)) + offset_within_group;
+    const uint64_t lower_index = upper_index + global_pair_distance;
+    const uint64_t upper_value = tile_values[upper_index];
+    const uint64_t scaled_lower_value = mul_mod(twiddle_powers[global_pair_distance],
+                                                tile_values[lower_index], modulus);
+    const uint64_t twiddle_index =
+        (transform_length >> pair_distance_log2) * offset_within_group;
+    tile_values[upper_index] = add_mod(upper_value, scaled_lower_value, modulus);
+    tile_values[lower_index] =
+        mul_mod(sub_mod(upper_value, scaled_lower_value, modulus),
+                twiddle_powers[twiddle_index], modulus);
   }
 }
 
 // One DIT (inverse) stage, one thread's slice. Identical index mapping;
-// pp holds powers of psi^-1 and the multiply lands on the other legs —
-// the exact inverse butterfly of dev_dif_stage (see ntt.hpp::inverse).
-NTT_DEV void dev_dit_stage(uint64_t* tile, uint64_t tile_len, uint64_t d,
-                           uint64_t n, const uint64_t* pp, uint64_t q,
-                           uint32_t tid, uint32_t nthr) {
-  const uint64_t lg = log2_of_pow2(d);
-  for (uint64_t p = tid; p < tile_len / 2; p += nthr) {
-    const uint64_t g = p >> lg;
-    const uint64_t j = p & (d - 1);
-    const uint64_t u = (g << (lg + 1)) + j;
-    const uint64_t v = u + d;
-    const uint64_t x = tile[u];
-    const uint64_t t = mul_mod(tile[v], pp[(n >> lg) * j], q);  // y*w^-1
-    tile[u] = add_mod(x, t, q);
-    tile[v] = mul_mod(sub_mod(x, t, q), pp[d], q);  // * psi_inv^d
+// inverse_twiddle_powers holds powers of psi^-1 and the multiply lands on
+// the other legs—the exact inverse of dev_dif_stage (see ntt.hpp::inverse).
+NTT_DEV void dev_dit_stage(uint64_t *tile_values, uint64_t tile_length,
+                           uint64_t global_pair_distance, uint64_t transform_length,
+                           const uint64_t *inverse_twiddle_powers, uint64_t modulus,
+                           uint32_t thread_index, uint32_t thread_count) {
+  const uint64_t pair_distance_log2 = log2_of_pow2(global_pair_distance);
+  for (uint64_t pair_index = thread_index; pair_index < tile_length / 2;
+       pair_index += thread_count) {
+    const uint64_t butterfly_group_index = pair_index >> pair_distance_log2;
+    const uint64_t offset_within_group = pair_index & (global_pair_distance - 1);
+    const uint64_t upper_index =
+        (butterfly_group_index << (pair_distance_log2 + 1)) + offset_within_group;
+    const uint64_t lower_index = upper_index + global_pair_distance;
+    const uint64_t upper_value = tile_values[upper_index];
+    const uint64_t twiddle_index =
+        (transform_length >> pair_distance_log2) * offset_within_group;
+    const uint64_t twiddled_lower_value = mul_mod(
+        tile_values[lower_index], inverse_twiddle_powers[twiddle_index], modulus);
+    tile_values[upper_index] = add_mod(upper_value, twiddled_lower_value, modulus);
+    tile_values[lower_index] =
+        mul_mod(sub_mod(upper_value, twiddled_lower_value, modulus),
+                inverse_twiddle_powers[global_pair_distance], modulus);
   }
 }
 
@@ -121,41 +135,71 @@ NTT_DEV void dev_dit_stage(uint64_t* tile, uint64_t tile_len, uint64_t d,
 // and the inverse mirrors. The "mix" between passes is pure data
 // movement: pass 1 scatters strided, pass 2 gathers contiguous.
 
-NTT_DEV void dev_dif_col_stage(uint64_t* tile, uint64_t sub_len,
-                               uint64_t delta, uint64_t n,
-                               const uint64_t* pp, uint64_t mod,
-                               uint32_t tid, uint32_t nthr, uint64_t r) {
-  const uint64_t lg = log2_of_pow2(delta);  // delta is a power of two
-  for (uint64_t p = tid; p < sub_len / 2; p += nthr) {
-    const uint64_t g = p >> lg;              // which 2*delta-wide group
-    const uint64_t j = p & (delta - 1);      // offset inside the group
-    const uint64_t u = (g << (lg + 1)) + j;  // pair, in q coordinates
-    const uint64_t v = u + delta;
-    const uint64_t x = tile[u];
-    const uint64_t cv = mul_mod(pp[delta << 8], tile[v], mod);  // psi^d
-    tile[u] = add_mod(x, cv, mod);
-    tile[v] = mul_mod(sub_mod(x, cv, mod),
-                      pp[(n >> (8 + lg)) * ((j << 8) | r)], mod);
+NTT_DEV void dev_dif_col_stage(uint64_t *gathered_group_values,
+                               uint64_t strided_group_length,
+                               uint64_t local_pair_distance, uint64_t transform_length,
+                               const uint64_t *twiddle_powers, uint64_t modulus,
+                               uint32_t thread_index, uint32_t thread_count,
+                               uint64_t strided_group_offset) {
+  const uint64_t local_pair_distance_log2 = log2_of_pow2(local_pair_distance);
+  for (uint64_t pair_index = thread_index; pair_index < strided_group_length / 2;
+       pair_index += thread_count) {
+    const uint64_t butterfly_group_index = pair_index >> local_pair_distance_log2;
+    const uint64_t offset_within_local_group = pair_index & (local_pair_distance - 1);
+    const uint64_t upper_local_index =
+        (butterfly_group_index << (local_pair_distance_log2 + 1)) +
+        offset_within_local_group;
+    const uint64_t lower_local_index = upper_local_index + local_pair_distance;
+    const uint64_t upper_value = gathered_group_values[upper_local_index];
+    const uint64_t global_pair_distance = local_pair_distance << 8;
+    const uint64_t scaled_lower_value =
+        mul_mod(twiddle_powers[global_pair_distance],
+                gathered_group_values[lower_local_index], modulus);
+    const uint64_t global_offset_within_group =
+        (offset_within_local_group << 8) | strided_group_offset;
+    const uint64_t twiddle_index =
+        (transform_length >> (8 + local_pair_distance_log2)) *
+        global_offset_within_group;
+    gathered_group_values[upper_local_index] =
+        add_mod(upper_value, scaled_lower_value, modulus);
+    gathered_group_values[lower_local_index] =
+        mul_mod(sub_mod(upper_value, scaled_lower_value, modulus),
+                twiddle_powers[twiddle_index], modulus);
   }
 }
 
 // DIT mirror: the exact inverse butterfly, same q-coordinates and tables.
-NTT_DEV void dev_dit_col_stage(uint64_t* tile, uint64_t sub_len,
-                               uint64_t delta, uint64_t n,
-                               const uint64_t* pp, uint64_t mod,
-                               uint32_t tid, uint32_t nthr, uint64_t r) {
-  const uint64_t lg = log2_of_pow2(delta);
-  for (uint64_t p = tid; p < sub_len / 2; p += nthr) {
-    const uint64_t g = p >> lg;
-    const uint64_t j = p & (delta - 1);
-    const uint64_t u = (g << (lg + 1)) + j;
-    const uint64_t v = u + delta;
-    const uint64_t x = tile[u];
-    const uint64_t t = mul_mod(tile[v], pp[(n >> (8 + lg)) * ((j << 8) | r)],
-                               mod);  // y * w^-1
-    tile[u] = add_mod(x, t, mod);
-    tile[v] = mul_mod(sub_mod(x, t, mod), pp[delta << 8], mod);  // * psi^-d
+NTT_DEV void dev_dit_col_stage(uint64_t *gathered_group_values,
+                               uint64_t strided_group_length,
+                               uint64_t local_pair_distance, uint64_t transform_length,
+                               const uint64_t *inverse_twiddle_powers, uint64_t modulus,
+                               uint32_t thread_index, uint32_t thread_count,
+                               uint64_t strided_group_offset) {
+  const uint64_t local_pair_distance_log2 = log2_of_pow2(local_pair_distance);
+  for (uint64_t pair_index = thread_index; pair_index < strided_group_length / 2;
+       pair_index += thread_count) {
+    const uint64_t butterfly_group_index = pair_index >> local_pair_distance_log2;
+    const uint64_t offset_within_local_group = pair_index & (local_pair_distance - 1);
+    const uint64_t upper_local_index =
+        (butterfly_group_index << (local_pair_distance_log2 + 1)) +
+        offset_within_local_group;
+    const uint64_t lower_local_index = upper_local_index + local_pair_distance;
+    const uint64_t upper_value = gathered_group_values[upper_local_index];
+    const uint64_t global_offset_within_group =
+        (offset_within_local_group << 8) | strided_group_offset;
+    const uint64_t twiddle_index =
+        (transform_length >> (8 + local_pair_distance_log2)) *
+        global_offset_within_group;
+    const uint64_t twiddled_lower_value =
+        mul_mod(gathered_group_values[lower_local_index],
+                inverse_twiddle_powers[twiddle_index], modulus);
+    const uint64_t global_pair_distance = local_pair_distance << 8;
+    gathered_group_values[upper_local_index] =
+        add_mod(upper_value, twiddled_lower_value, modulus);
+    gathered_group_values[lower_local_index] =
+        mul_mod(sub_mod(upper_value, twiddled_lower_value, modulus),
+                inverse_twiddle_powers[global_pair_distance], modulus);
   }
 }
 
-}  // namespace ntt
+} // namespace ntt

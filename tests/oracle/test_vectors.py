@@ -9,9 +9,9 @@ plus the CLI's roundtrip-identity self-check must exit 0.
 Usage: test_vectors.py <ntt_cli-path> <vector-file>
 """
 
+import os
 import subprocess
 import sys
-import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ntt_oracle import crt_reconstruct, negacyclic_ntt_naive, read_vector_file
@@ -49,7 +49,10 @@ def main() -> int:
         limbs.append(cur)
 
     if len(limbs) != len(primes) or any(len(b) != n for b in limbs):
-        raise RuntimeError(f"expected {len(primes)} blocks of {n}, got {[len(b) for b in limbs]}")
+        block_lengths = [len(block) for block in limbs]
+        raise RuntimeError(
+            f"expected {len(primes)} blocks of {n}, got {block_lengths}"
+        )
     limb_outputs = limbs
 
     oracle_limbs = []
@@ -73,8 +76,12 @@ def main() -> int:
 
     # RNS composition: CRT the limbs position-wise and compare full-precision.
     for j in range(n):
-        got_crt = crt_reconstruct([limb_outputs[k][j] for k in range(len(primes))], primes)
-        want_crt = crt_reconstruct([oracle_limbs[k][j] for k in range(len(primes))], primes)
+        got_crt = crt_reconstruct(
+            [limb_outputs[k][j] for k in range(len(primes))], primes
+        )
+        want_crt = crt_reconstruct(
+            [oracle_limbs[k][j] for k in range(len(primes))], primes
+        )
         if got_crt != want_crt:
             print(f"CRT RECONSTRUCTION MISMATCH at coeff {j}")
             return 1
@@ -83,7 +90,10 @@ def main() -> int:
         print("IDENTITY CHECK FAILED")
         return 1
 
-    print(f"CROSS-CHECK PASSED: {len(primes)} limbs x N={n}, CRT composition verified")
+    print(
+        f"CROSS-CHECK PASSED: {len(primes)} limbs x N={n}, "
+        "CRT composition verified"
+    )
     return 0
 
 

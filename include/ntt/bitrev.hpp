@@ -22,7 +22,8 @@ namespace ntt {
 // log2 of a power of two n.
 NTT_HD uint64_t log2_of_pow2(uint64_t n) {
   uint64_t lg = 0;
-  while ((uint64_t{1} << lg) < n) ++lg;
+  while ((uint64_t{1} << lg) < n)
+    ++lg;
   return lg;
 }
 
@@ -48,14 +49,16 @@ NTT_HD uint64_t bit_reverse(uint64_t x, uint64_t lg) {
 // Without it every pair would be swapped twice (once from i, once from j),
 // and the second swap would undo the first, leaving v unchanged. Self-mapped
 // slots (i == j) are skipped by the same guard.
-inline void bit_reverse_permute(std::vector<uint64_t>& v) {
+inline void bit_reverse_permute(std::vector<uint64_t> &v) {
   const uint64_t n = v.size();
-  if (n < 2) return;
+  if (n < 2)
+    return;
   const uint64_t lg = log2_of_pow2(n);
   for (uint64_t i = 0; i < n; ++i) {
     const uint64_t j = bit_reverse(i, lg);
-    if (i < j) std::swap(v[i], v[j]);
+    if (i < j)
+      std::swap(v[i], v[j]);
   }
 }
 
-}  // namespace ntt
+} // namespace ntt

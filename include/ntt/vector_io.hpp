@@ -23,38 +23,42 @@ namespace ntt {
 
 struct VectorFile {
   uint64_t n = 0;
-  std::vector<uint64_t> q;      // RNS primes
-  std::vector<uint64_t> psi;    // per-prime primitive 2N-th roots of unity
-  std::vector<std::string> coeffs;  // decimal big-int coefficients
+  std::vector<uint64_t> q;         // RNS primes
+  std::vector<uint64_t> psi;       // per-prime primitive 2N-th roots of unity
+  std::vector<std::string> coeffs; // decimal big-int coefficients
 };
 
 namespace detail {
 
-inline std::vector<std::string> tokenize(std::istream& in) {
+inline std::vector<std::string> tokenize(std::istream &in) {
   std::vector<std::string> tokens;
   std::string line;
   while (std::getline(in, line)) {
-    if (!line.empty() && line[0] == '#') continue;
+    if (!line.empty() && line[0] == '#')
+      continue;
     std::istringstream ls(line);
     std::string tok;
-    while (ls >> tok) tokens.push_back(tok);
+    while (ls >> tok)
+      tokens.push_back(tok);
   }
   return tokens;
 }
 
-}  // namespace detail
+} // namespace detail
 
 // Strict single-pass parser: tokenizes the whole file first (comments
 // stripped), then pulls tokens in order so every structural mistake
 // surfaces as a named error rather than a misread.
-inline VectorFile read_vector_file(const std::string& path) {
+inline VectorFile read_vector_file(const std::string &path) {
   std::ifstream in(path);
-  if (!in) throw std::runtime_error("cannot open vector file: " + path);
+  if (!in)
+    throw std::runtime_error("cannot open vector file: " + path);
   const std::vector<std::string> t = detail::tokenize(in);
 
   size_t p = 0;
   auto next = [&t, &p]() -> std::string {
-    if (p >= t.size()) throw std::runtime_error("vector file: truncated");
+    if (p >= t.size())
+      throw std::runtime_error("vector file: truncated");
     return t[p++];
   };
 
@@ -65,7 +69,8 @@ inline VectorFile read_vector_file(const std::string& path) {
   // schedule pairs wire i with i + len/2.
   if (vf.n < 2 || (vf.n & (vf.n - 1)) != 0)
     throw std::runtime_error("vector file: N must be a power of two >= 2");
-  if (num_primes == 0) throw std::runtime_error("vector file: need >= 1 prime");
+  if (num_primes == 0)
+    throw std::runtime_error("vector file: need >= 1 prime");
 
   // Per-limb (q, psi) pairs chosen by tests/oracle/gen_vectors.py: each q
   // satisfies (2n) | (q-1) and each psi has order exactly 2n mod its q.
@@ -73,7 +78,8 @@ inline VectorFile read_vector_file(const std::string& path) {
     vf.q.push_back(std::stoull(next()));
     vf.psi.push_back(std::stoull(next()));
   }
-  if (next() != "COEFFS") throw std::runtime_error("vector file: expected COEFFS");
+  if (next() != "COEFFS")
+    throw std::runtime_error("vector file: expected COEFFS");
   // Coefficients stay decimal strings on purpose: they are drawn from
   // [0, Q) for the full RNS product Q — hundreds of bits, far beyond
   // uint64 — and every consumer reduces them per-limb on demand.
@@ -81,7 +87,8 @@ inline VectorFile read_vector_file(const std::string& path) {
   for (uint64_t i = 0; i < vf.n; ++i) {
     std::string c = next();
     for (char ch : c)
-      if (ch < '0' || ch > '9') throw std::runtime_error("vector file: bad coefficient");
+      if (ch < '0' || ch > '9')
+        throw std::runtime_error("vector file: bad coefficient");
     vf.coeffs.push_back(std::move(c));
   }
   return vf;
@@ -90,11 +97,13 @@ inline VectorFile read_vector_file(const std::string& path) {
 // Reduce an arbitrary-precision decimal string mod q, Horner over digits:
 // ((d0*10 + d1)*10 + d2)... — one mul-add-mod per digit, no bignum needed.
 // Requires q < 2^60 so that r*10 + 9 cannot overflow uint64_t.
-inline uint64_t reduce_decimal_mod(const std::string& decimal, uint64_t q) {
-  if (q >= (uint64_t{1} << 60)) throw std::invalid_argument("q too large for decimal reduce");
+inline uint64_t reduce_decimal_mod(const std::string &decimal, uint64_t q) {
+  if (q >= (uint64_t{1} << 60))
+    throw std::invalid_argument("q too large for decimal reduce");
   uint64_t r = 0;
-  for (char ch : decimal) r = (r * 10 + static_cast<uint64_t>(ch - '0')) % q;
+  for (char ch : decimal)
+    r = (r * 10 + static_cast<uint64_t>(ch - '0')) % q;
   return r;
 }
 
-}  // namespace ntt
+} // namespace ntt

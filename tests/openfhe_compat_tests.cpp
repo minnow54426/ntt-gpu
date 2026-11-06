@@ -22,12 +22,11 @@ namespace {
 
 int failures = 0;
 
-void fail(uint64_t n, uint64_t q, const std::string& operation, uint64_t index,
+void fail(uint64_t n, uint64_t q, const std::string &operation, uint64_t index,
           uint64_t ours, uint64_t openfhe) {
   ++failures;
-  std::cerr << "FAIL n=" << n << " q=" << q << " " << operation
-            << " index=" << index << ": ours=" << ours
-            << " openfhe=" << openfhe << "\n";
+  std::cerr << "FAIL n=" << n << " q=" << q << " " << operation << " index=" << index
+            << ": ours=" << ours << " openfhe=" << openfhe << "\n";
 }
 
 struct Lcg {
@@ -38,42 +37,39 @@ struct Lcg {
   }
 };
 
-lbcrypto::NativeVector to_openfhe(const std::vector<uint64_t>& values,
-                                  uint64_t q) {
+lbcrypto::NativeVector to_openfhe(const std::vector<uint64_t> &values, uint64_t q) {
   lbcrypto::NativeVector out(values.size(), lbcrypto::NativeInteger(q));
   for (size_t i = 0; i < values.size(); ++i)
     out[i] = lbcrypto::NativeInteger(values[i]);
   return out;
 }
 
-void compare(const std::vector<uint64_t>& ours,
-             const lbcrypto::NativeVector& openfhe, uint64_t n, uint64_t q,
-             const std::string& operation) {
+void compare(const std::vector<uint64_t> &ours, const lbcrypto::NativeVector &openfhe,
+             uint64_t n, uint64_t q, const std::string &operation) {
   for (uint64_t i = 0; i < n; ++i) {
     const uint64_t want = openfhe[i].ConvertToInt();
     if (ours[i] != want) {
       fail(n, q, operation, i, ours[i], want);
-      return;  // one diagnostic per case keeps failures readable
+      return; // one diagnostic per case keeps failures readable
     }
   }
 }
 
 void test_forward_input(uint64_t n, uint64_t q, uint64_t psi,
-                        const std::vector<uint64_t>& input,
-                        const std::string& label) {
+                        const std::vector<uint64_t> &input, const std::string &label) {
   const lbcrypto::NativeInteger modulus(q);
   const lbcrypto::NativeInteger root(psi);
   const uint32_t cyclo_order = static_cast<uint32_t>(2 * n);
-  ChineseRemainderTransformFTT<lbcrypto::NativeVector>().PreCompute(
-      root, cyclo_order, modulus);
+  ChineseRemainderTransformFTT<lbcrypto::NativeVector>().PreCompute(root, cyclo_order,
+                                                                    modulus);
 
   lbcrypto::NativeVector openfhe_input = to_openfhe(input, q);
-  auto params = std::make_shared<lbcrypto::NativePoly::Params>(
-      cyclo_order, modulus, root);
+  auto params =
+      std::make_shared<lbcrypto::NativePoly::Params>(cyclo_order, modulus, root);
   lbcrypto::NativePoly openfhe_poly(params, Format::COEFFICIENT);
   openfhe_poly.SetValues(openfhe_input, Format::COEFFICIENT);
   openfhe_poly.SetFormat(Format::EVALUATION);
-  const lbcrypto::NativeVector& openfhe_forward = openfhe_poly.GetValues();
+  const lbcrypto::NativeVector &openfhe_forward = openfhe_poly.GetValues();
 
   ntt::NegacyclicNtt transform(n, q, psi);
   std::vector<uint64_t> ours = input;
@@ -87,27 +83,26 @@ void test_forward_input(uint64_t n, uint64_t q, uint64_t psi,
   transform.inverse(ours_inverse);
 
   openfhe_poly.SetFormat(Format::COEFFICIENT);
-  const lbcrypto::NativeVector& openfhe_inverse = openfhe_poly.GetValues();
-  compare(ours_inverse, openfhe_inverse, n, q,
-          "inverse-of-forward/" + label);
+  const lbcrypto::NativeVector &openfhe_inverse = openfhe_poly.GetValues();
+  compare(ours_inverse, openfhe_inverse, n, q, "inverse-of-forward/" + label);
 }
 
 void test_inverse_input(uint64_t n, uint64_t q, uint64_t psi,
-                        const std::vector<uint64_t>& evaluation,
-                        const std::string& label) {
+                        const std::vector<uint64_t> &evaluation,
+                        const std::string &label) {
   const lbcrypto::NativeInteger modulus(q);
   const lbcrypto::NativeInteger root(psi);
   const uint32_t cyclo_order = static_cast<uint32_t>(2 * n);
-  ChineseRemainderTransformFTT<lbcrypto::NativeVector>().PreCompute(
-      root, cyclo_order, modulus);
+  ChineseRemainderTransformFTT<lbcrypto::NativeVector>().PreCompute(root, cyclo_order,
+                                                                    modulus);
 
   lbcrypto::NativeVector openfhe_input = to_openfhe(evaluation, q);
-  auto params = std::make_shared<lbcrypto::NativePoly::Params>(
-      cyclo_order, modulus, root);
+  auto params =
+      std::make_shared<lbcrypto::NativePoly::Params>(cyclo_order, modulus, root);
   lbcrypto::NativePoly openfhe_poly(params, Format::EVALUATION);
   openfhe_poly.SetValues(openfhe_input, Format::EVALUATION);
   openfhe_poly.SetFormat(Format::COEFFICIENT);
-  const lbcrypto::NativeVector& openfhe_inverse = openfhe_poly.GetValues();
+  const lbcrypto::NativeVector &openfhe_inverse = openfhe_poly.GetValues();
 
   std::vector<uint64_t> ours = evaluation;
   ntt::NegacyclicNtt(n, q, psi).inverse(ours);
@@ -134,7 +129,7 @@ void test_case(uint64_t n, uint64_t q, uint64_t psi, uint64_t seed) {
   test_inverse_input(n, q, psi, evaluation, "random-evaluation");
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   for (uint32_t exponent = 12; exponent <= 16; ++exponent) {
@@ -150,8 +145,7 @@ int main() {
       const uint64_t q = moduli[tower].ConvertToInt();
       const uint64_t psi =
           lbcrypto::RootOfUnity(cyclo_order, moduli[tower]).ConvertToInt();
-      test_case(n, q, psi,
-                0x9E3779B97F4A7C15ULL ^ q ^ (tower << 32));
+      test_case(n, q, psi, 0x9E3779B97F4A7C15ULL ^ q ^ (tower << 32));
     }
   }
   if (failures == 0)

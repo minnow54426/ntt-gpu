@@ -3,9 +3,9 @@
 Usage: gen_vectors.py <out-path> [N=1024] [num_primes=3] [seed=1]
 """
 
+import os
 import random
 import sys
-import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ntt_oracle import find_primes, find_psi
@@ -27,8 +27,11 @@ def main() -> int:
     rng = random.Random(seed)
     coeffs = [rng.randrange(q_total) for _ in range(n)]
 
-    with open(out, "w") as f:
-        f.write("# ntt-gpu vector v1: N, primes+psis, decimal coefficients in [0, Q)\n")
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(
+            "# ntt-gpu vector v1: N, primes+psis, "
+            "decimal coefficients in [0, Q)\n"
+        )
         f.write(f"{n} {num_primes}\n")
         for q, psi in zip(primes, psis):
             f.write(f"{q} {psi}\n")
@@ -36,7 +39,11 @@ def main() -> int:
         for c in coeffs:
             f.write(f"{c}\n")
 
-    print(f"wrote {out}: N={n}, primes={['%x' % q for q in primes]}, Q~2^{q_total.bit_length()}")
+    prime_hex_values = [f"{q:x}" for q in primes]
+    print(
+        f"wrote {out}: N={n}, primes={prime_hex_values}, "
+        f"Q~2^{q_total.bit_length()}"
+    )
     return 0
 
 

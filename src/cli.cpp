@@ -17,7 +17,7 @@ namespace {
 // reduced mod q_k, run through the negacyclic NTT, coefficients printed
 // one per line. tests/oracle/*.py both generate the input file and parse
 // this output, cross-checking it against a big-int Python transform.
-int cmd_transform(const ntt::VectorFile& vf) {
+int cmd_transform(const ntt::VectorFile &vf) {
   for (size_t k = 0; k < vf.q.size(); ++k) {
     const ntt::NegacyclicNtt ntt(vf.n, vf.q[k], vf.psi[k]);
     std::vector<uint64_t> a(vf.n);
@@ -25,7 +25,8 @@ int cmd_transform(const ntt::VectorFile& vf) {
       a[i] = ntt::reduce_decimal_mod(vf.coeffs[i], vf.q[k]);
     ntt.forward(a);
     std::cout << "LIMB " << k << "\n";
-    for (uint64_t i = 0; i < vf.n; ++i) std::cout << a[i] << "\n";
+    for (uint64_t i = 0; i < vf.n; ++i)
+      std::cout << a[i] << "\n";
   }
   return 0;
 }
@@ -33,7 +34,7 @@ int cmd_transform(const ntt::VectorFile& vf) {
 // Cheapest end-to-end check: forward followed by inverse must reproduce
 // the input exactly, limb by limb — any drift means the two transforms
 // are not true inverses (wrong N^-1, wrong untwist, stage bug).
-int cmd_identity(const ntt::VectorFile& vf) {
+int cmd_identity(const ntt::VectorFile &vf) {
   for (size_t k = 0; k < vf.q.size(); ++k) {
     const ntt::NegacyclicNtt ntt(vf.n, vf.q[k], vf.psi[k]);
     std::vector<uint64_t> a(vf.n), orig(vf.n);
@@ -44,8 +45,8 @@ int cmd_identity(const ntt::VectorFile& vf) {
     ntt.inverse(a);
     for (uint64_t i = 0; i < vf.n; ++i)
       if (a[i] != orig[i]) {
-        std::cerr << "IDENTITY FAIL limb " << k << " coeff " << i << ": "
-                  << a[i] << " != " << orig[i] << "\n";
+        std::cerr << "IDENTITY FAIL limb " << k << " coeff " << i << ": " << a[i]
+                  << " != " << orig[i] << "\n";
         return 1;
       }
   }
@@ -53,9 +54,9 @@ int cmd_identity(const ntt::VectorFile& vf) {
   return 0;
 }
 
-}  // namespace
+} // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   if (argc != 3) {
     std::cerr << "usage: ntt_cli <vector-file> <transform|identity>\n";
     return 2;
@@ -63,11 +64,13 @@ int main(int argc, char** argv) {
   try {
     const ntt::VectorFile vf = ntt::read_vector_file(argv[1]);
     const std::string cmd = argv[2];
-    if (cmd == "transform") return cmd_transform(vf);
-    if (cmd == "identity") return cmd_identity(vf);
+    if (cmd == "transform")
+      return cmd_transform(vf);
+    if (cmd == "identity")
+      return cmd_identity(vf);
     std::cerr << "unknown command: " << cmd << "\n";
     return 2;
-  } catch (const std::exception& e) {
+  } catch (const std::exception &e) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }

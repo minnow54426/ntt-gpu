@@ -32,132 +32,208 @@
 // Every cudaRuntime call funnels through this: a failed allocation,
 // launch, or copy must fail the gates loudly (nonzero exit + stderr),
 // never surface as silently wrong numbers.
-#define CHECK_CUDA(call)                                              \
-  do {                                                                \
-    const cudaError_t _e = (call);                                    \
-    if (_e != cudaSuccess)                                            \
-      throw std::runtime_error(std::string("CUDA: ") + #call + ": " + \
-                               cudaGetErrorString(_e));               \
+#define CHECK_CUDA(call)                                                               \
+  do {                                                                                 \
+    const cudaError_t cuda_status = (call);                                            \
+    if (cuda_status != cudaSuccess)                                                    \
+      throw std::runtime_error(std::string("CUDA: ") + #call + ": " +                  \
+                               cudaGetErrorString(cuda_status));                       \
   } while (0)
 
 namespace ntt::cuda {
 namespace {
 
-// Must match ScheduleSim (src/device_sim.cpp): the split width (groups
-// of 256) and block size T define the two-pass schedule the simulator
-// already proved against the CPU reference at n = 64 / 512 / 1024 / 4096.
-constexpr uint32_t kThreads = 256;  // T: threads per block
-constexpr uint64_t kSplit = 256;    // the two-pass split width: groups of 256
+// Must match ScheduleSim (src/device_sim.cpp): the 256-value split width and
+// the number of threads per block define the two-pass schedule checked by
+// the simulator against the CPU reference.
+constexpr uint32_t kThreadsPerBlock = 256;
+constexpr uint64_t kPassSplitWidth = 256;
 
 // --- pass 1: one block per strided group ----------------------------------
-// The far stages (d a multiple of 256) pair values sharing r = u mod 256,
-// so group r = {r, r+256, ...} is self-contained: gather it to the
-// counter, run sub/2 stages (barriers between, never inside), scatter.
-// Launched only when n > 256 (sub = n/256 >= 2). The mix between passes
-// is pure data movement: this kernel scatters strided, the tile pass
-// gathers contiguous.
-__global__ void dif_col_kernel(uint64_t* a, const uint64_t* pp,
-                               const uint64_t* q, uint64_t n, uint32_t sub) {
-  extern __shared__ uint64_t smem[];
-  const uint64_t r = blockIdx.x;  // the strided group id: offset mod 256
-  uint64_t* al = a + static_cast<uint64_t>(blockIdx.y) * n;
-  const uint64_t* pl = pp + static_cast<uint64_t>(blockIdx.y) * (n + 1);
-  const uint64_t ql = q[blockIdx.y];
-  for (uint32_t t = threadIdx.x; t < sub; t += blockDim.x)  // gather
-    smem[t] = al[r + (static_cast<uint64_t>(t) << 8)];
+// The far stages (pair distance is a multiple of 256) pair values with the
+// same index modulo 256. Each block gathers one such strided group into
+// shared memory, executes all far stages, then scatters it back. This pass
+// runs only when the transform length is greater than 256.
+__global__ void forward_strided_group_kernel(uint64_t *values,
+                                             const uint64_t *twiddle_powers,
+                                             const uint64_t *moduli,
+                                             uint64_t transform_length,
+                                             uint32_t strided_group_length) {
+  extern __shared__ uint64_t shared_group_values[];
+  const uint64_t strided_group_offset = blockIdx.x;
+  uint64_t *limb_values = values + static_cast<uint64_t>(blockIdx.y) * transform_length;
+  const uint64_t *limb_twiddle_powers =
+      twiddle_powers + static_cast<uint64_t>(blockIdx.y) * (transform_length + 1);
+  const uint64_t limb_modulus = moduli[blockIdx.y];
+  for (uint32_t local_index = threadIdx.x; local_index < strided_group_length;
+       local_index += blockDim.x)
+    shared_group_values[local_index] =
+        limb_values[strided_group_offset +
+                    static_cast<uint64_t>(local_index) * kPassSplitWidth];
   __syncthreads();
-  for (uint64_t delta = sub / 2; delta >= 1; delta >>= 1) {
-    dev_dif_col_stage(smem, sub, delta, n, pl, ql, threadIdx.x,
-                      blockDim.x, r);
+  for (uint64_t local_pair_distance = strided_group_length / 2;
+       local_pair_distance >= 1; local_pair_distance >>= 1) {
+    dev_dif_col_stage(shared_group_values, strided_group_length, local_pair_distance,
+                      transform_length, limb_twiddle_powers, limb_modulus, threadIdx.x,
+                      blockDim.x, strided_group_offset);
     __syncthreads();
   }
-  for (uint32_t t = threadIdx.x; t < sub; t += blockDim.x)  // scatter
-    al[r + (static_cast<uint64_t>(t) << 8)] = smem[t];
+  for (uint32_t local_index = threadIdx.x; local_index < strided_group_length;
+       local_index += blockDim.x)
+    limb_values[strided_group_offset +
+                static_cast<uint64_t>(local_index) * kPassSplitWidth] =
+        shared_group_values[local_index];
 }
 
-__global__ void dit_col_kernel(uint64_t* a, const uint64_t* pp,
-                               const uint64_t* q, uint64_t n, uint32_t sub) {
-  extern __shared__ uint64_t smem[];
-  const uint64_t r = blockIdx.x;
-  uint64_t* al = a + static_cast<uint64_t>(blockIdx.y) * n;
-  const uint64_t* pl = pp + static_cast<uint64_t>(blockIdx.y) * (n + 1);
-  const uint64_t ql = q[blockIdx.y];
-  for (uint32_t t = threadIdx.x; t < sub; t += blockDim.x)
-    smem[t] = al[r + (static_cast<uint64_t>(t) << 8)];
+__global__ void inverse_strided_group_kernel(uint64_t *values,
+                                             const uint64_t *inverse_twiddle_powers,
+                                             const uint64_t *moduli,
+                                             uint64_t transform_length,
+                                             uint32_t strided_group_length) {
+  extern __shared__ uint64_t shared_group_values[];
+  const uint64_t strided_group_offset = blockIdx.x;
+  uint64_t *limb_values = values + static_cast<uint64_t>(blockIdx.y) * transform_length;
+  const uint64_t *limb_inverse_twiddle_powers =
+      inverse_twiddle_powers +
+      static_cast<uint64_t>(blockIdx.y) * (transform_length + 1);
+  const uint64_t limb_modulus = moduli[blockIdx.y];
+  for (uint32_t local_index = threadIdx.x; local_index < strided_group_length;
+       local_index += blockDim.x)
+    shared_group_values[local_index] =
+        limb_values[strided_group_offset +
+                    static_cast<uint64_t>(local_index) * kPassSplitWidth];
   __syncthreads();
-  for (uint64_t delta = 1; delta <= sub / 2; delta <<= 1) {  // DIT order
-    dev_dit_col_stage(smem, sub, delta, n, pl, ql, threadIdx.x,
-                      blockDim.x, r);
+  for (uint64_t local_pair_distance = 1;
+       local_pair_distance <= strided_group_length / 2; local_pair_distance <<= 1) {
+    dev_dit_col_stage(shared_group_values, strided_group_length, local_pair_distance,
+                      transform_length, limb_inverse_twiddle_powers, limb_modulus,
+                      threadIdx.x, blockDim.x, strided_group_offset);
     __syncthreads();
   }
-  for (uint32_t t = threadIdx.x; t < sub; t += blockDim.x)
-    al[r + (static_cast<uint64_t>(t) << 8)] = smem[t];
+  for (uint32_t local_index = threadIdx.x; local_index < strided_group_length;
+       local_index += blockDim.x)
+    limb_values[strided_group_offset +
+                static_cast<uint64_t>(local_index) * kPassSplitWidth] =
+        shared_group_values[local_index];
 }
 
 // --- pass 2: one block per contiguous 256-tile -----------------------------
-// The near stages (d <= 128) pair within one 256-wide window — dev_dif/
-// dev_dit_stage unchanged, tile_len = min(256, n) (the whole transform
-// when n <= 256, which is also the n = 64 fixture's path).
-__global__ void dif_tile_kernel(uint64_t* a, const uint64_t* pp,
-                                const uint64_t* q, uint64_t n, uint32_t B) {
-  extern __shared__ uint64_t smem[];
-  uint64_t* al = a + static_cast<uint64_t>(blockIdx.y) * n;
-  const uint64_t* pl = pp + static_cast<uint64_t>(blockIdx.y) * (n + 1);
-  const uint64_t ql = q[blockIdx.y];
-  const uint64_t base = static_cast<uint64_t>(blockIdx.x) * B;
-  for (uint32_t t = threadIdx.x; t < B; t += blockDim.x)
-    smem[t] = al[base + t];
+// The near stages (pair distance <= 128) stay inside one contiguous
+// 256-value tile. A transform shorter than 256 uses one smaller tile.
+__global__ void forward_contiguous_tile_kernel(uint64_t *values,
+                                               const uint64_t *twiddle_powers,
+                                               const uint64_t *moduli,
+                                               uint64_t transform_length,
+                                               uint32_t tile_length) {
+  extern __shared__ uint64_t shared_tile_values[];
+  uint64_t *limb_values = values + static_cast<uint64_t>(blockIdx.y) * transform_length;
+  const uint64_t *limb_twiddle_powers =
+      twiddle_powers + static_cast<uint64_t>(blockIdx.y) * (transform_length + 1);
+  const uint64_t limb_modulus = moduli[blockIdx.y];
+  const uint64_t tile_start_index = static_cast<uint64_t>(blockIdx.x) * tile_length;
+  for (uint32_t tile_index = threadIdx.x; tile_index < tile_length;
+       tile_index += blockDim.x)
+    shared_tile_values[tile_index] = limb_values[tile_start_index + tile_index];
   __syncthreads();
-  for (uint64_t d = B / 2; d >= 1; d >>= 1) {
-    dev_dif_stage(smem, B, d, n, pl, ql, threadIdx.x, blockDim.x);
+  for (uint64_t pair_distance = tile_length / 2; pair_distance >= 1;
+       pair_distance >>= 1) {
+    dev_dif_stage(shared_tile_values, tile_length, pair_distance, transform_length,
+                  limb_twiddle_powers, limb_modulus, threadIdx.x, blockDim.x);
     __syncthreads();
   }
-  for (uint32_t t = threadIdx.x; t < B; t += blockDim.x)
-    al[base + t] = smem[t];
+  for (uint32_t tile_index = threadIdx.x; tile_index < tile_length;
+       tile_index += blockDim.x)
+    limb_values[tile_start_index + tile_index] = shared_tile_values[tile_index];
 }
 
-__global__ void dit_tile_kernel(uint64_t* a, const uint64_t* pp,
-                                const uint64_t* q, uint64_t n, uint32_t B) {
-  extern __shared__ uint64_t smem[];
-  uint64_t* al = a + static_cast<uint64_t>(blockIdx.y) * n;
-  const uint64_t* pl = pp + static_cast<uint64_t>(blockIdx.y) * (n + 1);
-  const uint64_t ql = q[blockIdx.y];
-  const uint64_t base = static_cast<uint64_t>(blockIdx.x) * B;
-  for (uint32_t t = threadIdx.x; t < B; t += blockDim.x)
-    smem[t] = al[base + t];
+__global__ void inverse_contiguous_tile_kernel(uint64_t *values,
+                                               const uint64_t *inverse_twiddle_powers,
+                                               const uint64_t *moduli,
+                                               uint64_t transform_length,
+                                               uint32_t tile_length) {
+  extern __shared__ uint64_t shared_tile_values[];
+  uint64_t *limb_values = values + static_cast<uint64_t>(blockIdx.y) * transform_length;
+  const uint64_t *limb_inverse_twiddle_powers =
+      inverse_twiddle_powers +
+      static_cast<uint64_t>(blockIdx.y) * (transform_length + 1);
+  const uint64_t limb_modulus = moduli[blockIdx.y];
+  const uint64_t tile_start_index = static_cast<uint64_t>(blockIdx.x) * tile_length;
+  for (uint32_t tile_index = threadIdx.x; tile_index < tile_length;
+       tile_index += blockDim.x)
+    shared_tile_values[tile_index] = limb_values[tile_start_index + tile_index];
   __syncthreads();
-  for (uint64_t d = 1; d <= B / 2; d <<= 1) {  // DIT order
-    dev_dit_stage(smem, B, d, n, pl, ql, threadIdx.x, blockDim.x);
+  for (uint64_t pair_distance = 1; pair_distance <= tile_length / 2;
+       pair_distance <<= 1) {
+    dev_dit_stage(shared_tile_values, tile_length, pair_distance, transform_length,
+                  limb_inverse_twiddle_powers, limb_modulus, threadIdx.x, blockDim.x);
     __syncthreads();
   }
-  for (uint32_t t = threadIdx.x; t < B; t += blockDim.x)
-    al[base + t] = smem[t];
+  for (uint32_t tile_index = threadIdx.x; tile_index < tile_length;
+       tile_index += blockDim.x)
+    limb_values[tile_start_index + tile_index] = shared_tile_values[tile_index];
 }
 
-}  // namespace
+__global__ void pointwise_multiply_kernel(uint64_t *left_values,
+                                          const uint64_t *right_values,
+                                          const uint64_t *moduli,
+                                          uint64_t transform_length,
+                                          uint64_t limb_count) {
+  const uint64_t value_index =
+      static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const uint64_t total_value_count = limb_count * transform_length;
+  if (value_index >= total_value_count)
+    return;
+
+  const uint64_t limb_index = value_index / transform_length;
+  left_values[value_index] =
+      mul_mod(left_values[value_index], right_values[value_index], moduli[limb_index]);
+}
+
+__global__ void inverse_scale_kernel(uint64_t *values,
+                                     const uint64_t *inverse_transform_lengths,
+                                     const uint64_t *moduli, uint64_t transform_length,
+                                     uint64_t limb_count) {
+  const uint64_t value_index =
+      static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const uint64_t total_value_count = limb_count * transform_length;
+  if (value_index >= total_value_count)
+    return;
+
+  const uint64_t limb_index = value_index / transform_length;
+  values[value_index] = mul_mod(
+      values[value_index], inverse_transform_lengths[limb_index], moduli[limb_index]);
+}
+
+} // namespace
 
 // --- Impl: device buffers + launch geometry ------------------------------
 struct CudaNttTransform::Impl {
-  uint64_t n = 0, P = 0, B2 = 0, sub = 0;
-  uint32_t T = kThreads;
-  std::vector<uint64_t> q;            // host copy (reporting)
-  std::vector<NegacyclicNtt> refs;    // per-limb CPU reference: the contract
-  uint64_t* d_a = nullptr;            // scratch operands, limb-major [P][n]
-  uint64_t* d_b = nullptr;
-  uint64_t* d_pp = nullptr;           // psi^e tables,      [P][n+1]
-  uint64_t* d_pp_inv = nullptr;       // psi^-e tables,     [P][n+1]
-  uint64_t* d_q = nullptr;            // per-limb primes,   [P]
-  uint64_t* d_ninv = nullptr;         // per-limb n^-1,     [P]
-  uint32_t tile_blocks = 0;           // grid.x for the tile pass: max(1, n/256)
-  uint32_t flat_blocks = 0;           // grid.x for elementwise: ceil(P*n/T)
+  uint64_t transform_length = 0;
+  uint64_t limb_count = 0;
+  uint64_t contiguous_tile_length = 0;
+  uint64_t strided_group_length = 0;
+  uint32_t threads_per_block = kThreadsPerBlock;
 
-  ~Impl() {  // noexcept by rule: frees ignore errors
-    cudaFree(d_a);
-    cudaFree(d_b);
-    cudaFree(d_pp);
-    cudaFree(d_pp_inv);
-    cudaFree(d_q);
-    cudaFree(d_ninv);
+  std::vector<uint64_t> moduli;
+  std::vector<NegacyclicNtt> cpu_references;
+
+  uint64_t *device_operand_a = nullptr;
+  uint64_t *device_operand_b = nullptr;
+  uint64_t *device_twiddle_powers = nullptr;
+  uint64_t *device_inverse_twiddle_powers = nullptr;
+  uint64_t *device_moduli = nullptr;
+  uint64_t *device_inverse_transform_lengths = nullptr;
+
+  uint32_t contiguous_tile_block_count = 0;
+  uint32_t elementwise_block_count = 0;
+
+  ~Impl() { // noexcept by rule: frees ignore errors
+    cudaFree(device_operand_a);
+    cudaFree(device_operand_b);
+    cudaFree(device_twiddle_powers);
+    cudaFree(device_inverse_twiddle_powers);
+    cudaFree(device_moduli);
+    cudaFree(device_inverse_transform_lengths);
   }
 };
 
@@ -167,251 +243,308 @@ namespace {
 // sequences src/device_sim.cpp walks: forward = strided pass then tile
 // pass; inverse = tile pass, strided pass, n^-1 scale. Two launches per
 // transform (one when n <= 256).
-void forward_dev(CudaNttTransform::Impl& m, uint64_t* buf) {
-  if (m.n > 256) {  // sub = n/256 strided groups, self-contained
-    dif_col_kernel<<<dim3(kSplit, static_cast<unsigned>(m.P)), m.T,
-                     m.sub * sizeof(uint64_t)>>>(buf, m.d_pp, m.d_q, m.n,
-                                                 static_cast<uint32_t>(m.sub));
+void launch_forward_transform(CudaNttTransform::Impl &impl, uint64_t *device_values) {
+  if (impl.transform_length > kPassSplitWidth) {
+    forward_strided_group_kernel<<<
+        dim3(kPassSplitWidth, static_cast<unsigned>(impl.limb_count)),
+        impl.threads_per_block, impl.strided_group_length * sizeof(uint64_t)>>>(
+        device_values, impl.device_twiddle_powers, impl.device_moduli,
+        impl.transform_length, static_cast<uint32_t>(impl.strided_group_length));
     CHECK_CUDA(cudaGetLastError());
   }
-  dif_tile_kernel<<<dim3(m.tile_blocks, static_cast<unsigned>(m.P)), m.T,
-                    m.B2 * sizeof(uint64_t)>>>(buf, m.d_pp, m.d_q, m.n,
-                                               static_cast<uint32_t>(m.B2));
+  forward_contiguous_tile_kernel<<<
+      dim3(impl.contiguous_tile_block_count, static_cast<unsigned>(impl.limb_count)),
+      impl.threads_per_block, impl.contiguous_tile_length * sizeof(uint64_t)>>>(
+      device_values, impl.device_twiddle_powers, impl.device_moduli,
+      impl.transform_length, static_cast<uint32_t>(impl.contiguous_tile_length));
   CHECK_CUDA(cudaGetLastError());
 }
 
-void inverse_dev(CudaNttTransform::Impl& m, uint64_t* buf) {
-  dit_tile_kernel<<<dim3(m.tile_blocks, static_cast<unsigned>(m.P)), m.T,
-                    m.B2 * sizeof(uint64_t)>>>(buf, m.d_pp_inv, m.d_q, m.n,
-                                               static_cast<uint32_t>(m.B2));
+void launch_inverse_transform(CudaNttTransform::Impl &impl, uint64_t *device_values) {
+  inverse_contiguous_tile_kernel<<<
+      dim3(impl.contiguous_tile_block_count, static_cast<unsigned>(impl.limb_count)),
+      impl.threads_per_block, impl.contiguous_tile_length * sizeof(uint64_t)>>>(
+      device_values, impl.device_inverse_twiddle_powers, impl.device_moduli,
+      impl.transform_length, static_cast<uint32_t>(impl.contiguous_tile_length));
   CHECK_CUDA(cudaGetLastError());
-  if (m.n > 256) {
-    dit_col_kernel<<<dim3(kSplit, static_cast<unsigned>(m.P)), m.T,
-                     m.sub * sizeof(uint64_t)>>>(buf, m.d_pp_inv, m.d_q,
-                                                 m.n,
-                                                 static_cast<uint32_t>(m.sub));
+  if (impl.transform_length > kPassSplitWidth) {
+    inverse_strided_group_kernel<<<
+        dim3(kPassSplitWidth, static_cast<unsigned>(impl.limb_count)),
+        impl.threads_per_block, impl.strided_group_length * sizeof(uint64_t)>>>(
+        device_values, impl.device_inverse_twiddle_powers, impl.device_moduli,
+        impl.transform_length, static_cast<uint32_t>(impl.strided_group_length));
     CHECK_CUDA(cudaGetLastError());
   }
-  scale_kernel<<<m.flat_blocks, m.T>>>(buf, m.d_ninv, m.d_q, m.n, m.P);
+  inverse_scale_kernel<<<impl.elementwise_block_count, impl.threads_per_block>>>(
+      device_values, impl.device_inverse_transform_lengths, impl.device_moduli,
+      impl.transform_length, impl.limb_count);
   CHECK_CUDA(cudaGetLastError());
 }
 
-}  // namespace
+} // namespace
 
 // --- CudaNttTransform ----------------------------------------------------
-CudaNttTransform::CudaNttTransform(uint64_t n, const std::vector<uint64_t>& q,
-                                   const std::vector<uint64_t>& psi)
+CudaNttTransform::CudaNttTransform(uint64_t transform_length,
+                                   const std::vector<uint64_t> &moduli,
+                                   const std::vector<uint64_t> &primitive_roots)
     : impl_(new Impl{}) {
-  Impl& m = *impl_;
-  if (q.size() != psi.size() || q.empty())
+  Impl &impl = *impl_;
+  if (moduli.size() != primitive_roots.size() || moduli.empty())
     throw std::invalid_argument("one (q, psi) pair per limb required");
-  m.n = n;
-  m.P = q.size();
-  m.q = q;
-  m.B2 = std::min<uint64_t>(kSplit, n);  // tile width (whole transform if n < 256)
-  m.sub = n >> 8;                        // strided-group length (0 when n < 256)
+  impl.transform_length = transform_length;
+  impl.limb_count = moduli.size();
+  impl.moduli = moduli;
+  impl.contiguous_tile_length = std::min<uint64_t>(kPassSplitWidth, transform_length);
+  impl.strided_group_length = transform_length / kPassSplitWidth;
   // Tables from the reference arithmetic; NegacyclicNtt's constructor
   // validates every wheel/root (throws) before any allocation happens.
-  std::vector<uint64_t> pp, pp_inv, ninv;
-  pp.reserve(m.P * (n + 1));
-  pp_inv.reserve(m.P * (n + 1));
-  for (uint64_t k = 0; k < m.P; ++k) {
-    m.refs.emplace_back(n, q[k], psi[k]);
-    const uint64_t psi_inv = inv_mod(psi[k], q[k]);
-    uint64_t w = 1, wi = 1;
-    for (uint64_t e = 0; e <= n; ++e) {  // pp[e] = psi^e, pp_inv[e] = psi^-e
-      pp.push_back(w);
-      pp_inv.push_back(wi);
-      w = mul_mod(w, psi[k], q[k]);
-      wi = mul_mod(wi, psi_inv, q[k]);
+  std::vector<uint64_t> twiddle_powers;
+  std::vector<uint64_t> inverse_twiddle_powers;
+  std::vector<uint64_t> inverse_transform_lengths;
+  twiddle_powers.reserve(impl.limb_count * (transform_length + 1));
+  inverse_twiddle_powers.reserve(impl.limb_count * (transform_length + 1));
+  for (uint64_t limb_index = 0; limb_index < impl.limb_count; ++limb_index) {
+    const uint64_t modulus = moduli[limb_index];
+    const uint64_t primitive_root = primitive_roots[limb_index];
+    impl.cpu_references.emplace_back(transform_length, modulus, primitive_root);
+    const uint64_t inverse_primitive_root = inv_mod(primitive_root, modulus);
+    uint64_t twiddle_power = 1;
+    uint64_t inverse_twiddle_power = 1;
+    for (uint64_t exponent = 0; exponent <= transform_length; ++exponent) {
+      twiddle_powers.push_back(twiddle_power);
+      inverse_twiddle_powers.push_back(inverse_twiddle_power);
+      twiddle_power = mul_mod(twiddle_power, primitive_root, modulus);
+      inverse_twiddle_power =
+          mul_mod(inverse_twiddle_power, inverse_primitive_root, modulus);
     }
-    ninv.push_back(inv_mod(n, q[k]));
+    inverse_transform_lengths.push_back(inv_mod(transform_length, modulus));
   }
-  const size_t words = m.P * n, tbl = m.P * (n + 1);
-  CHECK_CUDA(cudaMalloc(&m.d_a, words * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMalloc(&m.d_b, words * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMalloc(&m.d_pp, tbl * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMalloc(&m.d_pp_inv, tbl * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMalloc(&m.d_q, m.P * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMalloc(&m.d_ninv, m.P * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMemcpy(m.d_pp, pp.data(), tbl * sizeof(uint64_t),
+  const size_t value_count = impl.limb_count * transform_length;
+  const size_t twiddle_count = impl.limb_count * (transform_length + 1);
+  CHECK_CUDA(cudaMalloc(&impl.device_operand_a, value_count * sizeof(uint64_t)));
+  CHECK_CUDA(cudaMalloc(&impl.device_operand_b, value_count * sizeof(uint64_t)));
+  CHECK_CUDA(cudaMalloc(&impl.device_twiddle_powers, twiddle_count * sizeof(uint64_t)));
+  CHECK_CUDA(cudaMalloc(&impl.device_inverse_twiddle_powers,
+                        twiddle_count * sizeof(uint64_t)));
+  CHECK_CUDA(cudaMalloc(&impl.device_moduli, impl.limb_count * sizeof(uint64_t)));
+  CHECK_CUDA(cudaMalloc(&impl.device_inverse_transform_lengths,
+                        impl.limb_count * sizeof(uint64_t)));
+  CHECK_CUDA(cudaMemcpy(impl.device_twiddle_powers, twiddle_powers.data(),
+                        twiddle_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+  CHECK_CUDA(cudaMemcpy(impl.device_inverse_twiddle_powers,
+                        inverse_twiddle_powers.data(), twiddle_count * sizeof(uint64_t),
                         cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(m.d_pp_inv, pp_inv.data(), tbl * sizeof(uint64_t),
-                        cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(m.d_q, q.data(), m.P * sizeof(uint64_t),
-                        cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(m.d_ninv, ninv.data(), m.P * sizeof(uint64_t),
-                        cudaMemcpyHostToDevice));
-  m.tile_blocks =
-      static_cast<uint32_t>(std::max<uint64_t>(1, n / kSplit));
-  m.flat_blocks =
-      static_cast<uint32_t>((words + kThreads - 1) / kThreads);
+  CHECK_CUDA(cudaMemcpy(impl.device_moduli, moduli.data(),
+                        impl.limb_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+  CHECK_CUDA(cudaMemcpy(impl.device_inverse_transform_lengths,
+                        inverse_transform_lengths.data(),
+                        impl.limb_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+  impl.contiguous_tile_block_count =
+      static_cast<uint32_t>(std::max<uint64_t>(1, transform_length / kPassSplitWidth));
+  impl.elementwise_block_count =
+      static_cast<uint32_t>((value_count + kThreadsPerBlock - 1) / kThreadsPerBlock);
 }
 
-CudaNttTransform::~CudaNttTransform() { delete impl_; }
-
-uint64_t CudaNttTransform::n() const { return impl_->n; }
-uint64_t CudaNttTransform::limbs() const { return impl_->P; }
-uint64_t CudaNttTransform::q(uint64_t k) const { return impl_->q.at(k); }
-const NegacyclicNtt& CudaNttTransform::ref(uint64_t k) const {
-  return impl_->refs.at(k);
+CudaNttTransform::~CudaNttTransform() {
+  delete impl_;
 }
 
-void CudaNttTransform::forward(std::vector<uint64_t>& a) {
-  const size_t words = impl_->P * impl_->n;
-  if (a.size() != words)
-    throw std::length_error("buffer size " + std::to_string(a.size()) +
-                            " != limbs*n " + std::to_string(words));
-  CHECK_CUDA(cudaMemcpy(impl_->d_a, a.data(), words * sizeof(uint64_t),
-                        cudaMemcpyHostToDevice));
-  forward_dev(*impl_, impl_->d_a);
-  CHECK_CUDA(cudaMemcpy(a.data(), impl_->d_a, words * sizeof(uint64_t),
-                        cudaMemcpyDeviceToHost));
+uint64_t CudaNttTransform::n() const {
+  return impl_->transform_length;
+}
+uint64_t CudaNttTransform::limbs() const {
+  return impl_->limb_count;
+}
+uint64_t CudaNttTransform::q(uint64_t limb_index) const {
+  return impl_->moduli.at(limb_index);
+}
+const NegacyclicNtt &CudaNttTransform::ref(uint64_t limb_index) const {
+  return impl_->cpu_references.at(limb_index);
 }
 
-void CudaNttTransform::inverse(std::vector<uint64_t>& a) {
-  const size_t words = impl_->P * impl_->n;
-  if (a.size() != words)
-    throw std::length_error("buffer size " + std::to_string(a.size()) +
-                            " != limbs*n " + std::to_string(words));
-  CHECK_CUDA(cudaMemcpy(impl_->d_a, a.data(), words * sizeof(uint64_t),
-                        cudaMemcpyHostToDevice));
-  inverse_dev(*impl_, impl_->d_a);
-  CHECK_CUDA(cudaMemcpy(a.data(), impl_->d_a, words * sizeof(uint64_t),
-                        cudaMemcpyDeviceToHost));
+void CudaNttTransform::forward(std::vector<uint64_t> &values) {
+  const size_t value_count = impl_->limb_count * impl_->transform_length;
+  if (values.size() != value_count)
+    throw std::length_error("buffer size " + std::to_string(values.size()) +
+                            " != limbs*n " + std::to_string(value_count));
+  CHECK_CUDA(cudaMemcpy(impl_->device_operand_a, values.data(),
+                        value_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+  launch_forward_transform(*impl_, impl_->device_operand_a);
+  CHECK_CUDA(cudaMemcpy(values.data(), impl_->device_operand_a,
+                        value_count * sizeof(uint64_t), cudaMemcpyDeviceToHost));
 }
 
-void CudaNttTransform::pointwise_multiply(std::vector<uint64_t>& a,
-                                          const std::vector<uint64_t>& b) {
-  const size_t words = impl_->P * impl_->n;
-  if (a.size() != words || b.size() != words)
+void CudaNttTransform::inverse(std::vector<uint64_t> &values) {
+  const size_t value_count = impl_->limb_count * impl_->transform_length;
+  if (values.size() != value_count)
+    throw std::length_error("buffer size " + std::to_string(values.size()) +
+                            " != limbs*n " + std::to_string(value_count));
+  CHECK_CUDA(cudaMemcpy(impl_->device_operand_a, values.data(),
+                        value_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+  launch_inverse_transform(*impl_, impl_->device_operand_a);
+  CHECK_CUDA(cudaMemcpy(values.data(), impl_->device_operand_a,
+                        value_count * sizeof(uint64_t), cudaMemcpyDeviceToHost));
+}
+
+void CudaNttTransform::pointwise_multiply(std::vector<uint64_t> &left_values,
+                                          const std::vector<uint64_t> &right_values) {
+  const size_t value_count = impl_->limb_count * impl_->transform_length;
+  if (left_values.size() != value_count || right_values.size() != value_count)
     throw std::length_error("pointwise operands must both be limbs*n");
-  CHECK_CUDA(cudaMemcpy(impl_->d_a, a.data(), words * sizeof(uint64_t),
-                        cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(impl_->d_b, b.data(), words * sizeof(uint64_t),
-                        cudaMemcpyHostToDevice));
-  pointwise_kernel<<<impl_->flat_blocks, impl_->T>>>(
-      impl_->d_a, impl_->d_b, impl_->d_q, impl_->n, impl_->P);
+  CHECK_CUDA(cudaMemcpy(impl_->device_operand_a, left_values.data(),
+                        value_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+  CHECK_CUDA(cudaMemcpy(impl_->device_operand_b, right_values.data(),
+                        value_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+  pointwise_multiply_kernel<<<impl_->elementwise_block_count,
+                              impl_->threads_per_block>>>(
+      impl_->device_operand_a, impl_->device_operand_b, impl_->device_moduli,
+      impl_->transform_length, impl_->limb_count);
   CHECK_CUDA(cudaGetLastError());
-  CHECK_CUDA(cudaMemcpy(a.data(), impl_->d_a, words * sizeof(uint64_t),
-                        cudaMemcpyDeviceToHost));
+  CHECK_CUDA(cudaMemcpy(left_values.data(), impl_->device_operand_a,
+                        value_count * sizeof(uint64_t), cudaMemcpyDeviceToHost));
 }
 
-std::vector<uint64_t> CudaNttTransform::multiply(std::vector<uint64_t> a,
-                                                 const std::vector<uint64_t>& b) {
-  const size_t words = impl_->P * impl_->n;
-  if (a.size() != words || b.size() != words)
+std::vector<uint64_t>
+CudaNttTransform::multiply(std::vector<uint64_t> left_values,
+                           const std::vector<uint64_t> &right_values) {
+  const size_t value_count = impl_->limb_count * impl_->transform_length;
+  if (left_values.size() != value_count || right_values.size() != value_count)
     throw std::length_error("multiply operands must both be limbs*n");
   // Everything below stays on device: two forwards, one pointwise, one
   // inverse — the round trips this class exists to remove.
-  CHECK_CUDA(cudaMemcpy(impl_->d_a, a.data(), words * sizeof(uint64_t),
-                        cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(impl_->d_b, b.data(), words * sizeof(uint64_t),
-                        cudaMemcpyHostToDevice));
-  forward_dev(*impl_, impl_->d_a);
-  forward_dev(*impl_, impl_->d_b);
-  pointwise_kernel<<<impl_->flat_blocks, impl_->T>>>(
-      impl_->d_a, impl_->d_b, impl_->d_q, impl_->n, impl_->P);
+  CHECK_CUDA(cudaMemcpy(impl_->device_operand_a, left_values.data(),
+                        value_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+  CHECK_CUDA(cudaMemcpy(impl_->device_operand_b, right_values.data(),
+                        value_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+  launch_forward_transform(*impl_, impl_->device_operand_a);
+  launch_forward_transform(*impl_, impl_->device_operand_b);
+  pointwise_multiply_kernel<<<impl_->elementwise_block_count,
+                              impl_->threads_per_block>>>(
+      impl_->device_operand_a, impl_->device_operand_b, impl_->device_moduli,
+      impl_->transform_length, impl_->limb_count);
   CHECK_CUDA(cudaGetLastError());
-  inverse_dev(*impl_, impl_->d_a);
-  CHECK_CUDA(cudaMemcpy(a.data(), impl_->d_a, words * sizeof(uint64_t),
-                        cudaMemcpyDeviceToHost));
-  return a;
+  launch_inverse_transform(*impl_, impl_->device_operand_a);
+  CHECK_CUDA(cudaMemcpy(left_values.data(), impl_->device_operand_a,
+                        value_count * sizeof(uint64_t), cudaMemcpyDeviceToHost));
+  return left_values;
 }
 
 // --- bench ---------------------------------------------------------------
-void run_bench(uint32_t min_exp, uint32_t max_exp, uint64_t limbs,
-               std::ostream& out) {
-  cudaDeviceProp prop{};
-  int device = 0;
-  CHECK_CUDA(cudaGetDevice(&device));
-  CHECK_CUDA(cudaGetDeviceProperties(&prop, device));
-  int driver = 0, runtime = 0;
-  CHECK_CUDA(cudaDriverGetVersion(&driver));
-  CHECK_CUDA(cudaRuntimeGetVersion(&runtime));
-  out << "device: " << prop.name << " (sm_" << prop.major << prop.minor
-      << ", " << prop.clockRate / 1000 << " MHz)\n";
-  out << "driver/runtime API: " << driver / 1000 << "." << (driver % 1000) / 10
-      << " / " << runtime / 1000 << "." << (runtime % 1000) / 10 << "\n";
-  out << "v1 arithmetic: __uint128_t division (pre-Barrett; see README)\n";
-  out << "columns are end-to-end per call: transfers included\n\n";
-  out << "| n | limbs | ref fwd ms | gpu fwd ms | gpu inv ms | gpu mul ms |\n";
-  out << "|---|---|---|---|---|---|\n";
+void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
+               uint64_t limb_count, std::ostream &output) {
+  cudaDeviceProp device_properties{};
+  int device_index = 0;
+  CHECK_CUDA(cudaGetDevice(&device_index));
+  CHECK_CUDA(cudaGetDeviceProperties(&device_properties, device_index));
+  int driver_version = 0;
+  int runtime_version = 0;
+  CHECK_CUDA(cudaDriverGetVersion(&driver_version));
+  CHECK_CUDA(cudaRuntimeGetVersion(&runtime_version));
+  output << "device: " << device_properties.name << " (sm_" << device_properties.major
+         << device_properties.minor << ", " << device_properties.clockRate / 1000
+         << " MHz)\n";
+  output << "driver/runtime API: " << driver_version / 1000 << "."
+         << (driver_version % 1000) / 10 << " / " << runtime_version / 1000 << "."
+         << (runtime_version % 1000) / 10 << "\n";
+  output << "v1 arithmetic: __uint128_t division (pre-Barrett; see README)\n";
+  output << "columns are end-to-end per call: transfers included\n\n";
+  output << "| n | limbs | ref fwd ms | gpu fwd ms | gpu inv ms | gpu mul ms |\n";
+  output << "|---|---|---|---|---|---|\n";
 
-  constexpr uint32_t kWarmup = 2, kReps = 10;
-  auto clock_ms = [](const auto& t0, const auto& t1) {
-    return std::chrono::duration<double, std::milli>(t1 - t0).count();
+  constexpr uint32_t kWarmupRepetitions = 2;
+  constexpr uint32_t kTimedRepetitions = 10;
+  auto elapsed_milliseconds = [](const auto &start_time, const auto &end_time) {
+    return std::chrono::duration<double, std::milli>(end_time - start_time).count();
   };
-  for (uint32_t e = min_exp; e <= max_exp; ++e) {
-    const uint64_t n = uint64_t{1} << e;
-    const std::vector<uint64_t> qs = find_primes(n, limbs);
-    std::vector<uint64_t> psis;
-    for (uint64_t p : qs) psis.push_back(find_psi(p, n));
-    CudaNttTransform t(n, qs, psis);
+  for (uint32_t size_exponent = minimum_size_exponent;
+       size_exponent <= maximum_size_exponent; ++size_exponent) {
+    const uint64_t transform_length = uint64_t{1} << size_exponent;
+    const std::vector<uint64_t> moduli = find_primes(transform_length, limb_count);
+    std::vector<uint64_t> primitive_roots;
+    for (uint64_t modulus : moduli)
+      primitive_roots.push_back(find_psi(modulus, transform_length));
+    CudaNttTransform transform(transform_length, moduli, primitive_roots);
 
     // Deterministic per-limb random operands (bench only needs data, not
     // provenance — the correctness gates elsewhere own verification).
-    std::vector<uint64_t> a(limbs * n), b(limbs * n);
-    uint64_t s = 0x9E3779B97F4A7C15ULL;
-    for (uint64_t k = 0; k < limbs; ++k)
-      for (uint64_t i = 0; i < n; ++i) {
-        s = s * 6364136223846793005ULL + 1442695040888963407ULL;
-        a[k * n + i] = s % qs[k];
-        s = s * 6364136223846793005ULL + 1442695040888963407ULL;
-        b[k * n + i] = s % qs[k];
+    std::vector<uint64_t> left_operand(limb_count * transform_length);
+    std::vector<uint64_t> right_operand(limb_count * transform_length);
+    uint64_t random_state = 0x9E3779B97F4A7C15ULL;
+    for (uint64_t limb_index = 0; limb_index < limb_count; ++limb_index)
+      for (uint64_t value_index = 0; value_index < transform_length; ++value_index) {
+        random_state = random_state * 6364136223846793005ULL + 1442695040888963407ULL;
+        left_operand[limb_index * transform_length + value_index] =
+            random_state % moduli[limb_index];
+        random_state = random_state * 6364136223846793005ULL + 1442695040888963407ULL;
+        right_operand[limb_index * transform_length + value_index] =
+            random_state % moduli[limb_index];
       }
 
     // CPU reference forward, same data, host wall clock.
-    double ref_ms = 0;
+    double reference_forward_milliseconds = 0;
     {
-      std::vector<std::vector<uint64_t>> ra(limbs);
-      for (uint64_t k = 0; k < limbs; ++k)
-        ra[k].assign(a.begin() + k * n, a.begin() + (k + 1) * n);
-      for (uint32_t r = 0; r < kWarmup; ++r)
-        for (uint64_t k = 0; k < limbs; ++k) t.ref(k).forward(ra[k]);
-      double total = 0;
-      for (uint32_t r = 0; r < kReps; ++r) {
-        const auto t0 = std::chrono::steady_clock::now();
-        for (uint64_t k = 0; k < limbs; ++k) t.ref(k).forward(ra[k]);
-        total += clock_ms(t0, std::chrono::steady_clock::now());
+      std::vector<std::vector<uint64_t>> reference_values(limb_count);
+      for (uint64_t limb_index = 0; limb_index < limb_count; ++limb_index)
+        reference_values[limb_index].assign(
+            left_operand.begin() + limb_index * transform_length,
+            left_operand.begin() + (limb_index + 1) * transform_length);
+      for (uint32_t repetition = 0; repetition < kWarmupRepetitions; ++repetition)
+        for (uint64_t limb_index = 0; limb_index < limb_count; ++limb_index)
+          transform.ref(limb_index).forward(reference_values[limb_index]);
+      double total_milliseconds = 0;
+      for (uint32_t repetition = 0; repetition < kTimedRepetitions; ++repetition) {
+        const auto start_time = std::chrono::steady_clock::now();
+        for (uint64_t limb_index = 0; limb_index < limb_count; ++limb_index)
+          transform.ref(limb_index).forward(reference_values[limb_index]);
+        total_milliseconds +=
+            elapsed_milliseconds(start_time, std::chrono::steady_clock::now());
       }
-      ref_ms = total / kReps;
+      reference_forward_milliseconds = total_milliseconds / kTimedRepetitions;
     }
 
     // GPU columns: wall clock around each public call — the final device
     // copy blocks, so the measurement is honest end-to-end. Buffers are
     // re-filled outside the timed region; content does not affect timing.
-    double fwd_ms = 0, inv_ms = 0, mul_ms = 0;
+    double gpu_forward_milliseconds = 0;
+    double gpu_inverse_milliseconds = 0;
+    double gpu_multiply_milliseconds = 0;
     {
-      std::vector<uint64_t> x(a);
-      for (uint32_t r = 0; r < kWarmup; ++r) t.forward(x);
-      double total = 0;
-      for (uint32_t r = 0; r < kReps; ++r) {
-        x = a;
-        const auto t0 = std::chrono::steady_clock::now();
-        t.forward(x);
-        total += clock_ms(t0, std::chrono::steady_clock::now());
+      std::vector<uint64_t> working_values(left_operand);
+      for (uint32_t repetition = 0; repetition < kWarmupRepetitions; ++repetition)
+        transform.forward(working_values);
+      double total_milliseconds = 0;
+      for (uint32_t repetition = 0; repetition < kTimedRepetitions; ++repetition) {
+        working_values = left_operand;
+        const auto start_time = std::chrono::steady_clock::now();
+        transform.forward(working_values);
+        total_milliseconds +=
+            elapsed_milliseconds(start_time, std::chrono::steady_clock::now());
       }
-      fwd_ms = total / kReps;  // x is now bit-reversed values: valid input
-      total = 0;               // for the inverse (any values are)
-      for (uint32_t r = 0; r < kReps; ++r) {
-        const auto t0 = std::chrono::steady_clock::now();
-        t.inverse(x);
-        total += clock_ms(t0, std::chrono::steady_clock::now());
+      gpu_forward_milliseconds = total_milliseconds / kTimedRepetitions;
+      total_milliseconds = 0;
+      for (uint32_t repetition = 0; repetition < kTimedRepetitions; ++repetition) {
+        const auto start_time = std::chrono::steady_clock::now();
+        transform.inverse(working_values);
+        total_milliseconds +=
+            elapsed_milliseconds(start_time, std::chrono::steady_clock::now());
       }
-      inv_ms = total / kReps;
-      for (uint32_t r = 0; r < kWarmup; ++r) t.multiply(a, b);
-      total = 0;
-      for (uint32_t r = 0; r < kReps; ++r) {
-        const auto t0 = std::chrono::steady_clock::now();
-        t.multiply(a, b);
-        total += clock_ms(t0, std::chrono::steady_clock::now());
+      gpu_inverse_milliseconds = total_milliseconds / kTimedRepetitions;
+      for (uint32_t repetition = 0; repetition < kWarmupRepetitions; ++repetition)
+        transform.multiply(left_operand, right_operand);
+      total_milliseconds = 0;
+      for (uint32_t repetition = 0; repetition < kTimedRepetitions; ++repetition) {
+        const auto start_time = std::chrono::steady_clock::now();
+        transform.multiply(left_operand, right_operand);
+        total_milliseconds +=
+            elapsed_milliseconds(start_time, std::chrono::steady_clock::now());
       }
-      mul_ms = total / kReps;
+      gpu_multiply_milliseconds = total_milliseconds / kTimedRepetitions;
     }
 
-    out << "| 2^" << e << " (" << n << ") | " << limbs << " | " << ref_ms
-        << " | " << fwd_ms << " | " << inv_ms << " | " << mul_ms << " |\n";
-    out.flush();
+    output << "| 2^" << size_exponent << " (" << transform_length << ") | "
+           << limb_count << " | " << reference_forward_milliseconds << " | "
+           << gpu_forward_milliseconds << " | " << gpu_inverse_milliseconds << " | "
+           << gpu_multiply_milliseconds << " |\n";
+    output.flush();
   }
 }

@@ -33,7 +33,8 @@ namespace ntt {
 // result of a+b is at most one q past the target range [0, q).
 NTT_HD uint64_t add_mod(uint64_t a, uint64_t b, uint64_t q) {
   __uint128_t s = static_cast<__uint128_t>(a) + b;
-  if (s >= q) s -= q;
+  if (s >= q)
+    s -= q;
   return static_cast<uint64_t>(s);
 }
 
@@ -64,7 +65,8 @@ NTT_HD uint64_t pow_mod(uint64_t a, uint64_t e, uint64_t q) {
   uint64_t r = 1 % q;
   a %= q;
   while (e > 0) {
-    if (e & 1) r = mul_mod(r, a, q);
+    if (e & 1)
+      r = mul_mod(r, a, q);
     a = mul_mod(a, a, q);
     e >>= 1;
   }
@@ -78,8 +80,8 @@ NTT_HD uint64_t pow_mod(uint64_t a, uint64_t e, uint64_t q) {
 // path never inverts anything.
 NTT_HD uint64_t inv_mod(uint64_t x, uint64_t q) {
   if (x % q == 0) {
-#ifndef __CUDA_ARCH__  // exceptions do not exist in device code; the
-    throw std::invalid_argument("inv_mod: zero input");  // data path never
+#ifndef __CUDA_ARCH__ // exceptions do not exist in device code; the
+    throw std::invalid_argument("inv_mod: zero input"); // data path never
 #else                                                   // inverts anyway
     return 0;
 #endif
@@ -87,4 +89,4 @@ NTT_HD uint64_t inv_mod(uint64_t x, uint64_t q) {
   return pow_mod(x, q - 2, q);
 }
 
-}  // namespace ntt
+} // namespace ntt

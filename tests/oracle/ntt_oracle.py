@@ -38,7 +38,7 @@ def is_prime(n: int) -> bool:
 
 
 def find_primes(n: int, count: int, bits: int = 46) -> list:
-    """`count` distinct primes q with (2n) | (q-1) and 2^(bits-1) <= q < 2^bits."""
+    """Find `count` primes q where (2n) divides q-1 in the requested range."""
     step = 2 * n
     q = ((1 << (bits - 1)) // step + 1) * step + 1
     primes = []
@@ -62,7 +62,7 @@ def find_psi(q: int, n: int) -> int:
 
 
 def negacyclic_ntt_naive(a: list, q: int, psi: int) -> list:
-    """Definition of the transform: A_j = sum_i a_i * psi^((2j+1)*i) mod q."""
+    """Evaluate A_j = sum_i a_i * psi^((2j+1)*i) modulo q."""
     n = len(a)
     table = [1] * (2 * n)  # psi^k mod q for k in [0, 2n)
     for k in range(1, 2 * n):
@@ -84,7 +84,9 @@ def crt_reconstruct(limb_values: list, primes: list) -> int:
     """
     for v in limb_values:
         if not isinstance(v, int):
-            raise TypeError(f"crt_reconstruct expects scalars, got {type(v).__name__}")
+            raise TypeError(
+                f"crt_reconstruct expects scalars, got {type(v).__name__}"
+            )
     q_total = 1
     for q in primes:
         q_total *= q
@@ -98,8 +100,13 @@ def crt_reconstruct(limb_values: list, primes: list) -> int:
 def read_vector_file(path: str):
     n = None
     q, psi, coeffs = [], [], []
-    with open(path) as f:
-        tokens = [t for line in f if not line.startswith("#") for t in line.split()]
+    with open(path, encoding="utf-8") as f:
+        tokens = [
+            token
+            for line in f
+            if not line.startswith("#")
+            for token in line.split()
+        ]
     pos = 0
 
     def nxt():

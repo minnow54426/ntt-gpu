@@ -49,7 +49,7 @@
 namespace ntt {
 
 class NegacyclicNtt {
- public:
+public:
   // n: power-of-two transform length; q: prime with (2n) | (q-1);
   // psi: element of order exactly 2n mod q (psi^n == q-1).
   NegacyclicNtt(uint64_t n, uint64_t q, uint64_t psi) : n_(n), q_(q), psi_(psi) {
@@ -68,15 +68,20 @@ class NegacyclicNtt {
     if (pow_mod(psi, n, q) != q - 1)
       throw std::invalid_argument("psi^n != -1 mod q (psi must have order 2n)");
     // q > n keeps n invertible mod q; the inverse transform scales by n^-1.
-    if (q <= n) throw std::invalid_argument("require q > n for N^-1 to exist");
+    if (q <= n)
+      throw std::invalid_argument("require q > n for N^-1 to exist");
 
     n_inv_ = inv_mod(n_ % q_, q_);
     // Inverse root for the backward sweep's ladder constants and strides.
     psi_inv_ = inv_mod(psi_, q_);
   }
 
-  uint64_t n() const { return n_; }
-  uint64_t q() const { return q_; }
+  uint64_t n() const {
+    return n_;
+  }
+  uint64_t q() const {
+    return q_;
+  }
 
   // In place; natural-order coefficients in [0, q) in, evaluation values
   // at the odd wheel points psi^(2j+1) out — with j visited in BIT-
@@ -86,12 +91,12 @@ class NegacyclicNtt {
   // inside the butterfly — and walks the difference leg by
   // w = (psi^(n/d))^j = omega^(j·n/2d), the plain cyclic stride in
   // disguise. The first pair of each block has w = 1: free.
-  void forward(std::vector<uint64_t>& a) const {
+  void forward(std::vector<uint64_t> &a) const {
     check_size(a);
     for (uint64_t d = n_ / 2; d >= 1; d >>= 1) {
       const uint64_t c = pow_mod(psi_, d, q_);
       const uint64_t stride = pow_mod(psi_, n_ / d, q_);
-      for (uint64_t i = 0; i < n_; i += 2 * d) {  // each block of 2d wires
+      for (uint64_t i = 0; i < n_; i += 2 * d) { // each block of 2d wires
         uint64_t w = 1;
         for (uint64_t j = 0; j < d; ++j) {
           // One ladder butterfly: (u, v) -> (u + c·v, (u − c·v)·w).
@@ -101,7 +106,7 @@ class NegacyclicNtt {
           const uint64_t cv = mul_mod(c, a[i + j + d], q_);
           a[i + j] = add_mod(u, cv, q_);
           a[i + j + d] = mul_mod(sub_mod(u, cv, q_), w, q_);
-          w = mul_mod(w, stride, q_);  // next twiddle on the walk
+          w = mul_mod(w, stride, q_); // next twiddle on the walk
         }
       }
     }
@@ -114,7 +119,7 @@ class NegacyclicNtt {
   // crosses log2(n) of them, so the unpaid debt is exactly the n^-1.
   // Bit-reversed values in, natural coefficients out: no bit-reversal
   // pass exists anywhere in this class.
-  void inverse(std::vector<uint64_t>& a) const {
+  void inverse(std::vector<uint64_t> &a) const {
     check_size(a);
     for (uint64_t d = 1; d <= n_ / 2; d <<= 1) {
       const uint64_t ci = pow_mod(psi_inv_, d, q_);
@@ -123,36 +128,37 @@ class NegacyclicNtt {
         uint64_t w = 1;
         for (uint64_t j = 0; j < d; ++j) {
           const uint64_t x = a[i + j];
-          const uint64_t t = mul_mod(a[i + j + d], w, q_);  // y·w⁻¹
+          const uint64_t t = mul_mod(a[i + j + d], w, q_);   // y·w⁻¹
           a[i + j] = add_mod(x, t, q_);                      // 2u (debt)
           a[i + j + d] = mul_mod(sub_mod(x, t, q_), ci, q_); // 2v (debt)
           w = mul_mod(w, stride, q_);
         }
       }
     }
-    for (uint64_t i = 0; i < n_; ++i) a[i] = mul_mod(a[i], n_inv_, q_);
+    for (uint64_t i = 0; i < n_; ++i)
+      a[i] = mul_mod(a[i], n_inv_, q_);
   }
 
- private:
-  void check_size(const std::vector<uint64_t>& a) const {
+private:
+  void check_size(const std::vector<uint64_t> &a) const {
     if (a.size() != n_)
-      throw std::length_error("vector size " + std::to_string(a.size()) +
-                              " != n " + std::to_string(n_));
+      throw std::length_error("vector size " + std::to_string(a.size()) + " != n " +
+                              std::to_string(n_));
   }
 
   // --- the problem shape (identical for every kind of NTT) -------------
-  uint64_t n_;       // transform length, a power of two: n coefficients in,
-                     // n evaluation values out
-  uint64_t q_;       // the prime modulus — one RNS limb of the full modulus Q
+  uint64_t n_; // transform length, a power of two: n coefficients in,
+               // n evaluation values out
+  uint64_t q_; // the prime modulus — one RNS limb of the full modulus Q
 
   // --- the plain (cyclic) NTT core --------------------------------------
   // The cyclic root needs no member any more: every stage stride
   // psi^(n/d) = (psi^2)^(n/2d) = omega^(n/2d) IS the plain cyclic
   // twiddle, generated from psi on the fly. All that remains of the core
   // is the scale every DFT inverse shares:
-  uint64_t n_inv_;   // n^-1 mod q — the inverse's scale: each undone
-                     // butterfly owes 1/2 and every element crosses
-                     // log2(n) of them, so the total debt is exactly n.
+  uint64_t n_inv_; // n^-1 mod q — the inverse's scale: each undone
+                   // butterfly owes 1/2 and every element crosses
+                   // log2(n) of them, so the total debt is exactly n.
 
   // --- the negacyclic extra: the twist, folded --------------------------
   // THE difference from a normal NTT, and all of it. A cyclic NTT
@@ -163,12 +169,12 @@ class NegacyclicNtt {
   // folded into the butterflies as ladder constants (psi^d on the add
   // leg — an odd power, exactly where x^n + 1 lives). Same butterflies,
   // no extra pass, no psi^i tables. That is everything "negacyclic" adds.
-  uint64_t psi_;       // primitive 2n-th root: psi^n == -1 (halfway
-                       // around the doubled wheel is minus); source of
-                       // both the ladder constants (psi^d) and the
-                       // strides (psi^(n/d)) of every stage
-  uint64_t psi_inv_;   // psi^-1 mod q: the backward sweep's ladder
-                       // constants and strides
+  uint64_t psi_;     // primitive 2n-th root: psi^n == -1 (halfway
+                     // around the doubled wheel is minus); source of
+                     // both the ladder constants (psi^d) and the
+                     // strides (psi^(n/d)) of every stage
+  uint64_t psi_inv_; // psi^-1 mod q: the backward sweep's ladder
+                     // constants and strides
 };
 
 // Ring product in Z_q[x]/(x^N+1) via the NTT: forward both operands (their
@@ -178,14 +184,15 @@ class NegacyclicNtt {
 // then invert back to natural-order coefficients. Used by the unit tests
 // as the fast side of the comparison against the O(N^2) schoolbook
 // product.
-inline std::vector<uint64_t> ntt_multiply(const NegacyclicNtt& ntt,
+inline std::vector<uint64_t> ntt_multiply(const NegacyclicNtt &ntt,
                                           std::vector<uint64_t> a,
                                           std::vector<uint64_t> b) {
   ntt.forward(a);
   ntt.forward(b);
-  for (uint64_t i = 0; i < a.size(); ++i) a[i] = mul_mod(a[i], b[i], ntt.q());
+  for (uint64_t i = 0; i < a.size(); ++i)
+    a[i] = mul_mod(a[i], b[i], ntt.q());
   ntt.inverse(a);
   return a;
 }
 
-}  // namespace ntt
+} // namespace ntt

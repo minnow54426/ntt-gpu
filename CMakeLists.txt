@@ -24,31 +24,36 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(VEC ${CMAKE_CURRENT_BINARY_DIR}/vector_n1024.txt)
 
 add_test(NAME gen_vectors
-         COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/gen_vectors.py ${VEC})
+         COMMAND Python3::Interpreter
+                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/gen_vectors.py
+                 ${VEC})
 set_tests_properties(gen_vectors PROPERTIES FIXTURES_SETUP VECTORS)
 
 add_test(NAME unit_tests COMMAND ntt_tests ${VEC})
 set_tests_properties(unit_tests PROPERTIES FIXTURES_REQUIRED VECTORS)
 
 add_test(NAME oracle_crosscheck
-         COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/test_vectors.py
+         COMMAND Python3::Interpreter
+                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/test_vectors.py
                  $<TARGET_FILE:ntt_cli> ${VEC})
 set_tests_properties(oracle_crosscheck PROPERTIES FIXTURES_REQUIRED VECTORS)
 
-# --- Layer 2a fixtures: n=64 exercises the min(1024, n) tile clamp with
+# --- Layer 2a fixtures: n=64 exercises the min(256, n) tile clamp with
 # fewer pairs than threads; n=4096 exercises the global (inter-block)
-# phase; n=1024 (above) is the all-shared edge where the global phase is
-# vacuous. gen_vectors.py already takes N as its second argument.
+# phase; n=1024 (above) exercises both passes. gen_vectors.py already takes
+# N as its second argument.
 set(VEC64 ${CMAKE_CURRENT_BINARY_DIR}/vector_n64.txt)
 set(VEC4K ${CMAKE_CURRENT_BINARY_DIR}/vector_n4096.txt)
 
 add_test(NAME gen_vectors_n64
-         COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/gen_vectors.py
+         COMMAND Python3::Interpreter
+                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/gen_vectors.py
                  ${VEC64} 64 3 1)
 set_tests_properties(gen_vectors_n64 PROPERTIES FIXTURES_SETUP VECTORS_N64)
 
 add_test(NAME gen_vectors_n4096
-         COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/gen_vectors.py
+         COMMAND Python3::Interpreter
+                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/gen_vectors.py
                  ${VEC4K} 4096 3 1)
 set_tests_properties(gen_vectors_n4096 PROPERTIES FIXTURES_SETUP VECTORS_N4K)
 
@@ -88,7 +93,9 @@ endif()
 # compiler from there before probing.
 find_program(NTT_NVCC_HINT nvcc PATHS /usr/local/cuda/bin NO_DEFAULT_PATH)
 if(NOT CMAKE_CUDA_COMPILER AND NTT_NVCC_HINT)
-  set(CMAKE_CUDA_COMPILER ${NTT_NVCC_HINT} CACHE FILEPATH "nvcc (from /usr/local/cuda/bin)")
+  set(CMAKE_CUDA_COMPILER
+      ${NTT_NVCC_HINT}
+      CACHE FILEPATH "nvcc (from /usr/local/cuda/bin)")
 endif()
 include(CheckLanguage)
 check_language(CUDA)
@@ -108,7 +115,8 @@ if(CMAKE_CUDA_COMPILER)
     endif()
   endif()
   add_executable(ntt_cuda_cli src/cuda_cli.cpp src/cuda/ntt_kernels.cu)
-  target_include_directories(ntt_cuda_cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_include_directories(ntt_cuda_cli
+                             PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   # Warnings on the host pass only: nvcc device-side --Werror would break
   # the build on its own unrolling notes.
   target_compile_options(ntt_cuda_cli PRIVATE
@@ -118,18 +126,27 @@ if(CMAKE_CUDA_COMPILER)
   # The existing Python oracle, verbatim, against the CUDA binary (output
   # is byte-identical to ntt_cli by construction — this gate proves it).
   add_test(NAME cuda_oracle_crosscheck
-           COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/test_vectors.py
+           COMMAND Python3::Interpreter
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/test_vectors.py
                    $<TARGET_FILE:ntt_cuda_cli> ${VEC})
   set_tests_properties(cuda_oracle_crosscheck PROPERTIES FIXTURES_REQUIRED VECTORS)
 
   # Byte-equality of the two binaries' transform output at two sizes —
   # valid at any n, including sizes where the O(N^2) Python oracle is
   # hopeless (extend the list on the box with a 2^18 fixture if desired).
+  string(CONCAT CUDA_MATCHES_REF_SCRIPT
+         "set -e; "
+         "C=$<TARGET_FILE:ntt_cuda_cli>; "
+         "R=$<TARGET_FILE:ntt_cli>; "
+         "\$C ${VEC} transform > ${CMAKE_CURRENT_BINARY_DIR}/cu1; "
+         "\$R ${VEC} transform > ${CMAKE_CURRENT_BINARY_DIR}/rf1; "
+         "cmp cu1 rf1; "
+         "\$C ${VEC4K} transform > ${CMAKE_CURRENT_BINARY_DIR}/cu2; "
+         "\$R ${VEC4K} transform > ${CMAKE_CURRENT_BINARY_DIR}/rf2; "
+         "cmp cu2 rf2")
   add_test(NAME cuda_matches_ref COMMAND bash -c
-    "set -e; C=$<TARGET_FILE:ntt_cuda_cli>; R=$<TARGET_FILE:ntt_cli>; \
-     \$C ${VEC} transform > ${CMAKE_CURRENT_BINARY_DIR}/cu1 && \$R ${VEC} transform > ${CMAKE_CURRENT_BINARY_DIR}/rf1 && cmp cu1 rf1 && \
-     \$C ${VEC4K} transform > ${CMAKE_CURRENT_BINARY_DIR}/cu2 && \$R ${VEC4K} transform > ${CMAKE_CURRENT_BINARY_DIR}/rf2 && cmp cu2 rf2"
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+           "${CUDA_MATCHES_REF_SCRIPT}"
+           WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   set_tests_properties(cuda_matches_ref PROPERTIES
     FIXTURES_REQUIRED "VECTORS;VECTORS_N4K")
 
