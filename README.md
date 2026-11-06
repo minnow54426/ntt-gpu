@@ -143,9 +143,16 @@ odd powers of ψ, where x^N+1 splits into linear factors.
   counter.
 - [`docs/gpu-ntt-survey.md`](docs/gpu-ntt-survey.md) — primary-source survey of
   GPU NTT and CKKS implementations, with the techniques this project can absorb.
+- [`docs/gpu-selection-survey.md`](docs/gpu-selection-survey.md) — primary-source
+  comparison of RTX 5090, RTX 4090, RTX PRO 6000, L40S, A100, H100/H200, and
+  B200 for this project's exact `u32`/`u64` modular-arithmetic workload.
 - [`docs/benchmark-tuning-plan.md`](docs/benchmark-tuning-plan.md) — reproducible
   benchmark matrix and tuning/selection rules for GPU parameters and kernel
   variants.
+- [`docs/openfhe-integration-plan.md`](docs/openfhe-integration-plan.md) — the
+  tracked 95-day implementation plan (plus risk reserve) from the current NTT
+  baseline through GPU base conversion, Hybrid key switching, and validated
+  OpenFHE integration.
 
 ## Provenance
 

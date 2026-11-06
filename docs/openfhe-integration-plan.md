@@ -1,0 +1,281 @@
+# CKKS GPU-to-OpenFHE integration plan
+
+**Target:** OpenFHE 1.6.1 CKKS with Hybrid key switching  
+**Primary arithmetic:** 50–60-bit RNS primes stored in `uint64_t`, with
+`uint32_t` indexing/control paths where safe  
+**Ring dimensions:** `4096`, `8192`, `16384`, `32768`, `65536`  
+**Estimate:** 95 planned working days + 15 risk-reserve days  
+**Last updated:** 2026-11-06 (Asia/Shanghai)
+
+This file is the source of truth for work from the current correctness-first
+NTT implementation through GPU base conversion, GPU Hybrid key switching, and
+validated OpenFHE integration. Update the tracker and progress log in the same
+commit as each completed gate.
+
+## Live tracker
+
+| Field | Current value |
+|---|---|
+| Working day | **D1** |
+| Active phase | **P1 — contract and architecture freeze** |
+| Active task | Read the CUDA implementation in execution order and document its data/ordering contract |
+| Next gate | P1 architecture review: frozen OpenFHE representation, buffer, ordering, and integration contracts |
+| Overall state | In progress |
+
+Hardware decision: use RTX 5090 as the primary development/optimization target,
+retain RTX 4090 as the Ada control, and move to RTX PRO 6000 Blackwell only if
+measured resident memory or production reliability requires it. H200/B200 remain
+benchmark candidates rather than assumed winners. See
+[`gpu-selection-survey.md`](gpu-selection-survey.md).
+
+Status vocabulary: `DONE`, `IN PROGRESS`, `NOT STARTED`, `BLOCKED`.
+
+| Phase | Working days | Status | Exit artifact |
+|---|---:|---|---|
+| P0 — pre-plan correctness baseline | Before D1 | DONE | CPU oracle, schedule simulator, CUDA source, exact OpenFHE NTT gate |
+| P1 — contracts and architecture | D1–D10 | IN PROGRESS | Architecture decision record and frozen operation graph |
+| P2 — first RTX GPU baseline | D11–D15 | NOT STARTED | Exact CUDA results and named-hardware baseline |
+| P3 — production GPU NTT | D16–D40 | NOT STARTED | Tuned, device-resident NTT dispatch |
+| P4 — exact base-conversion model | D41–D49 | NOT STARTED | OpenFHE-exact CPU Q↔QP oracle and fixtures |
+| P5 — GPU base conversion | D50–D61 | NOT STARTED | Exact and tuned ModUp/ModDown kernels |
+| P6 — Hybrid key-switch contract | D62–D68 | NOT STARTED | Frozen decomposition/QP/MAC/ModDown graph |
+| P7 — GPU Hybrid key switching | D69–D85 | NOT STARTED | Exact relinearization and rotation backend |
+| P8 — OpenFHE integration | D86–D95 | NOT STARTED | Integrated backend with fallback and full tests |
+| P9 — risk reserve | D96–D110 | NOT STARTED | Used only for integration and correctness risks |
+
+## Definition of exact compatibility
+
+Given the same parameters, input arrays, ciphertext components, and evaluation
+keys, the GPU path must produce the same per-tower arrays as the pinned OpenFHE
+implementation. Approximate CKKS decryption agreement is a secondary test, not
+the compatibility criterion. Key generation randomness is outside this rule;
+the fixed generated key is part of the test input.
+
+Every production kernel must pass, in order:
+
+1. arithmetic primitive versus the `__uint128_t` oracle;
+2. operation versus this repository's CPU reference;
+3. operation versus pinned OpenFHE 1.6.1;
+4. full pipeline versus OpenFHE using fixed inputs and keys;
+5. benchmark/profiler gate on named hardware.
+
+## P0 — pre-plan baseline (DONE)
+
+- [x] Negacyclic CPU NTT and Python big-integer oracle.
+- [x] Shared CPU/CUDA stage bodies and portable schedule simulator.
+- [x] Correctness-first two-pass CUDA source.
+- [x] Exact public OpenFHE 1.6.1 transform compatibility for all target `N`.
+- [x] RTX 4090/5090 build targets and rented-GPU setup script.
+- [x] Benchmark and tuning methodology.
+- [ ] Execution of CUDA gates on real hardware; this belongs to P2.
+
+## P1 — contract and architecture freeze (D1–D10)
+
+| Day | Work | Required output |
+|---:|---|---|
+| D1 | Read forward column kernel and launch geometry | Index and memory-access map for `N=4096` and `N=65536` |
+| D2 | Derive forward column butterfly indices | Worked `p,g,j,u,v,r,d` example and twiddle proof |
+| D3 | Read inverse column kernel and DIT arithmetic | Forward/inverse correspondence |
+| D4 | Read contiguous tile kernels | Proof that every global stage appears exactly once |
+| D5 | Read constructor, buffers, and public API | Host/device dataflow and allocation map |
+| D6 | Read modular arithmetic and exact test gates | Arithmetic bounds and adversarial-test list |
+| D7 | Trace OpenFHE NTT/DCRT representation | Natural/bit-reversed and coefficient/evaluation contract |
+| D8 | Trace OpenFHE Hybrid implementation | Exact `Q -> QP -> MAC -> Q` operation graph |
+| D9 | Design buffer views and backend seam | Device buffer/stream/cache API proposal |
+| D10 | Architecture review | Accepted ADR and implementation backlog |
+
+P1 exit gate:
+
+- [ ] Representation and ordering transitions are explicit.
+- [ ] The exact OpenFHE rounding/reduction order is identified.
+- [ ] Buffer views record ring size, Q/P towers, level, representation,
+  ordering, device, stream, and event ownership.
+- [ ] The first integration seam and CPU fallback behavior are frozen.
+
+## P2 — first real GPU baseline (D11–D15)
+
+| Day | Work | Required output |
+|---:|---|---|
+| D11 | Provision the selected GPU and CUDA toolkit | Reproducible environment record |
+| D12 | Build native architecture and run smoke tests | Successful native CUDA build |
+| D13 | Run exact gates over all `N` and modulus widths | Correctness report |
+| D14 | Profile with CUDA events and Nsight | Kernel, L2, DRAM, occupancy, and register data |
+| D15 | Analyze and publish baseline | Raw samples, summary table, first bottleneck decision |
+
+Minimum cases: zero, one, `q-1`, alternating bounds, deterministic random,
+forward, inverse, round-trip, evaluation-domain inverse, and polynomial
+multiplication. Record 50-, 55-, and 59/60-bit OpenFHE-compatible primes.
+
+P2 exit gate:
+
+- [ ] `OpenFHE == CPU reference == CUDA` for every target size.
+- [ ] Kernel-only and transfer-inclusive timings are separated.
+- [ ] Actual sectors/requested byte and L2/DRAM traffic are recorded for the
+  strided pass.
+
+## P3 — production GPU NTT (D16–D40)
+
+### D16–D25 — arithmetic and device API
+
+| Days | Work |
+|---:|---|
+| D16–D17 | Introduce an arithmetic-policy interface while retaining the oracle path |
+| D18–D20 | Implement Shoup multiplication and parallel twiddle quotient tables |
+| D21 | Add adversarial Shoup tests at maximum supported modulus width |
+| D22–D23 | Implement and test Barrett variable multiplication |
+| D24 | Add device-buffer, asynchronous stream, and event API |
+| D25 | Run complete exact regression and benchmark |
+
+### D26–D40 — layout, radix, and selection
+
+| Days | Work |
+|---:|---|
+| D26–D29 | Prototype coalesced transpose/Four-Step replacement for the column pass |
+| D30–D32 | Implement radix-4 register staging |
+| D33–D35 | Implement radix-8 register staging and padded shared memory |
+| D36 | Compare warp shuffle and shared-memory exchange for small stages |
+| D37 | Add compile-time specializations for the five ring dimensions |
+| D38 | Run latency/throughput autotuning over real tower and batch counts |
+| D39 | Freeze the per-device/per-size dispatch table |
+| D40 | Production NTT gate and documentation update |
+
+P3 exit gate:
+
+- [ ] Exact transform for all target sizes and moduli.
+- [ ] No optimized kernel silently uses device-side integer remainder.
+- [ ] Device-resident forward, inverse, and pointwise operations compose
+  without host synchronization.
+- [ ] A selected latency and throughput configuration exists for every target
+  size on the primary GPU.
+
+## P4 — exact base-conversion model (D41–D49)
+
+| Day | Work |
+|---:|---|
+| D41 | Locate and trace OpenFHE ModUp (`Q -> QP`) |
+| D42 | Locate and trace OpenFHE ApproxModDown (`QP -> Q`) |
+| D43 | Record precomputed constants, reductions, rounding, and table layouts |
+| D44 | Extract fixed OpenFHE intermediate fixtures |
+| D45 | Implement standalone CPU `Q -> QP` oracle |
+| D46 | Implement standalone CPU `QP -> Q` oracle |
+| D47 | Test every target level, tower count, and adversarial coefficient |
+| D48 | Design base-conversion buffer and batched APIs |
+| D49 | Review and freeze the exact contract |
+
+P4 exit gate: the standalone CPU base-conversion arrays equal pinned OpenFHE
+at every intermediate boundary, not only after a complete key switch.
+
+## P5 — GPU base conversion (D50–D61)
+
+| Days | Work |
+|---:|---|
+| D50–D52 | Implement batched GPU Q-to-P basis extension |
+| D53 | Exact Q-to-P tests and profiler pass |
+| D54–D56 | Implement GPU QP-to-Q reduction |
+| D57 | Exact QP-to-Q tests and profiler pass |
+| D58 | Add dynamic CKKS level and tower-count support |
+| D59 | Tune coefficient tile, output-tower mapping, accumulation, and reduction |
+| D60 | Run the complete size/tower/batch benchmark matrix |
+| D61 | Production base-conversion gate |
+
+P5 exit gate:
+
+- [ ] Exact Q-to-QP and QP-to-Q arrays.
+- [ ] Dynamic active Q/P tower counts.
+- [ ] NTT and base conversion share device buffers without conversion copies.
+- [ ] Selected latency and throughput configurations are recorded.
+
+## P6 — Hybrid key-switch contract (D62–D68)
+
+| Day | Work |
+|---:|---|
+| D62 | Trace evaluation-key generation and storage |
+| D63 | Trace digit decomposition and transform placement |
+| D64 | Trace ModUp and evaluation-key multiplication |
+| D65 | Trace ModDown and final ciphertext folding |
+| D66 | Extract fixed intermediate fixtures from OpenFHE |
+| D67 | Design GPU evaluation-key layout, cache, and lifetime rules |
+| D68 | Freeze the full Hybrid operation graph |
+
+P6 exit gate: all decomposition, basis, ordering, scaling, rounding, and final
+accumulation boundaries have exact OpenFHE fixtures.
+
+## P7 — GPU Hybrid key switching (D69–D85)
+
+| Days | Work |
+|---:|---|
+| D69–D71 | Implement device-resident digit decomposition |
+| D72–D73 | Connect inverse NTT and Q-to-QP ModUp |
+| D74–D76 | Implement evaluation-key multiply-accumulate in QP |
+| D77–D78 | Connect QP-to-Q ModDown |
+| D79 | Implement final `c0/c1` accumulation |
+| D80 | Validate relinearization |
+| D81 | Validate automorphism/rotation |
+| D82 | Exercise all target CKKS levels and digit counts |
+| D83 | Run exact intermediate and final-array tests |
+| D84 | Profile key cache, L2 behavior, memory footprint, and launch gaps |
+| D85 | Production Hybrid key-switch gate |
+
+P7 exit gate:
+
+- [ ] Fixed inputs and evaluation keys produce exact OpenFHE tower arrays.
+- [ ] Relinearization and rotations pass exact and decryption tests.
+- [ ] Evaluation keys and constants upload once and remain cached.
+- [ ] Full key-switch latency and batched throughput are reported.
+
+## P8 — OpenFHE integration (D86–D95)
+
+| Day | Work |
+|---:|---|
+| D86 | Implement the OpenFHE GPU backend adapter |
+| D87 | Add CMake CUDA discovery and opt-in configuration |
+| D88 | Map `DCRTPoly` towers to versioned GPU buffer views |
+| D89 | Add parameter, twiddle, basis-table, and scratch caches |
+| D90 | Add evaluation-key cache |
+| D91 | Dispatch NTT, base conversion, and Hybrid key switching |
+| D92 | Implement explicit unsupported-case CPU fallback |
+| D93 | Finish stream/event lifetime, synchronization, and error handling |
+| D94 | Run OpenFHE CKKS examples and relevant upstream tests |
+| D95 | Integration release gate, documentation, and benchmark report |
+
+Dispatch policy:
+
+```text
+supported parameters + GPU enabled -> CUDA backend
+GPU unavailable                    -> existing OpenFHE CPU path
+unsupported parameter combination -> explicit documented CPU fallback
+CUDA runtime failure               -> visible error, never silent corruption
+```
+
+P8 exit gate:
+
+- [ ] OpenFHE CKKS runs with Hybrid key switching through the GPU backend.
+- [ ] Original CPU tests and fallback remain green.
+- [ ] NTT, base conversion, relinearization, and rotation meet exact gates.
+- [ ] Constants and evaluation keys remain resident across operations.
+- [ ] All results identify hardware, clocks/power mode, driver, toolkit,
+  compiler, commit, parameters, timing boundary, and correctness status.
+
+## P9 — risk reserve (D96–D110)
+
+Use only for work that blocks a preceding exit gate:
+
+- OpenFHE rounding/reduction-order differences;
+- natural/bit-reversed ordering mistakes;
+- CKKS level/tower corner cases;
+- register spilling, shared-memory pressure, or poor occupancy;
+- evaluation-key memory pressure and cache eviction;
+- CUDA stream/event lifetime defects;
+- primary-GPU compiler or architecture problems;
+- cross-GPU dispatch regressions.
+
+Do not schedule new features in the reserve. Cipher inference begins only after
+P8 is green; it is a separate plan covering model operators, rescaling,
+rotations, graph scheduling, accuracy, and end-to-end latency.
+
+## Progress log
+
+| Date | Day | Change | Evidence/commit |
+|---|---:|---|---|
+| 2026-11-06 | D1 | Created tracked integration plan; began line-by-line CUDA forward-column review; completed primary-source GPU selection survey | Pending commit |
+
