@@ -1,0 +1,79 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: Configure Debug",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-S",
+        "${workspaceFolder}",
+        "-B",
+        "${workspaceFolder}/build/debug",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+      ],
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "CMake: Build debug example",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "${workspaceFolder}/build/debug",
+        "--target",
+        "ntt_debug_example",
+        "-j4"
+      ],
+      "dependsOn": "CMake: Configure Debug",
+      "problemMatcher": ["$gcc"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Run: NTT debug example",
+      "type": "shell",
+      "command": "${workspaceFolder}/build/debug/ntt_debug_example",
+      "dependsOn": "CMake: Build debug example",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "Test: All CPU checks",
+      "type": "shell",
+      "command": "ctest",
+      "args": [
+        "--test-dir",
+        "${workspaceFolder}/build/debug",
+        "--output-on-failure"
+      ],
+      "dependsOn": "CMake: Build all Debug",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "Generate: Debug vector N=1024",
+      "type": "shell",
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/tests/oracle/gen_vectors.py",
+        "${workspaceFolder}/build/debug/vector_n1024.txt"
+      ],
+      "dependsOn": "CMake: Build all Debug",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build all Debug",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "${workspaceFolder}/build/debug", "-j4"],
+      "dependsOn": "CMake: Configure Debug",
+      "problemMatcher": ["$gcc"],
+      "group": "build"
+    }
+  ]
+}

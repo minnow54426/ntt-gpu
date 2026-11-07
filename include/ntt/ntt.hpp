@@ -91,22 +91,29 @@ public:
   // inside the butterfly — and walks the difference leg by
   // w = (psi^(n/d))^j = omega^(j·n/2d), the plain cyclic stride in
   // disguise. The first pair of each block has w = 1: free.
-  void forward(std::vector<uint64_t> &a) const {
-    check_size(a);
-    for (uint64_t d = n_ / 2; d >= 1; d >>= 1) {
-      const uint64_t c = pow_mod(psi_, d, q_);
-      const uint64_t stride = pow_mod(psi_, n_ / d, q_);
-      for (uint64_t i = 0; i < n_; i += 2 * d) { // each block of 2d wires
-        uint64_t w = 1;
-        for (uint64_t j = 0; j < d; ++j) {
+  void forward(std::vector<uint64_t> &values) const {
+    check_size(values);
+    for (uint64_t stage_pair_distance = n_ / 2; stage_pair_distance >= 1;
+         stage_pair_distance >>= 1) {
+      const uint64_t ladder_twiddle = pow_mod(psi_, stage_pair_distance, q_);
+      const uint64_t twiddle_step = pow_mod(psi_, n_ / stage_pair_distance, q_);
+      for (uint64_t group_start_index = 0; group_start_index < n_;
+           group_start_index += 2 * stage_pair_distance) {
+        uint64_t twiddle_power = 1;
+        for (uint64_t pair_offset = 0; pair_offset < stage_pair_distance;
+             ++pair_offset) {
           // One ladder butterfly: (u, v) -> (u + c·v, (u − c·v)·w).
           // The +/- pair exists because psi^(n/2) == -1; this body is
           // what the CUDA backend tiles across threads.
-          const uint64_t u = a[i + j];
-          const uint64_t cv = mul_mod(c, a[i + j + d], q_);
-          a[i + j] = add_mod(u, cv, q_);
-          a[i + j + d] = mul_mod(sub_mod(u, cv, q_), w, q_);
-          w = mul_mod(w, stride, q_); // next twiddle on the walk
+          const uint64_t upper_index = group_start_index + pair_offset;
+          const uint64_t lower_index = upper_index + stage_pair_distance;
+          const uint64_t upper_value = values[upper_index];
+          const uint64_t scaled_lower_value =
+              mul_mod(ladder_twiddle, values[lower_index], q_);
+          values[upper_index] = add_mod(upper_value, scaled_lower_value, q_);
+          values[lower_index] =
+              mul_mod(sub_mod(upper_value, scaled_lower_value, q_), twiddle_power, q_);
+          twiddle_power = mul_mod(twiddle_power, twiddle_step, q_);
         }
       }
     }
@@ -119,31 +126,41 @@ public:
   // crosses log2(n) of them, so the unpaid debt is exactly the n^-1.
   // Bit-reversed values in, natural coefficients out: no bit-reversal
   // pass exists anywhere in this class.
-  void inverse(std::vector<uint64_t> &a) const {
-    check_size(a);
-    for (uint64_t d = 1; d <= n_ / 2; d <<= 1) {
-      const uint64_t ci = pow_mod(psi_inv_, d, q_);
-      const uint64_t stride = pow_mod(psi_inv_, n_ / d, q_);
-      for (uint64_t i = 0; i < n_; i += 2 * d) {
-        uint64_t w = 1;
-        for (uint64_t j = 0; j < d; ++j) {
-          const uint64_t x = a[i + j];
-          const uint64_t t = mul_mod(a[i + j + d], w, q_);   // y·w⁻¹
-          a[i + j] = add_mod(x, t, q_);                      // 2u (debt)
-          a[i + j + d] = mul_mod(sub_mod(x, t, q_), ci, q_); // 2v (debt)
-          w = mul_mod(w, stride, q_);
+  void inverse(std::vector<uint64_t> &values) const {
+    check_size(values);
+    for (uint64_t stage_pair_distance = 1; stage_pair_distance <= n_ / 2;
+         stage_pair_distance <<= 1) {
+      const uint64_t inverse_ladder_twiddle =
+          pow_mod(psi_inv_, stage_pair_distance, q_);
+      const uint64_t inverse_twiddle_step =
+          pow_mod(psi_inv_, n_ / stage_pair_distance, q_);
+      for (uint64_t group_start_index = 0; group_start_index < n_;
+           group_start_index += 2 * stage_pair_distance) {
+        uint64_t inverse_twiddle_power = 1;
+        for (uint64_t pair_offset = 0; pair_offset < stage_pair_distance;
+             ++pair_offset) {
+          const uint64_t upper_index = group_start_index + pair_offset;
+          const uint64_t lower_index = upper_index + stage_pair_distance;
+          const uint64_t upper_value = values[upper_index];
+          const uint64_t twiddled_lower_value =
+              mul_mod(values[lower_index], inverse_twiddle_power, q_);
+          values[upper_index] = add_mod(upper_value, twiddled_lower_value, q_);
+          values[lower_index] = mul_mod(sub_mod(upper_value, twiddled_lower_value, q_),
+                                        inverse_ladder_twiddle, q_);
+          inverse_twiddle_power =
+              mul_mod(inverse_twiddle_power, inverse_twiddle_step, q_);
         }
       }
     }
-    for (uint64_t i = 0; i < n_; ++i)
-      a[i] = mul_mod(a[i], n_inv_, q_);
+    for (uint64_t value_index = 0; value_index < n_; ++value_index)
+      values[value_index] = mul_mod(values[value_index], n_inv_, q_);
   }
 
 private:
-  void check_size(const std::vector<uint64_t> &a) const {
-    if (a.size() != n_)
-      throw std::length_error("vector size " + std::to_string(a.size()) + " != n " +
-                              std::to_string(n_));
+  void check_size(const std::vector<uint64_t> &values) const {
+    if (values.size() != n_)
+      throw std::length_error("vector size " + std::to_string(values.size()) +
+                              " != n " + std::to_string(n_));
   }
 
   // --- the problem shape (identical for every kind of NTT) -------------

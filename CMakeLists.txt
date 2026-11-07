@@ -10,16 +10,19 @@ option(NTT_ENABLE_OPENFHE_COMPAT
 
 add_executable(ntt_cli src/cli.cpp)
 add_executable(ntt_tests tests/unit_tests.cpp)
+add_executable(ntt_debug_example examples/step_by_step.cpp)
 # Layer 2a: the GPU stage schedule, proven on CPU before any rental. Same
 # stage bodies the kernels run (include/ntt/dev_core.hpp), serially.
 add_executable(ntt_device_sim src/device_sim.cpp)
-foreach(t ntt_cli ntt_tests ntt_device_sim)
+foreach(t ntt_cli ntt_tests ntt_debug_example ntt_device_sim)
   target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_compile_options(${t} PRIVATE -Wall -Wextra -Werror)
 endforeach()
 
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_test(NAME debug_example COMMAND ntt_debug_example)
 
 set(VEC ${CMAKE_CURRENT_BINARY_DIR}/vector_n1024.txt)
 

@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug: NTT example (step by step)",
+      "type": "lldb-dap",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/ntt_debug_example",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "CMake: Build debug example",
+      "stopOnEntry": true
+    },
+    {
+      "name": "Debug: CPU unit tests",
+      "type": "lldb-dap",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/ntt_tests",
+      "args": ["${workspaceFolder}/build/debug/vector_n1024.txt"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Generate: Debug vector N=1024",
+      "stopOnEntry": false
+    }
+  ]
+}

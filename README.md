@@ -51,6 +51,10 @@ reconstruction over all limbs — and the device-schedule check: the simulator
 (`src/device_sim.cpp`) runs the exact stage bodies the CUDA kernels run and
 must match the CPU reference array-for-array, bit-reversed order included.
 
+For a ready-to-run macOS VS Code setup, including an `N=8` example and LLDB
+single-stepping instructions, see
+[`docs/vscode-debugging.md`](docs/vscode-debugging.md).
+
 With nvcc present, CMake auto-detects it and adds `ntt_cuda_cli` plus three
 GPU gates, unchanged commands otherwise: `cuda_oracle_crosscheck` (the same
 Python oracle against the CUDA binary — its output is byte-identical to
@@ -153,6 +157,8 @@ odd powers of ψ, where x^N+1 splits into linear factors.
   tracked 95-day implementation plan (plus risk reserve) from the current NTT
   baseline through GPU base conversion, Hybrid key switching, and validated
   OpenFHE integration.
+- [`docs/vscode-debugging.md`](docs/vscode-debugging.md) — shared VS Code build,
+  run, test, and LLDB step-debugging setup for the small CPU NTT example.
 
 ## Provenance
 

@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Butterflies All the Way Down — why the NTT is built from one tiny unit</title>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<script defer src="vendor/katex/katex.min.js"></script>
+<script defer src="vendor/katex/contrib/auto-render.min.js"></script>
+<script defer src="math-rendering.js"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 4 L28 28 M28 4 L4 28' stroke='%23C2410C' stroke-width='5' stroke-linecap='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -144,9 +148,39 @@
     margin: 18px 0; display: inline-block; line-height: 1.9; white-space: pre; overflow-x: auto; max-width: 100%;
   }
   .m { font-family: var(--mono); font-size: 0.88em; background: var(--paper-deep); padding: 1px 6px; border-radius: 6px; }
+  .math.typeset { white-space: normal; }
+  .typeset .katex-display { margin: 0.4em 0; text-align: left; }
+  .typeset .katex-display > .katex { text-align: left; }
+  .m .katex { font-size: 1.08em; }
   .math .ev { color: var(--teal); font-weight: 600; }
   .math .od { color: var(--accent); font-weight: 600; }
   code.inline { font-family: var(--mono); font-size: 0.85em; background: var(--paper-deep); padding: 1px 6px; border-radius: 6px; }
+
+  /* derivation steps: direct sum -> shared halves -> butterfly */
+  .derive-flow {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
+    margin: 24px 0;
+  }
+  .derive-step {
+    position: relative; background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 17px 16px; min-height: 142px;
+  }
+  .derive-step:not(:last-child)::after {
+    content: "→"; position: absolute; right: -19px; top: 50%; z-index: 2;
+    width: 25px; height: 25px; margin-top: -12px; border-radius: 999px;
+    background: var(--paper); color: var(--accent); font-family: var(--mono);
+    font-weight: 600; text-align: center; line-height: 23px;
+  }
+  .derive-step b {
+    display: block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+    color: var(--accent); margin-bottom: 8px;
+  }
+  .derive-step p { margin: 0 !important; font-size: 16px; line-height: 1.45; color: var(--ink-soft); }
+  .derive-step .mini-math { margin-top: 9px; font-family: var(--mono); font-size: 13px; color: var(--ink); }
+  .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0; }
+  .compare-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  .compare-card h4 { font-family: var(--display); font-size: 19px; margin-bottom: 8px; }
+  .compare-card p { margin: 7px 0 !important; font-size: 16.5px; color: var(--ink-soft); }
 
   /* interactive card frame */
   .widget {
@@ -316,6 +350,8 @@
     .sec-num { font-size: 38px; min-width: 48px; }
     .page { padding: 0 18px 100px; }
     .quick-grid { grid-template-columns: repeat(2, 1fr); }
+    .derive-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .derive-step::after { display: none; }
   }
   @media (max-width: 560px) {
     body { font-size: 17px; }
@@ -326,6 +362,7 @@
     .widget { padding: 18px 14px; }
     .sec-head { gap: 10px; }
     .sec-num { font-size: 30px; min-width: 38px; }
+    .derive-flow, .compare-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -386,7 +423,7 @@
       <div class="quick-step"><b>3 · REUSE</b><span>A butterfly computes one shared sum-and-difference pair.</span></div>
       <div class="quick-step"><b>4 · REPEAT</b><span>N/2 butterflies across log₂N stages finish the transform.</span></div>
     </div>
-    <p class="read-path">Shortest path: <a href="#s1">data</a> → <a href="#s3">NTT</a> → <a href="#s6">butterfly</a> → <a href="#s7">network</a> → <a href="#s9">negacyclic</a>. The other chapters are optional detail.</p>
+    <p class="read-path">Shortest path: <a href="#s1">data</a> → <a href="#s3">NTT</a> → <a href="#s5">sum to butterfly</a> → <a href="#s6">butterfly</a> → <a href="#s7">network</a> → <a href="#s9">negacyclic</a>. The other chapters are optional detail.</p>
   </aside>
 
   <div class="layout">
@@ -397,7 +434,7 @@
       <a href="#s2"><span class="n">02</span>Special points</a>
       <a href="#s3"><span class="n">03</span>What the NTT does</a>
       <a href="#s4"><span class="n">04</span>Why direct is slow</a>
-      <a href="#s5"><span class="n">05</span>Where reuse appears</a>
+      <a href="#s5"><span class="n">05</span>Sum → butterflies</a>
       <a href="#s6"><span class="n">06</span>One butterfly</a>
       <a href="#s7"><span class="n">07</span>Full N = 8 network</a>
       <a href="#s8"><span class="n">08</span>Work saved</a>
@@ -470,14 +507,14 @@
         </div>
         <div class="w-note">dashed diameters: opposite points sum to 17 = q — each is the other's negative (property iii, halfway = minus)</div>
       </div>
-      <p>Eight <b>different</b> numbers, then the ninth step lands back on 1. The powers of 2 form a closed loop of exactly 8 points — a <b>wheel</b>. Such a number is a <b>root of unity</b> ("unity" just means 1): <span class="m">ω^N = 1</span>, and <b>primitive</b> if no earlier power comes home. Everything the NTT relies on is a property of this wheel:</p>
+      <p>Eight <b>different</b> numbers, then the ninth step lands back on 1. The powers of 2 form a closed loop of exactly 8 points — a <b>wheel</b>. Such a number is a <b>root of unity</b> ("unity" just means 1): <span class="m">\(ω^N = 1\)</span>, and <b>primitive</b> if no earlier power comes home. Everything the NTT relies on is a property of this wheel:</p>
       <p class="dim">Nothing sacred about 2 — mod 17 offers four primitive 8th roots: 2, 8, 9, 15. Each walks the <i>same</i> eight points in a different order; 2 just gives the easiest multiplication table.</p>
       <details class="deep-dive">
         <summary>Optional: why these points make the NTT fast</summary>
       <div class="reasons">
-        <div class="reason"><div class="r-num">i.</div><h4>Closed: multiply = move</h4><p>Powers never leave the wheel: <span class="m">ωᵃ·ωᵇ = ω^(a+b)</span> — multiplying just adds positions, a clock for multiplication (the logarithm trick). <b>Why:</b> one number generates all N plug-in points, one multiplication each.</p></div>
+        <div class="reason"><div class="r-num">i.</div><h4>Closed: multiply = move</h4><p>Powers never leave the wheel: <span class="m">\(ω^{a}\,ω^{b} = ω^{a+b}\)</span> — multiplying just adds positions, a clock for multiplication (the logarithm trick). <b>Why:</b> one number generates all N plug-in points, one multiplication each.</p></div>
         <div class="reason"><div class="r-num">ii.</div><h4>Distinct: nothing is lost</h4><p>A primitive root visits N <i>different</i> points, so N plugged-in values pin the list down exactly — the coordinates are reversible. <b>Why:</b> the transform has an inverse. The one demand on the prime: N | q−1 (<code class="inline">ntt.hpp:61</code>).</p></div>
-        <div class="reason"><div class="r-num">iii.</div><h4>Halfway = minus</h4><p><span class="m">ω^(N/2) = −1</span>: opposite points are negatives (above: 1↔16, 2↔15, 4↔13, 8↔9 — each pair sums to 17). <b>Why:</b> the ± that makes output pairs — the butterfly's two wings (chapter 6).</p></div>
+        <div class="reason"><div class="r-num">iii.</div><h4>Halfway = minus</h4><p><span class="m">\(ω^{N/2} = -1\)</span>: opposite points are negatives (above: 1↔16, 2↔15, 4↔13, 8↔9 — each pair sums to 17). <b>Why:</b> the ± that makes output pairs — the butterfly's two wings (chapter 6).</p></div>
         <div class="reason"><div class="r-num">iv.</div><h4>Squaring = a half wheel</h4><p>Every second point closes after N/2 steps: a half-size wheel with root ω². <b>Why:</b> wheels nest — the transform builds itself from half-size copies, the source of every "repeat" in chapter 5.</p></div>
       </div>
       <div class="callout">
@@ -490,9 +527,9 @@
     <!-- ============================ 3. THE EQUATION ============================ -->
     <section id="s3" class="reveal">
       <div class="sec-head"><div class="sec-num">03</div><h2>What the NTT does</h2></div>
-      <p>A list like <span class="m">(2, 1)</span> is a tiny machine: plug a number t in for x, get a value out. And plugged-in values multiply one by one:</p>
-      <div class="math">(A·B)(plug in t)  =  A(plug in t)  ×  B(plug in t)</div>
-      <p><b>One multiplication, no crossing terms</b> — and it holds for <i>every</i> t. Both roads below use <span class="m">t = 2</span> (mod 5); change any coefficient and they still agree:</p>
+      <p>A list like <span class="m">\((2, 1)\)</span> is a tiny machine: plug a number t in for x, get a value out. And plugged-in values multiply one by one:</p>
+      <div class="math typeset">\[(A\cdot B)(t) = A(t)\times B(t)\]</div>
+      <p><b>One multiplication, no crossing terms</b> — and it holds for <i>every</i> t. Both roads below use <span class="m">\(t = 2\)</span> (mod 5); change any coefficient and they still agree:</p>
       <div class="widget">
         <div class="w-title">Interactive · two roads, one answer (mod 5)</div>
         <div class="w-row" style="gap:18px;">
@@ -531,7 +568,7 @@
       <p>To pin the product down we need its values at <b>N different points</b> — chapter 2's wheel supplies them.</p>
       <div class="definition">
         <div class="kicker">the definition · the whole transform in one line</div>
-        <div class="eq">Aⱼ  =  a₀ + a₁·<span class="om">ωʲ</span> + a₂·<span class="om">ω²ʲ</span> + a₃·<span class="om">ω³ʲ</span> + …      <span style="font-size:0.72em; color:#8F8875;">(mod q)</span></div>
+        <div class="eq typeset">\[A_j = a_0+a_1\omega^j+a_2\omega^{2j}+a_3\omega^{3j}+\cdots \pmod{q}\]</div>
         <p>Evaluating the list at all N wheel points <b>is the NTT</b>. Output j is the list plugged in at wheel point <b>ωʲ</b> — and because the points are distinct (wheel property ii), the transform inverts:</p>
         <p><span class="chain">evaluate → multiply pointwise → invert</span> &nbsp;replaces a list multiplication with N plain multiplies. The rest of this page makes that round trip cheap.</p>
       </div>
@@ -544,7 +581,7 @@
     <!-- ============================ 4. THE DIRECT COST ============================ -->
     <section id="s4" class="reveal">
       <div class="sec-head"><div class="sec-num">04</div><h2>Direct evaluation is too expensive</h2></div>
-      <p>The equation demands N outputs, each a sum of N products — computed one by one, that's <span class="m">N × N</span> multiplications per transform:</p>
+      <p>The equation demands N outputs, each a sum of N products — computed one by one, that's <span class="m">\(N \times  N\)</span> multiplications per transform:</p>
       <div class="widget">
         <div class="w-title">Interactive · feel the N² pain</div>
         <div class="w-row">
@@ -562,33 +599,84 @@
 
     <!-- ============================ 5. EXPANSION ============================ -->
     <section id="s5" class="reveal">
-      <div class="sec-head"><div class="sec-num">05</div><h2>Repeated work becomes visible</h2></div>
-      <p>Here is the fast algorithm, discovered the honest way. Chapter 3's equation makes every output a sum of four products, and chapter 4 says computing them separately costs N×N. So take a list of four numbers <span class="m">a = (a₀, a₁, a₂, a₃)</span> and write <b>all four outputs out longhand</b>, hunting for work that repeats. (Remember ω has order 4 here — <span class="m">ω⁴ = 1</span> — so exponents wrap: ω⁶ = ω², ω⁹ = ω.)</p>
+      <div class="sec-head"><div class="sec-num">05</div><h2>Turn the NTT sum into butterflies</h2></div>
+      <p>Start from the ordinary NTT definition. For output index k, direct evaluation forms one N-term sum:</p>
+      <div class="math typeset" style="display:block;">\[
+A_k = \sum_{r=0}^{N-1} a_r\,\omega^{rk}, \qquad 0\leq k&lt;N
+\]</div>
+      <p>The optimization is not an approximation. Split that exact sum by whether the input index r is even or odd. Write <span class="m">\(r = 2m\)</span> for even indices and <span class="m">\(r = 2m+1\)</span> for odd indices:</p>
+      <div class="math typeset" style="display:block;">\[
+\begin{aligned}
+\textcolor{#14655A}{E_k} &= \sum_{m=0}^{N/2-1} a_{2m}\,(\omega^2)^{mk} \\
+\textcolor{#C2410C}{O_k} &= \sum_{m=0}^{N/2-1} a_{2m+1}\,(\omega^2)^{mk} \\[0.5em]
+A_k &= \textcolor{#14655A}{E_k} + \omega^k\,\textcolor{#C2410C}{O_k}
+\end{aligned}
+\]</div>
+      <p>Now look at the output halfway around the wheel. Since <span class="m">\(ω^{N/2} = -1\)</span>, its odd half changes sign while its even half does not:</p>
+      <div class="math typeset" style="display:block;">\[
+\begin{aligned}
+A_{k+N/2} &= \textcolor{#14655A}{E_k} - \omega^k\,\textcolor{#C2410C}{O_k} \\
+t &= \omega^k O_k \\[0.5em]
+(A_k,\ A_{k+N/2}) &= (E_k+t,\ E_k-t)
+\end{aligned}
+\]</div>
+      <p>That final pair is one butterfly. The two outputs reuse the same <span class="m">\(E[k]\)</span>, the same <span class="m">\(O[k]\)</span>, and—most importantly—the same multiplication <span class="m">\(t = ω^k\,O[k]\)</span>.</p>
+      <div class="derive-flow" aria-label="Four steps that turn the direct NTT sum into butterflies">
+        <div class="derive-step"><b>1 · DIRECT</b><p>Compute N independent sums, each with N terms.</p><div class="mini-math">\(\text{cost: } O(N^2)\)</div></div>
+        <div class="derive-step"><b>2 · SPLIT</b><p>Separate every sum into its even-index and odd-index terms.</p><div class="mini-math">\(A=E+\omega^k O\)</div></div>
+        <div class="derive-step"><b>3 · SHARE</b><p>Pair outputs k and k+N/2. They share everything except a sign.</p><div class="mini-math">\(E+t,\ E-t\)</div></div>
+        <div class="derive-step"><b>4 · RECURSE</b><p>E and O are smaller NTTs using the root ω². Split them again.</p><div class="mini-math">\(\log_2 N\text{ stages}\)</div></div>
+      </div>
+      <div class="callout teal">
+        <h4>Why the optimization keeps working</h4>
+        <p><span class="m">\(ω^{2}\)</span> is an N/2-th root of unity, so E and O have exactly the same shape as the original problem, only half as large. Repeating the split reaches two-value problems. Each level contains N/2 butterflies, and there are log₂N levels.</p>
+      </div>
+      <p>The N = 4 example below expands the same identity completely. Take <span class="m">\(a = (a_{0}, a_{1}, a_{2}, a_{3})\)</span> and write all four outputs longhand. (Here <span class="m">\(ω^{4} = 1\)</span>, so exponents wrap: ω⁶ = ω², ω⁹ = ω.)</p>
       <details class="deep-dive">
-        <summary>Optional: show the N = 4 algebra</summary>
-      <div class="math" style="display:block;">A₀ = a₀ + a₁ + a₂ + a₃
-A₁ = a₀ + a₁ω + a₂ω² + a₃ω³
-A₂ = a₀ + a₁ω² + a₂ + a₃ω²
-A₃ = a₀ + a₁ω³ + a₂ω² + a₃ω</div>
+        <summary>Worked example: show the N = 4 algebra</summary>
+      <div class="math typeset" style="display:block;">\[
+\begin{aligned}
+A_0 &= a_0+a_1+a_2+a_3 \\
+A_1 &= a_0+a_1\omega+a_2\omega^2+a_3\omega^3 \\
+A_2 &= a_0+a_1\omega^2+a_2+a_3\omega^2 \\
+A_3 &= a_0+a_1\omega^3+a_2\omega^2+a_3\omega
+\end{aligned}
+\]</div>
       <p>Four outputs × four terms — sixteen products if you charge ahead blindly. Now regroup every line, even-position terms first, odd-position terms second, and stare at what repeats:</p>
-      <div class="math" style="display:block;">A₀ = <span class="ev">(a₀ + a₂)</span> + <span class="od">(a₁ + a₃)</span>
-A₂ = <span class="ev">(a₀ + a₂)</span> − <span class="od">(a₁ + a₃)</span>
-
-A₁ = <span class="ev">(a₀ + a₂ω²)</span> + ω·<span class="od">(a₁ + a₃ω²)</span>
-A₃ = <span class="ev">(a₀ + a₂ω²)</span> − ω·<span class="od">(a₁ + a₃ω²)</span></div>
-      <p>The <b>same two brackets sit inside both outputs of each pair</b> — and the multiply <span class="m">ω·(a₁+a₃ω²)</span> is shared too. One more squeeze: halfway around the wheel is minus (property iii), <span class="m">ω² = −1</span>, so <span class="m">(a₀+a₂ω²) = a₀−a₂</span> and <span class="m">(a₁+a₃ω²) = a₁−a₃</span>. Extract the four inner results:</p>
-      <div class="math" style="display:block;">p = a₀ + a₂      q = a₀ − a₂        ← one butterfly (w = 1)
-r = a₁ + a₃      s = a₁ − a₃        ← one butterfly (w = 1)</div>
+      <div class="math typeset" style="display:block;">\[
+\begin{aligned}
+A_0 &= \textcolor{#14655A}{(a_0+a_2)}+\textcolor{#C2410C}{(a_1+a_3)} \\
+A_2 &= \textcolor{#14655A}{(a_0+a_2)}-\textcolor{#C2410C}{(a_1+a_3)} \\[0.5em]
+A_1 &= \textcolor{#14655A}{(a_0+a_2\omega^2)}+\omega\,\textcolor{#C2410C}{(a_1+a_3\omega^2)} \\
+A_3 &= \textcolor{#14655A}{(a_0+a_2\omega^2)}-\omega\,\textcolor{#C2410C}{(a_1+a_3\omega^2)}
+\end{aligned}
+\]</div>
+      <p>The <b>same two brackets sit inside both outputs of each pair</b> — and the multiply <span class="m">\(ω\,(a_{1}+a_{3}ω^{2})\)</span> is shared too. One more squeeze: halfway around the wheel is minus (property iii), <span class="m">\(ω^{2} = -1\)</span>, so <span class="m">\((a_{0}+a_{2}ω^{2}) = a_{0}-a_{2}\)</span> and <span class="m">\((a_{1}+a_{3}ω^{2}) = a_{1}-a_{3}\)</span>. Extract the four inner results:</p>
+      <div class="math typeset" style="display:block;">\[
+\begin{aligned}
+p &= a_0+a_2, & q &= a_0-a_2 \\
+r &= a_1+a_3, & s &= a_1-a_3
+\end{aligned}
+\qquad (w=1)
+\]</div>
       <p>The brackets <b>are already butterflies</b> — each line is one unit fed with two raw coefficients. The final assembly is two more:</p>
-      <div class="math" style="display:block;">A₀ = p + r        A₂ = p − r          ← one butterfly (w = 1)
-A₁ = q + ω·s      A₃ = q − ω·s        ← one butterfly (w = ω)</div>
-      <p>Count: 2 + 2 = <b>4 butterflies</b> — <span class="m">(N/2)·log₂N</span> for N = 4, and exactly stages 1–2 of chapter 7's picture. Level 1 feeds level 2, and the four outputs fall out.</p>
+      <div class="math typeset" style="display:block;">\[
+\begin{aligned}
+A_0 &= p+r, & A_2 &= p-r && (w=1) \\
+A_1 &= q+\omega s, & A_3 &= q-\omega s && (w=\omega)
+\end{aligned}
+\]</div>
+      <p>Count: 2 + 2 = <b>4 butterflies</b> — <span class="m">\((N/2)\,\log_{2}N\)</span> for N = 4, and exactly stages 1–2 of chapter 7's picture. Level 1 feeds level 2, and the four outputs fall out.</p>
       <p>For general N, name the halves the way the books do — <b>E</b> for the evens-machine, <b>O</b> for the odds-machine — and every pair of slots (j and its opposite j + N/2) is assembled from them:</p>
-      <div class="math">out[j]      =  E  +  w·O
-out[j+N/2]  =  E  −  w·O     ← same E, same O, same w — only the sign flips</div>
+      <div class="math typeset">\[
+\begin{aligned}
+\mathrm{out}[j] &= E+wO \\
+\mathrm{out}[j+N/2] &= E-wO
+\end{aligned}
+\]</div>
       <div class="callout">
         <h4>Where does that minus come from? Wheel property iii</h4>
-        <p>Halfway around, every point is the negative of its mirror: <span class="m">ω^(j+N/2) = −ωʲ</span> (mod 17, ω = 4: ω² = 16 = −1). The repo checks this exact fact at <code class="inline">ntt.hpp:66</code>: <code class="inline">psi^n == q−1</code>.</p>
+        <p>Halfway around, every point is the negative of its mirror: <span class="m">\(ω^{j+N/2} = -ω^{j}\)</span> (mod 17, ω = 4: ω² = 16 = −1). The repo checks this exact fact at <code class="inline">ntt.hpp:66</code>: <code class="inline">psi^n == q−1</code>.</p>
       </div>
       </details>
       <p>The same derivation with real numbers — set the coefficients yourself:</p>
@@ -714,7 +802,7 @@ out[j+N/2]  =  E  −  w·O     ← same E, same O, same w — only the sign fli
     <!-- ============================ 8. THE SCORE ============================ -->
     <section id="s8" class="reveal">
       <div class="sec-head"><div class="sec-num">08</div><h2>How much work is saved?</h2></div>
-      <p>Count the X's in the picture: 4 per stage × 3 stages = <b>12 butterflies</b> for N = 8, against the 64 products of computing chapter 3's equation output-by-output. In general: <span class="m">(N/2) · log₂(N)</span> butterflies versus <span class="m">N²</span> products. The two complexities, side by side:</p>
+      <p>Count the X's in the picture: 4 per stage × 3 stages = <b>12 butterflies</b> for N = 8, against the 64 products of computing chapter 3's equation output-by-output. In general: <span class="m">\((N/2) \, \log_{2}(N)\)</span> butterflies versus <span class="m">\(N^{2}\)</span> products. The two complexities, side by side:</p>
       <div class="widget">
         <div class="w-title">Interactive · direct N² vs butterflies (N/2)·log₂N — log–log plot</div>
         <div class="legend" style="margin:0 0 10px;">
@@ -734,14 +822,21 @@ out[j+N/2]  =  E  −  w·O     ← same E, same O, same w — only the sign fli
     <section id="s9" class="reveal">
       <div class="sec-head"><div class="sec-num">09</div><h2>CKKS uses the negacyclic form</h2></div>
       <p>One loose end from chapter 1: the operation there was "multiply two lists, <b>get back a list of the same length N</b>." But plain multiplication lengthens the list:</p>
-      <div class="math">(2 + x) · (3 + 2x)  =  6 + 7x + 2x²      ← grew from 2 slots to 3</div>
+      <div class="math typeset">\[(2+x)(3+2x)=6+7x+2x^2\]</div>
       <p>If every multiplication grew the list, nothing could chain. The fix is one fold rule, in exactly two flavors:</p>
-      <div class="math" style="display:block;">x^N = +1    "cyclic"     — wrap the overflow back with a <b>plus</b>
-x^N = −1    "negacyclic" — wrap it back with a <b>minus</b></div>
-      <p>The cyclic fold is precisely the world of chapters 3–7: every ω-wheel point satisfies x^N = ω^N = 1. The negacyclic fold is the one this repo implements. With <span class="m">x² = −1</span> (N = 2, mod 5), the overflow folds back like this:</p>
-      <div class="math">6 + 7x + 2x²   →   (6 − 2) + 7x   =   (4, 7)      mod 5:  (4, 2)</div>
+      <div class="math typeset" style="display:block;">\[
+\begin{aligned}
+x^N &= +1 && \text{cyclic: wrap with a plus} \\
+x^N &= -1 && \text{negacyclic: wrap with a minus}
+\end{aligned}
+\]</div>
+      <p>The cyclic fold is precisely the world of chapters 3–7: every ω-wheel point satisfies x^N = ω^N = 1. The negacyclic fold is the one this repo implements. With <span class="m">\(x^{2} = -1\)</span> (N = 2, mod 5), the overflow folds back like this:</p>
+      <div class="math typeset">\[
+6+7x+2x^2 \;\longmapsto\; (6-2)+7x
+\;\equiv\; 4+2x \pmod{5}
+\]</div>
       <p class="dim">All numbers live mod some prime (here mod 5) — only the remainder after dividing survives, so numbers stay tiny forever.</p>
-      <p>Which points respect the <b>minus</b> fold? Those with <span class="m">x^N = −1</span> — the roots of <span class="m">x^N + 1</span>. They are the <b>odd steps</b> of a doubled wheel: a number ψ with <span class="m">ψ^N = −1</span> closes after 2N points, and <span class="m">(ψ^odd)^N = (−1)^odd = −1</span>. Mod 17, ψ = 6, and <span class="m">ψ² = ω</span> — its even steps are chapter 2's wheel:</p>
+      <p>Which points respect the <b>minus</b> fold? Those with <span class="m">\(x^N = -1\)</span> — the roots of <span class="m">\(x^N + 1\)</span>. They are the <b>odd steps</b> of a doubled wheel: a number ψ with <span class="m">\(ψ^N = -1\)</span> closes after 2N points, and <span class="m">\((ψ^{\mathrm{odd}})^N = (-1)^{\mathrm{odd}} = -1\)</span>. Mod 17, ψ = 6, and <span class="m">\(ψ^{2} = ω\)</span> — its even steps are chapter 2's wheel:</p>
       <div class="widget">
         <div class="w-title">The doubled wheel · ψ = 6, a 16-th root of unity mod 17 (ψ⁸ = −1, ψ² = ω)</div>
         <div class="chips-row" style="margin-top:2px;">
@@ -765,26 +860,63 @@ x^N = −1    "negacyclic" — wrap it back with a <b>minus</b></div>
         <div class="w-note">spot-check one highlighted point: 6⁸ = (6²)⁴ = 2⁴ = 16 ≡ −1 (mod 17) ✓ &nbsp;·&nbsp; chapter 3's t = 2 mod 5 was exactly an odd step of the small doubled wheel there (2² ≡ −1, 2⁴ ≡ 1)</div>
       </div>
       <div class="callout teal">
-        <h4>The twist: same butterflies, one seasoning</h4>
-        <p>Conceptually: multiply the inputs by the ψ-powers table before the network, undo after. The repo's reference goes one better — it <b>folds the twist into the butterflies</b> as ladder constants: stage with pair distance d multiplies the add leg by ψ^d (an odd wheel power — exactly where x^N + 1 lives) and strides the difference leg by ψ^(n/d). One sweep, no tables, no bit-reversal pass, same math (<code class="inline">ntt.hpp</code>). That is the entire difference — and exactly what this repo implements.</p>
+        <h4>The key substitution: pre-twist, then use the ordinary NTT</h4>
+        <p>Let <span class="m">\(ω = ψ^{2}\)</span> and pre-twist coefficient r as <span class="m">\(b[r] = a[r]\,ψ^r\)</span>. An ordinary cyclic NTT of b then gives <span class="m">\(\sum_{r=0}^{N-1} b_r\omega^{rk} = \sum_{r=0}^{N-1} a_r\psi^{(2k+1)r}\)</span>. In other words, the twist moves evaluation from the even powers of ψ to exactly the odd powers—the roots of x^N+1. The inverse runs the cyclic inverse and multiplies coefficient r by <span class="m">\(ψ^{-r}\)</span>.</p>
       </div>
+      <div class="compare-grid">
+        <div class="compare-card">
+          <h4>What stays the same</h4>
+          <p>The radix-2 network, paired indices, number of stages, and N/2 butterflies per stage do not change.</p>
+          <div class="math typeset" style="display:block; margin:12px 0 0;">\[
+\begin{aligned} u' &= u+v \\ v' &= (u-v)\,w \end{aligned}
+\]</div>
+        </div>
+        <div class="compare-card">
+          <h4>What negacyclic changes</h4>
+          <p>The ψ twist changes the factors carried by the butterfly. This repo folds it into the same pass instead of storing a separate twist table.</p>
+          <div class="math typeset" style="display:block; margin:12px 0 0;">\[
+\begin{aligned} u' &= u+cv \\ v' &= (u-cv)\,w \end{aligned}
+\]</div>
+        </div>
+      </div>
+      <p>For the repo's forward DIF loop, a stage pairs entries distance <span class="m">\(d\)</span> apart. Its folded factors are:</p>
+      <div class="math typeset" style="display:block;">\[
+\begin{aligned}
+c_d &= \psi^d \\
+w_{d,j} &= \psi^{\frac{N}{d}j} = \omega^{\frac{N}{2d}j} \\[0.5em]
+\mathrm{upper}' &= \mathrm{upper}+c_d\,\mathrm{lower} \\
+\mathrm{lower}' &= (\mathrm{upper}-c_d\,\mathrm{lower})\,w_{d,j}
+\end{aligned}
+\]</div>
+      <p>The <b>group number does not select the twiddle</b>. At a fixed stage, every group repeats the same sequence: j starts at 0, so <span class="m">\(w = 1\)</span>, then advances by <span class="m">\(ψ^{N/d}\)</span> for each butterfly offset. Negacyclic therefore changes the factors, not the network's pairing pattern. The inverse uses reciprocal ψ factors, reverses the stage direction, and applies the final <span class="m">\(N^{-1}\)</span> scale.</p>
     </section>
 
     <!-- ============================ 10. IN CODE ============================ -->
     <section id="s10" class="reveal">
       <div class="sec-head"><div class="sec-num">10</div><h2>Map the picture to code</h2></div>
       <p>Here is the actual loop from this repo's CPU reference (<code class="inline">include/ntt/ntt.hpp</code>, the <code class="inline">forward</code> DIF sweep — twist folded in as ladder constants, natural values in, bit-reversed values out). Read the comments with chapter 7 open next to it — every line is a part of the picture:</p>
-      <pre class="code"><span class="k">for</span> (<span class="t">uint64_t</span> d = n_ / <span class="hl">2</span>; d &gt;= <span class="hl">1</span>; d &gt;&gt;= <span class="hl">1</span>) {      <span class="c">// the stages — pair distance halves: n/2, n/4, …, 1</span>
-  <span class="k">const</span> <span class="t">uint64_t</span> c = <span class="f">pow_mod</span>(psi_, d, q_);           <span class="c">// ladder constant ψ^d — the twist, folded in</span>
-  <span class="k">const</span> <span class="t">uint64_t</span> stride = <span class="f">pow_mod</span>(psi_, n_ / d, q_); <span class="c">// the cyclic stride in disguise: ω^(n/2d)</span>
-  <span class="k">for</span> (<span class="t">uint64_t</span> i = <span class="hl">0</span>; i &lt; n_; i += <span class="hl">2*d</span>) {         <span class="c">// each block of 2d wires</span>
-    <span class="t">uint64_t</span> w = <span class="hl">1</span>;
-    <span class="k">for</span> (<span class="t">uint64_t</span> j = <span class="hl">0</span>; j &lt; d; ++j) {
-      <span class="k">const</span> <span class="t">uint64_t</span> u = a[i + j];                            <span class="c">// top input        ←┐</span>
-      <span class="k">const</span> <span class="t">uint64_t</span> cv = <span class="f">mul_mod</span>(c, a[i + j + <span class="hl">d</span>], q_);    <span class="c">// bottom × ψ^d    ←┤ ONE BUTTERFLY</span>
-      a[i + j]     = <span class="f">add_mod</span>(u, cv, q_);                       <span class="c">// top wing: u+cv  ┘</span>
-      a[i + j + d] = <span class="f">mul_mod</span>(<span class="f">sub_mod</span>(u, cv, q_), w, q_); <span class="c">// bottom wing: (u−cv)·w</span>
-      w = <span class="f">mul_mod</span>(w, stride, q_);
+      <pre class="code"><span class="k">for</span> (<span class="t">uint64_t</span> stage_pair_distance = n_ / <span class="hl">2</span>;
+     stage_pair_distance &gt;= <span class="hl">1</span>; stage_pair_distance &gt;&gt;= <span class="hl">1</span>) {
+  <span class="k">const</span> <span class="t">uint64_t</span> ladder_twiddle =
+      <span class="f">pow_mod</span>(psi_, stage_pair_distance, q_);             <span class="c">// c_d = ψ^d</span>
+  <span class="k">const</span> <span class="t">uint64_t</span> twiddle_step =
+      <span class="f">pow_mod</span>(psi_, n_ / stage_pair_distance, q_);        <span class="c">// ψ^(N/d)</span>
+  <span class="k">for</span> (<span class="t">uint64_t</span> group_start_index = <span class="hl">0</span>; group_start_index &lt; n_;
+       group_start_index += <span class="hl">2</span> * stage_pair_distance) {
+    <span class="t">uint64_t</span> twiddle_power = <span class="hl">1</span>;                         <span class="c">// j = 0</span>
+    <span class="k">for</span> (<span class="t">uint64_t</span> pair_offset = <span class="hl">0</span>;
+         pair_offset &lt; stage_pair_distance; ++pair_offset) {
+      <span class="k">const</span> <span class="t">uint64_t</span> upper_index = group_start_index + pair_offset;
+      <span class="k">const</span> <span class="t">uint64_t</span> lower_index = upper_index + stage_pair_distance;
+      <span class="k">const</span> <span class="t">uint64_t</span> upper_value = values[upper_index];
+      <span class="k">const</span> <span class="t">uint64_t</span> scaled_lower_value =
+          <span class="f">mul_mod</span>(ladder_twiddle, values[lower_index], q_);
+      values[upper_index] =
+          <span class="f">add_mod</span>(upper_value, scaled_lower_value, q_);      <span class="c">// upper + c_d·lower</span>
+      values[lower_index] = <span class="f">mul_mod</span>(
+          <span class="f">sub_mod</span>(upper_value, scaled_lower_value, q_),
+          twiddle_power, q_);                                  <span class="c">// (upper − c_d·lower)·w_d,j</span>
+      twiddle_power = <span class="f">mul_mod</span>(twiddle_power, twiddle_step, q_);
     }
   }
 }</pre>
@@ -799,7 +931,7 @@ x^N = −1    "negacyclic" — wrap it back with a <b>minus</b></div>
 
     <footer>
       <span>ntt-gpu · docs/butterfly-explained.html</span>
-      <span>mod-5 &amp; mod-17 examples · no libraries · view source freely</span>
+      <span>mod-5 &amp; mod-17 examples · local KaTeX · view source freely</span>
       <span>Nov 2026</span>
     </footer>
 
