@@ -5,7 +5,7 @@
 `uint32_t` indexing/control paths where safe  
 **Ring dimensions:** `4096`, `8192`, `16384`, `32768`, `65536`  
 **Estimate:** 95 planned working days + 15 risk-reserve days  
-**Last updated:** 2026-11-07 (Asia/Shanghai)
+**Last updated:** 2026-11-08 (Asia/Shanghai)
 
 This file is the source of truth for work from the current correctness-first
 NTT implementation through GPU base conversion, GPU Hybrid key switching, and
@@ -279,4 +279,5 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 |---|---:|---|---|
 | 2026-11-06 | D1 | Created tracked integration plan; began line-by-line CUDA forward-column review; completed primary-source GPU selection survey | dbf06cd |
 | 2026-11-07 | D1 | Added the N=8 VS Code debug example and native LLDB DAP setup; clarified CPU butterfly variable names; expanded the direct-sum and negacyclic derivations with locally bundled math rendering. CPU learning prerequisites are covered; the D1 CUDA index/memory map remains the next deliverable. | Debug example and CTest gates; 57 formulas verified in the browser |
+| 2026-11-08 | D1 | Organized the documentation into an HTML engineering notebook with a daily journal, shared navigation, search, and a Pages workflow. Historical entries cite commits and are marked reconstructed. Implementation gates remain unchanged. | [Daily entry](journal/2026-11-08.md); documentation build and regression checks |
 

@@ -136,6 +136,22 @@ odd powers of ψ, where x^N+1 splits into linear factors.
 
 ## Docs
 
+The documentation now builds as one HTML engineering notebook: shared navigation,
+search, learning pages, research, plans, and a daily journal recording outcomes,
+reasoning, evidence, open questions, and next steps.
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r docs/requirements.txt
+.venv/bin/python scripts/build_docs.py --check
+python3 -m http.server 8000 --bind 127.0.0.1 --directory build/docs-site
+```
+
+Open `http://127.0.0.1:8000/`. Markdown remains editable source; the generated
+site publishes HTML. The existing interactive explainers also work independently.
+See [writing and publishing](docs/README.md) for GitHub Pages setup and the
+daily-entry workflow. These optional dependencies do not affect the C++ build.
+
 - [`docs/butterfly-explained.html`](docs/butterfly-explained.html) — an interactive,
   dependency-free beginner's explainer: why the NTT is built from butterfly units,
   from the one-line definition through the negacyclic fold rule to the full N=8
