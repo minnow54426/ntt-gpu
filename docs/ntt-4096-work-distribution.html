@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4096-point NTT — data, blocks, and threads</title>
+<style>
+  .ntt-lesson {
+    --paper:#f8f7f3; --surface:#fffefa; --ink:#273124; --muted:#626d5b;
+    --line:#dfe3d5; --green:#245644; --owned:#e5eddd;
+    --upper:#f4dfb6; --lower:#d9e8f2;
+    max-width:1000px; margin:auto; padding:40px 28px 64px;
+    background:var(--paper); color:var(--ink);
+    font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  }
+  .site-legacy .ntt-lesson { padding:0; }
+  .ntt-lesson * { box-sizing:border-box; }
+  .ntt-lesson h1,.ntt-lesson h2,.ntt-lesson h3,.ntt-lesson p { margin:0; }
+  .ntt-lesson h1 { max-width:20ch; font:400 clamp(32px,4vw,50px)/1.12 Georgia,serif; letter-spacing:-1.3px; }
+  .ntt-lesson h2 { font:400 29px/1.25 Georgia,serif; letter-spacing:-.5px; }
+  .ntt-lesson h3 { font-size:17px; font-weight:600; line-height:1.4; }
+  .ntt-lesson p { margin-top:12px; }
+  .ntt-lesson code,.ntt-lesson .mono { font-family:ui-monospace,"SFMono-Regular",Consolas,monospace; font-variant-numeric:tabular-nums; }
+  .ntt-lesson code { font-size:.88em; overflow-wrap:anywhere; }
+  .ntt-lesson a { color:var(--green); text-underline-offset:4px; }
+  .ntt-lesson .eyebrow { color:var(--muted); font:11px/1.6 ui-monospace,monospace; letter-spacing:1.5px; text-transform:uppercase; margin:0 0 14px; }
+  .ntt-lesson .lede { max-width:68ch; color:var(--muted); margin-top:20px; font-size:17px; }
+  .ntt-lesson .reading-path { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:24px; color:var(--green); font-size:13px; }
+  .ntt-lesson .reading-path span:nth-child(even) { color:var(--muted); }
+  .ntt-lesson .jump-links { display:flex; flex-wrap:wrap; gap:12px 24px; border-block:1px solid var(--line); padding:15px 0; margin:30px 0 0; font-size:13px; }
+  .ntt-lesson section { margin-top:38px; scroll-margin-top:90px; }
+  .ntt-lesson .section-title { display:flex; align-items:baseline; gap:14px; margin-bottom:18px; }
+  .ntt-lesson .section-number { color:var(--muted); font:12px ui-monospace,monospace; }
+  .ntt-lesson .facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; padding:21px 0; border-block:1px solid var(--line); margin-top:22px; }
+  .ntt-lesson .facts strong { display:block; font:400 28px/1.3 Georgia,serif; }
+  .ntt-lesson .facts span { display:block; color:var(--muted); font-size:12px; margin-top:4px; }
+  .ntt-lesson .layout-rule { margin-top:18px; padding:15px 18px; border-left:3px solid var(--green); background:var(--owned); font-size:14px; }
+  .ntt-lesson .pass-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+  .ntt-lesson .pass { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:22px; }
+  .ntt-lesson .pass-label { color:var(--green); font:11px ui-monospace,monospace; text-transform:uppercase; letter-spacing:1px; margin-bottom:12px; }
+  .ntt-lesson .pass p { font-size:14px; color:var(--muted); }
+  .ntt-lesson .distances { display:block; margin:14px 0; font-size:13px; color:var(--ink); overflow-wrap:anywhere; }
+  .ntt-lesson .pass small { display:block; border-top:1px solid var(--line); padding-top:12px; font-size:12px; }
+  .ntt-lesson .note { color:var(--muted); font-size:14px; }
+  .ntt-lesson .explorer { padding:24px; margin-top:22px; background:var(--surface); border:1px solid var(--line); border-radius:8px; }
+  .ntt-lesson .stage-groups { display:grid; grid-template-columns:1fr 2fr; gap:22px; }
+  .ntt-lesson .control-label { display:block; font-size:12px; color:var(--muted); margin-bottom:9px; }
+  .ntt-lesson .stage-buttons { display:flex; flex-wrap:wrap; gap:7px; }
+  .ntt-lesson button,.ntt-lesson input { font:inherit; }
+  .ntt-lesson button { background:var(--paper); color:var(--ink); border:1px solid var(--line); border-radius:5px; padding:8px 10px; min-height:44px; cursor:pointer; font-size:13px; }
+  .ntt-lesson button:hover { border-color:var(--green); }
+  .ntt-lesson button[aria-pressed="true"] { background:var(--green); color:#fffefa; border-color:var(--green); }
+  .ntt-lesson :focus-visible { outline:3px solid #b66a35; outline-offset:3px; }
+  .ntt-lesson .inputs { display:flex; flex-wrap:wrap; gap:18px; margin:22px 0; }
+  .ntt-lesson .inputs label { flex:1 1 140px; }
+  .ntt-lesson input { display:block; width:100%; min-height:44px; padding:8px 12px; background:var(--paper); border:1px solid var(--line); border-radius:5px; color:var(--ink); font-size:16px; }
+  .ntt-lesson .ownership { color:var(--green); font-size:13px; padding:12px 0; border-block:1px solid var(--line); }
+  .ntt-lesson .selection { font-size:14px; margin:15px 0 19px; }
+  .ntt-lesson .matrix-scroll { overflow-x:auto; }
+  .ntt-lesson table { border-collapse:collapse; width:100%; font-size:12px; line-height:1.4; font-variant-numeric:tabular-nums; }
+  .ntt-lesson caption { text-align:left; color:var(--muted); padding-bottom:12px; font-size:12px; }
+  .ntt-lesson th,.ntt-lesson td { text-align:center; padding:7px 5px; border-bottom:1px solid var(--line); }
+  .ntt-lesson th { font-weight:500; color:var(--muted); }
+  .ntt-lesson .matrix-owned { background:var(--owned); }
+  .ntt-lesson .matrix-upper { background:var(--upper); font-weight:600; }
+  .ntt-lesson .matrix-lower { background:var(--lower); font-weight:600; }
+  .ntt-lesson .legend { display:flex; flex-wrap:wrap; gap:8px 18px; margin:16px 0; font-size:12px; color:var(--muted); }
+  .ntt-lesson .swatch { display:inline-block; width:11px; height:11px; margin-right:6px; }
+  .ntt-lesson .work { font-size:12px; color:var(--muted); border-top:1px solid var(--line); padding-top:14px; }
+  .ntt-lesson .sync-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; margin-top:20px; }
+  .ntt-lesson .sync-list p { font-size:14px; color:var(--muted); }
+  .ntt-lesson .closing { border-top:1px solid var(--line); margin-top:36px; padding-top:20px; font-size:14px; color:var(--muted); }
+  @media(max-width:650px) {
+    .ntt-lesson { padding:26px 16px 42px; }
+    .ntt-lesson .pass-grid,.ntt-lesson .stage-groups,.ntt-lesson .sync-list { grid-template-columns:1fr; }
+    .ntt-lesson .explorer { padding:16px; }
+    .ntt-lesson .facts { gap:12px; }
+    .ntt-lesson .facts strong { font-size:23px; }
+    .ntt-lesson .section-title { gap:10px; }
+    .ntt-lesson h2 { font-size:25px; }
+    .ntt-lesson th,.ntt-lesson td { padding:7px 3px; }
+  }
+</style>
+</head>
+<body style="margin:0;background:#f8f7f3">
+<div class="ntt-lesson" id="ntt4096-distribution">
+  <header>
+    <p class="eyebrow">CUDA execution · a worked example</p>
+    <h1>One polynomial.<br>Two passes. Many threads.</h1>
+    <p class="lede">See how our 4096-point forward NTT distributes its data and butterflies. Start with what a block owns, then zoom into what a thread does.</p>
+    <div class="reading-path" aria-label="Execution hierarchy"><span>Polynomial</span><span>→</span><span>Pass</span><span>→</span><span>Block</span><span>→</span><span>Thread</span></div>
+    <nav class="jump-links" aria-label="On this page"><a href="#whole-job">The whole job</a><a href="#two-passes">The two passes</a><a href="#explore">Explore a thread</a><a href="#synchronization">Synchronization &amp; RNS</a></nav>
+  </header>
+
+  <section id="whole-job">
+    <div class="section-title"><span class="section-number">01</span><h2>Start with the data</h2></div>
+    <p>Consider one polynomial modulo one prime: <code>a[0], a[1], …, a[4095]</code>. Each residue is an unsigned 64-bit integer. The flat array occupies 32 KiB.</p>
+    <div class="facts"><div><strong>4096</strong><span>coefficients per modulus</span></div><div><strong>12</strong><span>stages · 2048 butterflies each</span></div><div><strong>24,576</strong><span>butterflies · two kernel launches</span></div></div>
+    <p>Imagine the same array as <strong>16 rows × 256 columns</strong>. This is only a way to read the indices—we do not allocate a matrix or transpose the array.</p>
+    <div class="layout-rule"><code>global_index = row × 256 + column</code></div>
+  </section>
+
+  <section id="two-passes">
+    <div class="section-title"><span class="section-number">02</span><h2>Divide the work by distance</h2></div>
+    <div class="pass-grid">
+      <article class="pass"><div class="pass-label">Pass 1 · far stages</div><h3>One block owns one column</h3><span class="distances mono">2048 → 1024 → 512 → 256</span><p>These distances preserve the index modulo 256. Each block gathers 16 strided values into shared memory, executes four stages, and scatters the results back.</p><p>256 blocks per modulus. Every block launches 256 threads: 16 load/store values, but only 8 compute butterflies at each stage.</p><small class="mono">16 values · 128 B shared memory / block</small></article>
+      <article class="pass"><div class="pass-label">Pass 2 · near stages</div><h3>One block owns one row</h3><span class="distances mono">128 → 64 → 32 → 16 → 8 → 4 → 2 → 1</span><p>These butterflies stay inside an aligned 256-value row. Each block loads its contiguous row into shared memory, executes eight stages, and writes it back.</p><p>16 blocks per modulus. All 256 threads load/store values; 128 compute butterflies at each stage.</p><small class="mono">256 values · 2 KiB shared memory / block</small></article>
+    </div>
+    <p class="note">These are stages of <strong>one 4096-point transform</strong>, using its twiddle factors—not independent smaller NTTs. This page shows our current baseline schedule, including its inactive threads.</p>
+  </section>
+
+  <section id="explore">
+    <div class="section-title"><span class="section-number">03</span><h2>Follow one thread</h2></div>
+    <p>An active thread computes one butterfly per stage and writes both results to shared memory. <strong>Its pair changes with the stage.</strong> Loading a value and computing a butterfly are separate assignments; a thread does not permanently own one coefficient.</p>
+    <p class="note">Keep block 3 and thread 5. Try distances 2048, 128, then 1. Try thread 200 to see the difference between load/store work and butterfly work.</p>
+    <div class="explorer">
+      <div class="stage-groups">
+        <div><span class="control-label">Pass 1 · column blocks · butterfly distance</span><div class="stage-buttons" data-stages="far"></div></div>
+        <div><span class="control-label">Pass 2 · row blocks · butterfly distance</span><div class="stage-buttons" data-stages="near"></div></div>
+      </div>
+      <div class="inputs"><label><span class="control-label">Block index</span><input data-block type="number" min="0" max="255" value="3" step="1"></label><label><span class="control-label">Thread index</span><input data-thread type="number" min="0" max="255" value="5" step="1"></label></div>
+      <div class="ownership" data-ownership></div>
+      <div class="selection mono" data-selection aria-live="polite"></div>
+      <div class="matrix-scroll"><table data-matrix><caption>Global array positions · 16 rows × 256 columns · … hides intermediate columns</caption><thead></thead><tbody></tbody></table></div>
+      <div class="legend"><span><i class="swatch" style="background:var(--owned)"></i>Block-owned positions</span><span><i class="swatch" style="background:var(--upper)"></i>Upper input</span><span><i class="swatch" style="background:var(--lower)"></i>Lower input</span></div>
+      <div class="work" data-thread-work></div>
+    </div>
+    <p class="note">The matrix shows <strong>positions, not coefficient values</strong>. Contents change during the transform; the index layout stays the same.</p>
+  </section>
+
+  <section id="synchronization">
+    <div class="section-title"><span class="section-number">04</span><h2>What keeps the work ordered?</h2></div>
+    <div class="sync-list"><div><h3>Inside a block</h3><p>All 256 threads reach <code>__syncthreads()</code> after loading and after each stage—even threads without a butterfly. This barrier synchronizes only that block.</p></div><div><h3>Between the passes</h3><p>The kernels use the same CUDA stream, so pass 2 starts after pass 1 finishes. Blocks within a pass are independent; SM scheduling does not guarantee they all execute simultaneously.</p></div></div>
+    <p>For CKKS with multiple RNS primes, repeat this arrangement per limb. Storage is limb-major: <code>values[limb × 4096 + index]</code>. <code>blockIdx.y</code> selects the limb; <code>blockIdx.x</code> selects the column in pass 1 or the row in pass 2.</p>
+  </section>
+  <p class="closing">The mental model: <strong>a block owns a data subset; a thread computes a butterfly within it at each stage.</strong></p>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('ntt4096-distribution');
+  const distances = [2048,1024,512,256,128,64,32,16,8,4,2,1];
+  const blockInput = root.querySelector('[data-block]');
+  const threadInput = root.querySelector('[data-thread]');
+  const heading = root.querySelector('thead');
+  const body = root.querySelector('tbody');
+  const state = { stageIndex:0, blockIndex:3, threadIndex:5 };
+  const clamp = (value, maximum) => Math.max(0, Math.min(maximum, Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0));
+
+  function render() {
+    const far = state.stageIndex < 4;
+    state.blockIndex = clamp(state.blockIndex, far ? 255 : 15);
+    blockInput.max = String(far ? 255 : 15);
+    blockInput.value = String(state.blockIndex);
+    threadInput.value = String(state.threadIndex);
+    const distance = distances[state.stageIndex];
+    const localDistance = far ? distance / 256 : distance;
+    const pairCount = far ? 8 : 128;
+    const active = state.threadIndex < pairCount;
+    const group = Math.floor(state.threadIndex / localDistance);
+    const offset = state.threadIndex % localDistance;
+    const upperLocal = group * 2 * localDistance + offset;
+    const lowerLocal = upperLocal + localDistance;
+    const globalIndex = local => far ? local * 256 + state.blockIndex : state.blockIndex * 256 + local;
+    const upper = active ? globalIndex(upperLocal) : null;
+    const lower = active ? globalIndex(lowerLocal) : null;
+    const columns = new Set([0,255]);
+    if (far) columns.add(state.blockIndex);
+    else if (active) { columns.add(upperLocal); columns.add(lowerLocal); }
+    else columns.add(state.threadIndex);
+    const sorted = [...columns].sort((a,b) => a-b);
+    const visible = [];
+    sorted.forEach((column,index) => {
+      if (index && column - sorted[index-1] > 1) visible.push(null);
+      visible.push(column);
+    });
+    heading.innerHTML = '<tr><th scope="col">Row</th>' + visible.map(column => '<th scope="col">' + (column === null ? '…' : column) + '</th>').join('') + '</tr>';
+    body.replaceChildren();
+    for (let row=0; row<16; row++) {
+      const tr = document.createElement('tr');
+      const label = document.createElement('th');
+      label.scope = 'row'; label.textContent = String(row); tr.appendChild(label);
+      visible.forEach(column => {
+        const cell = document.createElement('td');
+        if (column === null) cell.textContent = '…';
+        else {
+          const index = row * 256 + column;
+          cell.textContent = String(index);
+          const owned = far ? column === state.blockIndex : row === state.blockIndex;
+          cell.setAttribute('aria-label', 'Global position ' + index + (owned ? ', owned by selected block' : ''));
+          if (owned) cell.className = 'matrix-owned';
+          if (index === upper) { cell.className = 'matrix-upper'; cell.setAttribute('aria-label', 'Upper input, global position ' + index); }
+          if (index === lower) { cell.className = 'matrix-lower'; cell.setAttribute('aria-label', 'Lower input, global position ' + index); }
+        }
+        tr.appendChild(cell);
+      });
+      body.appendChild(tr);
+    }
+    root.querySelector('[data-ownership]').textContent = (far ? 'Pass 1 · column ' : 'Pass 2 · row ') + state.blockIndex + ' · ' + (far ? '16 values / 128 B' : '256 values / 2 KiB') + ' shared memory · 256 threads';
+    root.querySelector('[data-selection]').textContent = 'Stage ' + (state.stageIndex+1) + '/12 · distance ' + distance + ' · thread ' + state.threadIndex + (active ? ': global ' + upper + ' ↔ ' + lower + ' · shared ' + upperLocal + ' ↔ ' + lowerLocal : ': no butterfly at this stage');
+    const loads = !far || state.threadIndex < 16;
+    root.querySelector('[data-thread-work]').textContent = 'Load/store: threads 0–' + (far ? '15' : '255') + '. Butterfly work: threads 0–' + (pairCount-1) + '. Selected thread load/store: ' + (loads ? 'global position ' + globalIndex(state.threadIndex) : 'idle') + '. All 256 threads reach every block barrier.';
+    root.querySelectorAll('[data-stage-index]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.stageIndex) === state.stageIndex)));
+  }
+  distances.forEach((distance,index) => {
+    const button = document.createElement('button');
+    button.type = 'button'; button.dataset.stageIndex = String(index);
+    button.textContent = String(distance);
+    button.setAttribute('aria-label', 'Stage ' + (index+1) + ', butterfly distance ' + distance);
+    button.addEventListener('click', () => { state.stageIndex = index; render(); });
+    root.querySelector(index < 4 ? '[data-stages="far"]' : '[data-stages="near"]').appendChild(button);
+  });
+  blockInput.addEventListener('input', () => { state.blockIndex = clamp(blockInput.value, state.stageIndex < 4 ? 255 : 15); render(); });
+  threadInput.addEventListener('input', () => { state.threadIndex = clamp(threadInput.value,255); render(); });
+  render();
+})();
+</script>
+</body>
+</html>
