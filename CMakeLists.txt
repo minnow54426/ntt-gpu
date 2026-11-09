@@ -14,7 +14,8 @@ add_executable(ntt_debug_example examples/step_by_step.cpp)
 # Layer 2a: the GPU stage schedule, proven on CPU before any rental. Same
 # stage bodies the kernels run (include/ntt/dev_core.hpp), serially.
 add_executable(ntt_device_sim src/device_sim.cpp)
-foreach(t ntt_cli ntt_tests ntt_debug_example ntt_device_sim)
+add_executable(ntt_column_mapping_tests tests/column_mapping_tests.cpp)
+foreach(t ntt_cli ntt_tests ntt_debug_example ntt_device_sim ntt_column_mapping_tests)
   target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_compile_options(${t} PRIVATE -Wall -Wextra -Werror)
 endforeach()
@@ -23,6 +24,7 @@ enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 add_test(NAME debug_example COMMAND ntt_debug_example)
+add_test(NAME column_mapping_check COMMAND ntt_column_mapping_tests)
 
 set(VEC ${CMAKE_CURRENT_BINARY_DIR}/vector_n1024.txt)
 
@@ -43,10 +45,11 @@ set_tests_properties(oracle_crosscheck PROPERTIES FIXTURES_REQUIRED VECTORS)
 
 # --- Layer 2a fixtures: n=64 exercises the min(256, n) tile clamp with
 # fewer pairs than threads; n=4096 exercises the global (inter-block)
-# phase; n=1024 (above) exercises both passes. gen_vectors.py already takes
-# N as its second argument.
+# phase; n=65536 exercises 256-value columns and 8+8 stages; n=1024
+# (above) exercises both passes. gen_vectors.py takes N as its second argument.
 set(VEC64 ${CMAKE_CURRENT_BINARY_DIR}/vector_n64.txt)
 set(VEC4K ${CMAKE_CURRENT_BINARY_DIR}/vector_n4096.txt)
+set(VEC64K ${CMAKE_CURRENT_BINARY_DIR}/vector_n65536.txt)
 
 add_test(NAME gen_vectors_n64
          COMMAND Python3::Interpreter
@@ -60,11 +63,17 @@ add_test(NAME gen_vectors_n4096
                  ${VEC4K} 4096 3 1)
 set_tests_properties(gen_vectors_n4096 PROPERTIES FIXTURES_SETUP VECTORS_N4K)
 
+add_test(NAME gen_vectors_n65536
+         COMMAND Python3::Interpreter
+                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/gen_vectors.py
+                 ${VEC64K} 65536 3 1)
+set_tests_properties(gen_vectors_n65536 PROPERTIES FIXTURES_SETUP VECTORS_N64K)
+
 # The schedule gate: the simulator must equal the CPU reference on every
 # fixture, exact arrays, bit-reversed order included.
-add_test(NAME device_schedule_check COMMAND ntt_device_sim ${VEC} ${VEC64} ${VEC4K})
+add_test(NAME device_schedule_check COMMAND ntt_device_sim ${VEC} ${VEC64} ${VEC4K} ${VEC64K})
 set_tests_properties(device_schedule_check PROPERTIES
-  FIXTURES_REQUIRED "VECTORS;VECTORS_N64;VECTORS_N4K")
+  FIXTURES_REQUIRED "VECTORS;VECTORS_N64;VECTORS_N4K;VECTORS_N64K")
 
 # --- OpenFHE compatibility gate ------------------------------------------
 # This is opt-in because OpenFHE is deliberately not a dependency of the

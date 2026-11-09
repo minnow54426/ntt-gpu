@@ -80,10 +80,28 @@ There is no external search service or account requirement.
 ```sh
 .venv/bin/python scripts/build_docs.py --check
 .venv/bin/python -m unittest discover -s tests/docs -v
+node --test tests/docs/work_distribution.test.cjs
 ```
 
 The build validates catalog coverage, journal metadata, and local links,
 assets, and heading fragments. The site supports project subpaths.
+The Node test runs the work-distribution page's actual inline script using a
+small DOM stub and checks both sizes, stage controls, boundary selections,
+and complete per-stage index coverage. It requires Node.js and no packages;
+it does not replace browser inspection or CUDA execution.
+
+For the exhaustive forward-column index/twiddle proof check, run:
+
+```sh
+cmake -S . -B build
+cmake --build build --target ntt_column_mapping_tests ntt_device_sim
+ctest --test-dir build -R 'column_mapping_check|device_schedule_check' --output-on-failure
+```
+
+The column check executes the real shared stage helper with tagged power
+tables at N=4096 and N=65536. It probes the input pair, ladder multiplier,
+and twiddle selection for every column butterfly. This is CPU verification,
+not a native CUDA build or a GPU race check.
 
 ## Publish with GitHub Pages
 

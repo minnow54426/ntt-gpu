@@ -16,9 +16,9 @@ commit as each completed gate.
 
 | Field | Current value |
 |---|---|
-| Working day | **D1** |
+| Working day | **D3** |
 | Active phase | **P1 — contract and architecture freeze** |
-| Active task | Read the CUDA implementation in execution order and document its data/ordering contract |
+| Active task | Read inverse column kernel and DIT arithmetic; establish forward/inverse correspondence (D1–D2 complete) |
 | Next gate | P1 architecture review: frozen OpenFHE representation, buffer, ordering, and integration contracts |
 | Overall state | In progress |
 
@@ -83,6 +83,18 @@ Every production kernel must pass, in order:
 | D8 | Trace OpenFHE Hybrid implementation | Exact `Q -> QP -> MAC -> Q` operation graph |
 | D9 | Design buffer views and backend seam | Device buffer/stream/cache API proposal |
 | D10 | Architecture review | Accepted ADR and implementation backlog |
+
+D1 complete: the [interactive work-distribution map](ntt-4096-work-distribution.html)
+covers both sizes, gather/scatter and shared-memory indices, launch geometry,
+active thread ranges, and requested memory-access patterns. This is a source
+analysis and CPU-schedule check, not evidence of real-GPU correctness or speed.
+
+D2 complete: the same page's [column proof](ntt-4096-work-distribution.html#column-proof)
+derives CPU group/offset equivalence, both global exponents, coverage, bounds,
+and six worked examples. `column_mapping_check` runs the production stage
+body with two tagged-table probes for every column butterfly at both sizes;
+the separate schedule gate checks real-root arrays. Real-GPU validation is
+still a P2 deliverable.
 
 P1 exit gate:
 
@@ -280,4 +292,6 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 | 2026-11-06 | D1 | Created tracked integration plan; began line-by-line CUDA forward-column review; completed primary-source GPU selection survey | dbf06cd |
 | 2026-11-07 | D1 | Added the N=8 VS Code debug example and native LLDB DAP setup; clarified CPU butterfly variable names; expanded the direct-sum and negacyclic derivations with locally bundled math rendering. CPU learning prerequisites are covered; the D1 CUDA index/memory map remains the next deliverable. | Debug example and CTest gates; 57 formulas verified in the browser |
 | 2026-11-08 | D1 | Organized the documentation into an HTML engineering notebook with a daily journal, shared navigation, search, and a Pages workflow. Historical entries cite commits and are marked reconstructed. Implementation gates remain unchanged. | [Daily entry](journal/2026-11-08.md); documentation build and regression checks |
+| 2026-11-09 | D1 → D2 | Completed both endpoint index/memory maps (4096 and 65536), with an interactive size comparison and portable schedule regression at N=65536. Next: column butterfly indices and twiddle proof. P1 exit gate remains open. | [Work-distribution map](ntt-4096-work-distribution.html); [daily entry](journal/2026-11-09.md); CPU schedule and explorer checks |
+| 2026-11-09 | D2 → D3 | Completed the column-pair/twiddle proof and six worked examples; exhaustive CPU execution of the real stage helper checked 270,336 pairs using 540,672 probes. Next: inverse-column correspondence. P1 exit gate remains open. | [Column proof](ntt-4096-work-distribution.html#column-proof); `column_mapping_check`; `device_schedule_check` |
 

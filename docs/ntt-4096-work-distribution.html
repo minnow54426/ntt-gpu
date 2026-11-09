@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>4096-point NTT — data, blocks, and threads</title>
+<title>4096 &amp; 65536-point NTT — data, blocks, and threads</title>
 <style>
   .ntt-lesson {
     --paper:#f8f7f3; --surface:#fffefa; --ink:#273124; --muted:#626d5b;
@@ -44,6 +44,7 @@
   .ntt-lesson .note { color:var(--muted); font-size:14px; }
   .ntt-lesson .explorer { padding:24px; margin-top:22px; background:var(--surface); border:1px solid var(--line); border-radius:8px; }
   .ntt-lesson .stage-groups { display:grid; grid-template-columns:1fr 2fr; gap:22px; }
+  .ntt-lesson [data-transform-summary] { margin-bottom:18px; }
   .ntt-lesson .control-label { display:block; font-size:12px; color:var(--muted); margin-bottom:9px; }
   .ntt-lesson .stage-buttons { display:flex; flex-wrap:wrap; gap:7px; }
   .ntt-lesson button,.ntt-lesson input { font:inherit; }
@@ -67,6 +68,8 @@
   .ntt-lesson .legend { display:flex; flex-wrap:wrap; gap:8px 18px; margin:16px 0; font-size:12px; color:var(--muted); }
   .ntt-lesson .swatch { display:inline-block; width:11px; height:11px; margin-right:6px; }
   .ntt-lesson .work { font-size:12px; color:var(--muted); border-top:1px solid var(--line); padding-top:14px; }
+  .ntt-lesson .derivation { white-space:pre-wrap; overflow-wrap:anywhere; padding:18px; background:var(--owned); font:13px/1.8 ui-monospace,monospace; }
+  .ntt-lesson .twiddle-detail { font-size:13px; margin-bottom:18px; overflow-wrap:anywhere; }
   .ntt-lesson .sync-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; margin-top:20px; }
   .ntt-lesson .sync-list p { font-size:14px; color:var(--muted); }
   .ntt-lesson .closing { border-top:1px solid var(--line); margin-top:36px; padding-top:20px; font-size:14px; color:var(--muted); }
@@ -87,9 +90,9 @@
   <header>
     <p class="eyebrow">CUDA execution · a worked example</p>
     <h1>One polynomial.<br>Two passes. Many threads.</h1>
-    <p class="lede">See how our 4096-point forward NTT distributes its data and butterflies. Start with what a block owns, then zoom into what a thread does.</p>
+    <p class="lede">See how our 4096- and 65536-point forward NTTs distribute data and butterflies. Start with what a block owns, then zoom into what a thread does.</p>
     <div class="reading-path" aria-label="Execution hierarchy"><span>Polynomial</span><span>→</span><span>Pass</span><span>→</span><span>Block</span><span>→</span><span>Thread</span></div>
-    <nav class="jump-links" aria-label="On this page"><a href="#whole-job">The whole job</a><a href="#two-passes">The two passes</a><a href="#explore">Explore a thread</a><a href="#synchronization">Synchronization &amp; RNS</a></nav>
+    <nav class="jump-links" aria-label="On this page"><a href="#whole-job">The whole job</a><a href="#two-passes">The two passes</a><a href="#larger-polynomial">Scale to 65536</a><a href="#column-proof">Indices &amp; twiddle proof</a><a href="#explore">Explore a thread</a><a href="#synchronization">Synchronization &amp; RNS</a></nav>
   </header>
 
   <section id="whole-job">
@@ -109,11 +112,81 @@
     <p class="note">These are stages of <strong>one 4096-point transform</strong>, using its twiddle factors—not independent smaller NTTs. This page shows our current baseline schedule, including its inactive threads.</p>
   </section>
 
+  <section id="larger-polynomial">
+    <div class="section-title"><span class="section-number">03</span><h2>Scale to 65536: taller columns</h2></div>
+    <p>The split width stays at 256. Increasing N makes the conceptual matrix taller: <strong>256 rows × 256 columns</strong>. A column now contains 256 values instead of 16. The algorithm still uses two launches, but each launch now handles eight stages.</p>
+    <div class="matrix-scroll"><table><caption>Forward schedule per modulus · all blocks launch 256 threads</caption><thead><tr><th scope="col">Task / resource</th><th scope="col">N = 4096</th><th scope="col">N = 65536</th></tr></thead><tbody>
+      <tr><th scope="row">Polynomial storage</th><td>32 KiB</td><td>512 KiB</td></tr>
+      <tr><th scope="row">Stages / total butterflies</th><td>12 / 24,576</td><td>16 / 524,288</td></tr>
+      <tr><th scope="row">Pass 1 blocks / values per block</th><td>256 / 16</td><td>256 / 256</td></tr>
+      <tr><th scope="row">Pass 1 shared memory per block</th><td>128 B</td><td>2 KiB</td></tr>
+      <tr><th scope="row">Pass 1 loading / butterfly threads</th><td>0–15 / 0–7</td><td>0–255 / 0–127</td></tr>
+      <tr><th scope="row">Pass 1 global distances</th><td>2048 down to 256 · 4 stages</td><td>32768 down to 256 · 8 stages</td></tr>
+      <tr><th scope="row">Pass 2 blocks / values per block</th><td>16 / 256</td><td>256 / 256</td></tr>
+      <tr><th scope="row">Pass 2 shared memory per block</th><td>2 KiB</td><td>2 KiB</td></tr>
+      <tr><th scope="row">Pass 2 loading / butterfly threads</th><td>0–255 / 0–127</td><td>0–255 / 0–127</td></tr>
+      <tr><th scope="row">Pass 2 global distances</th><td>128 down to 1 · 8 stages</td><td>128 down to 1 · 8 stages</td></tr>
+    </tbody></table></div>
+    <div class="sync-list"><div><h3>Pass 1: column 3, thread 5</h3><p>Block 3 gathers <code>values[3 + 256 × t]</code> into <code>shared[t]</code>, for t = 0…255. Thread 5 loads position 1283. At global distance 32768 (local distance 128), it computes shared positions 5 and 133: <strong>global positions 1283 and 34051</strong>. At distance 256 it computes 2563 and 2819 instead.</p></div><div><h3>Pass 2: row 3, thread 5</h3><p>Block 3 loads positions 768…1023. At distance 128, thread 5 computes <strong>773 and 901</strong>; at distance 1, it computes 778 and 779. These indices match N=4096, but the global N used to select twiddles differs. The final row, block 255, owns positions 65280…65535.</p></div></div>
+    <h3 style="margin-top:24px">Read the memory access map</h3>
+    <p>In pass 1, adjacent loading threads access global addresses <strong>2048 bytes apart</strong> (256 × 8 bytes), but write adjacent 8-byte entries in shared memory. The scatter reverses this mapping. In pass 2, adjacent threads read and write adjacent 8-byte global entries. Each block loads once, reuses shared memory across all its stages, and stores once.</p>
+    <p class="note">Two reads and two writes of the value array give a logical minimum of 4 × N × 8 bytes per forward transform: 128 KiB at N=4096 and 2 MiB at N=65536, excluding twiddle/modulus reads and host transfers. This is requested array traffic, <strong>not measured DRAM traffic</strong>. Strided accesses, caches, registers, and occupancy need real-GPU profiling; 128 active butterfly threads out of 256 is not a hardware occupancy measurement.</p>
+    <p class="note">Source map: <a href="../src/cuda/ntt_kernels.cu">CUDA kernels and launchers</a> define the grid and gather/scatter; <a href="../include/ntt/dev_core.hpp">stage helpers</a> map threads to pairs. For either size, the gather uses <code>r + 256 × local_index</code>; near-stage access uses <code>row × 256 + local_index</code>. Within each stage, every position belongs to exactly one butterfly.</p>
+  </section>
+
+  <section id="column-proof">
+    <div class="section-title"><span class="section-number">04 · D2</span><h2>Why these inputs and twiddles?</h2></div>
+    <p>Our forward butterfly has <strong>two multipliers</strong>. Let ψ be the primitive 2N-th root modulo the current prime q. The ladder multiplier is <code>c = ψ^d</code>; the difference-leg multiplier is <code>w = ψ^E</code>. Both are powers from the global transform, not a smaller column NTT.</p>
+    <pre class="derivation">a = values[U]; b = values[V]
+values[U] = a + c × b                 (mod q)
+values[V] = (a − c × b) × w           (mod q)</pre>
+    <h3>1. Decode a thread into a local pair</h3>
+    <p>The split width B is 256. Column r is <code>blockIdx.x</code>; p is the butterfly index. For both sizes, each active thread processes just one pair per stage, so <code>p = threadIdx.x</code>. More generally the stage helper loops over <code>p = threadIdx.x + k × blockDim.x</code>. Let δ be the local distance; the global distance is <code>d = B × δ</code>.</p>
+    <pre class="derivation">g = floor(p / δ)                     local butterfly group
+j = p mod δ                          offset within that group
+u_local = 2 × δ × g + j
+v_local = u_local + δ
+U = B × u_local + r
+V = B × v_local + r = U + d</pre>
+    <h3>2. Recover the CPU group and offset</h3>
+    <p>Substitute the local pair into the global index:</p>
+    <pre class="derivation">U = B × (2δg + j) + r
+  = 2dg + (Bj + r)
+CPU group start = 2dg
+J = Bj + r                           CPU offset within the group</pre>
+    <p>Because <code>0 ≤ j &lt; δ</code> and <code>0 ≤ r &lt; B</code>, we have <code>0 ≤ J &lt; Bδ = d</code>. Thus U and V are exactly the CPU pair at offset J in group g. Conversely, every CPU offset has a unique decomposition <code>J = 256j + r</code>. Together with <code>p = gδ + j</code>, this gives one unique column/thread owner for every CPU butterfly.</p>
+    <h3>3. Prove the exponent, not just the result</h3>
+    <p>The CPU starts w at 1 for each global group and multiplies it by <code>ψ^(N/d)</code> after each offset. At offset J it therefore uses <code>w = ψ^((N/d)J)</code>. Substitution gives:</p>
+    <pre class="derivation">c = ψ^d
+E = (N / d) × (256j + r)
+w = ψ^E</pre>
+    <p>This is precisely the stage helper: if <code>ℓ = log2(δ)</code>, then <code>δ &lt;&lt; 8 = d</code>, <code>N &gt;&gt; (8 + ℓ) = N/d</code>, and <code>(j &lt;&lt; 8) | r = 256j + r</code>. The OR equals addition because r occupies only the low eight bits. Also <code>0 ≤ E ≤ N − N/d &lt; N</code>, so the power-table access is in range.</p>
+    <p class="note">A subtle point: thread 0 in column 3 has J = 3, not 0. Its w is generally not 1. Only J = 0 gives exponent 0. The ladder c and w are distinct: the negacyclic ladder remains even when w = 1.</p>
+    <h3>4. Worked pairs at both sizes</h3>
+    <p class="note">All examples use column r = 3. The ladder exponent is d; E is the exponent for the other multiplier. These are indices/exponents, not numeric residues.</p>
+    <div class="matrix-scroll"><table><caption>First, intermediate, and final column stages</caption><thead><tr><th scope="col">N</th><th scope="col">d / δ</th><th scope="col">p</th><th scope="col">g / j</th><th scope="col">U ↔ V</th><th scope="col">J</th><th scope="col">E</th></tr></thead><tbody>
+      <tr><td>4096</td><td>2048 / 8</td><td>5</td><td>0 / 5</td><td>1283 ↔ 3331</td><td>1283</td><td>2566</td></tr>
+      <tr><td>4096</td><td>512 / 2</td><td>5</td><td>2 / 1</td><td>2307 ↔ 2819</td><td>259</td><td>2072</td></tr>
+      <tr><td>4096</td><td>256 / 1</td><td>5</td><td>5 / 0</td><td>2563 ↔ 2819</td><td>3</td><td>48</td></tr>
+      <tr><td>65536</td><td>32768 / 128</td><td>5</td><td>0 / 5</td><td>1283 ↔ 34051</td><td>1283</td><td>2566</td></tr>
+      <tr><td>65536</td><td>2048 / 8</td><td>21</td><td>2 / 5</td><td>9475 ↔ 11523</td><td>1283</td><td>41056</td></tr>
+      <tr><td>65536</td><td>256 / 1</td><td>5</td><td>5 / 0</td><td>2563 ↔ 2819</td><td>3</td><td>768</td></tr>
+    </tbody></table></div>
+    <h3 style="margin-top:24px">5. An exhaustive executable check</h3>
+    <p><a href="../tests/column_mapping_tests.cpp">column_mapping_tests.cpp</a> enumerates every CPU group/offset in every column stage for both sizes. It executes the actual <code>dev_dif_col_stage</code> body with synthetic tagged power tables. An upper-input probe reveals the selected w exponent; a lower-input probe checks the ladder and both destinations. Whole-column comparisons catch unintended writes. The test also checks unique coverage and every inactive thread.</p>
+    <p class="note">There are 8,192 column butterflies at N=4096 and 262,144 at N=65536: <strong>270,336 pairs and 540,672 active-pair probes</strong>. Tagged tables are diagnostic values, not valid root powers. The separate schedule gate checks real-root forward arrays, round trips, and multiplication. Both checks run on CPU; neither validates CUDA launch behavior or GPU races.</p>
+    <pre class="derivation">cmake -S . -B build
+cmake --build build --target ntt_column_mapping_tests ntt_device_sim
+ctest --test-dir build -R 'column_mapping_check|device_schedule_check' --output-on-failure</pre>
+  </section>
+
   <section id="explore">
-    <div class="section-title"><span class="section-number">03</span><h2>Follow one thread</h2></div>
+    <div class="section-title"><span class="section-number">05</span><h2>Follow one thread</h2></div>
     <p>An active thread computes one butterfly per stage and writes both results to shared memory. <strong>Its pair changes with the stage.</strong> Loading a value and computing a butterfly are separate assignments; a thread does not permanently own one coefficient.</p>
     <p class="note">Keep block 3 and thread 5. Try distances 2048, 128, then 1. Try thread 200 to see the difference between load/store work and butterfly work.</p>
     <div class="explorer">
+      <div class="inputs" style="margin-top:0"><div><span class="control-label">Polynomial size · one RNS limb</span><div class="stage-buttons"><button type="button" data-size="4096" aria-pressed="true">N = 4096</button><button type="button" data-size="65536" aria-pressed="false">N = 65536</button></div></div></div>
+      <p class="note" data-transform-summary></p>
       <div class="stage-groups">
         <div><span class="control-label">Pass 1 · column blocks · butterfly distance</span><div class="stage-buttons" data-stages="far"></div></div>
         <div><span class="control-label">Pass 2 · row blocks · butterfly distance</span><div class="stage-buttons" data-stages="near"></div></div>
@@ -121,7 +194,8 @@
       <div class="inputs"><label><span class="control-label">Block index</span><input data-block type="number" min="0" max="255" value="3" step="1"></label><label><span class="control-label">Thread index</span><input data-thread type="number" min="0" max="255" value="5" step="1"></label></div>
       <div class="ownership" data-ownership></div>
       <div class="selection mono" data-selection aria-live="polite"></div>
-      <div class="matrix-scroll"><table data-matrix><caption>Global array positions · 16 rows × 256 columns · … hides intermediate columns</caption><thead></thead><tbody></tbody></table></div>
+      <div class="twiddle-detail mono" data-twiddle aria-live="polite"></div>
+      <div class="matrix-scroll"><table data-matrix><caption data-caption>Global array positions · 16 rows × 256 columns</caption><thead></thead><tbody></tbody></table></div>
       <div class="legend"><span><i class="swatch" style="background:var(--owned)"></i>Block-owned positions</span><span><i class="swatch" style="background:var(--upper)"></i>Upper input</span><span><i class="swatch" style="background:var(--lower)"></i>Lower input</span></div>
       <div class="work" data-thread-work></div>
     </div>
@@ -129,32 +203,34 @@
   </section>
 
   <section id="synchronization">
-    <div class="section-title"><span class="section-number">04</span><h2>What keeps the work ordered?</h2></div>
+    <div class="section-title"><span class="section-number">06</span><h2>What keeps the work ordered?</h2></div>
     <div class="sync-list"><div><h3>Inside a block</h3><p>All 256 threads reach <code>__syncthreads()</code> after loading and after each stage—even threads without a butterfly. This barrier synchronizes only that block.</p></div><div><h3>Between the passes</h3><p>The kernels use the same CUDA stream, so pass 2 starts after pass 1 finishes. Blocks within a pass are independent; SM scheduling does not guarantee they all execute simultaneously.</p></div></div>
-    <p>For CKKS with multiple RNS primes, repeat this arrangement per limb. Storage is limb-major: <code>values[limb × 4096 + index]</code>. <code>blockIdx.y</code> selects the limb; <code>blockIdx.x</code> selects the column in pass 1 or the row in pass 2.</p>
+    <p>For CKKS with multiple RNS primes, repeat this arrangement per limb. Storage is limb-major: <code>values[limb × N + index]</code>. <code>blockIdx.y</code> selects the limb; <code>blockIdx.x</code> selects the column in pass 1 or the row in pass 2.</p>
   </section>
   <p class="closing">The mental model: <strong>a block owns a data subset; a thread computes a butterfly within it at each stage.</strong></p>
 </div>
 <script>
 (() => {
   const root = document.getElementById('ntt4096-distribution');
-  const distances = [2048,1024,512,256,128,64,32,16,8,4,2,1];
+  let distances = [];
   const blockInput = root.querySelector('[data-block]');
   const threadInput = root.querySelector('[data-thread]');
-  const heading = root.querySelector('thead');
-  const body = root.querySelector('tbody');
-  const state = { stageIndex:0, blockIndex:3, threadIndex:5 };
+  const heading = root.querySelector('[data-matrix] thead');
+  const body = root.querySelector('[data-matrix] tbody');
+  const state = { transformLength:4096, stageIndex:0, blockIndex:3, threadIndex:5 };
   const clamp = (value, maximum) => Math.max(0, Math.min(maximum, Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0));
 
   function render() {
-    const far = state.stageIndex < 4;
-    state.blockIndex = clamp(state.blockIndex, far ? 255 : 15);
-    blockInput.max = String(far ? 255 : 15);
+    const rowCount = state.transformLength / 256;
+    const distance = distances[state.stageIndex];
+    const far = distance >= 256;
+    state.blockIndex = clamp(state.blockIndex, far ? 255 : rowCount-1);
+    blockInput.max = String(far ? 255 : rowCount-1);
     blockInput.value = String(state.blockIndex);
     threadInput.value = String(state.threadIndex);
-    const distance = distances[state.stageIndex];
     const localDistance = far ? distance / 256 : distance;
-    const pairCount = far ? 8 : 128;
+    const groupLength = far ? rowCount : 256;
+    const pairCount = groupLength / 2;
     const active = state.threadIndex < pairCount;
     const group = Math.floor(state.threadIndex / localDistance);
     const offset = state.threadIndex % localDistance;
@@ -163,6 +239,8 @@
     const globalIndex = local => far ? local * 256 + state.blockIndex : state.blockIndex * 256 + local;
     const upper = active ? globalIndex(upperLocal) : null;
     const lower = active ? globalIndex(lowerLocal) : null;
+    const cpuOffset = far ? offset * 256 + state.blockIndex : offset;
+    const twiddleExponent = (state.transformLength / distance) * cpuOffset;
     const columns = new Set([0,255]);
     if (far) columns.add(state.blockIndex);
     else if (active) { columns.add(upperLocal); columns.add(lowerLocal); }
@@ -175,7 +253,21 @@
     });
     heading.innerHTML = '<tr><th scope="col">Row</th>' + visible.map(column => '<th scope="col">' + (column === null ? '…' : column) + '</th>').join('') + '</tr>';
     body.replaceChildren();
-    for (let row=0; row<16; row++) {
+    const rows = new Set(rowCount === 16 ? Array.from({length:16}, (_,i) => i) : [0,1,rowCount-2,rowCount-1]);
+    if (far && active) { rows.add(upperLocal); rows.add(lowerLocal); }
+    if (!far) rows.add(state.blockIndex);
+    const selectedRows = [...rows];
+    selectedRows.forEach(row => { if (row > 0) rows.add(row-1); if (row+1 < rowCount) rows.add(row+1); });
+    let previousRow = -1;
+    for (const row of [...rows].sort((a,b) => a-b)) {
+      if (row > previousRow+1) {
+        const gap = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = visible.length+1;
+        cell.textContent = '… rows ' + (previousRow+1) + '–' + (row-1) + ' omitted …';
+        gap.appendChild(cell); body.appendChild(gap);
+      }
+      previousRow = row;
       const tr = document.createElement('tr');
       const label = document.createElement('th');
       label.scope = 'row'; label.textContent = String(row); tr.appendChild(label);
@@ -195,23 +287,35 @@
       });
       body.appendChild(tr);
     }
-    root.querySelector('[data-ownership]').textContent = (far ? 'Pass 1 · column ' : 'Pass 2 · row ') + state.blockIndex + ' · ' + (far ? '16 values / 128 B' : '256 values / 2 KiB') + ' shared memory · 256 threads';
-    root.querySelector('[data-selection]').textContent = 'Stage ' + (state.stageIndex+1) + '/12 · distance ' + distance + ' · thread ' + state.threadIndex + (active ? ': global ' + upper + ' ↔ ' + lower + ' · shared ' + upperLocal + ' ↔ ' + lowerLocal : ': no butterfly at this stage');
-    const loads = !far || state.threadIndex < 16;
-    root.querySelector('[data-thread-work]').textContent = 'Load/store: threads 0–' + (far ? '15' : '255') + '. Butterfly work: threads 0–' + (pairCount-1) + '. Selected thread load/store: ' + (loads ? 'global position ' + globalIndex(state.threadIndex) : 'idle') + '. All 256 threads reach every block barrier.';
+    root.querySelector('[data-caption]').textContent = 'Global array positions · ' + rowCount + ' rows × 256 columns · … indicates omitted rows or columns';
+    root.querySelector('[data-transform-summary]').textContent = 'N = ' + state.transformLength + ' · ' + (state.transformLength*8/1024) + ' KiB per limb · ' + distances.length + ' stages · ' + (state.transformLength/2*distances.length).toLocaleString('en-US') + ' butterflies · two launches';
+    root.querySelector('[data-ownership]').textContent = (far ? 'Pass 1 · column ' : 'Pass 2 · row ') + state.blockIndex + ' · ' + (far ? 256 : rowCount) + ' blocks per limb · ' + groupLength + ' values / ' + (groupLength*8) + ' B shared memory per block · 256 threads';
+    root.querySelector('[data-selection]').textContent = 'Stage ' + (state.stageIndex+1) + '/' + distances.length + ' · distance ' + distance + ' · thread ' + state.threadIndex + (active ? ': global ' + upper + ' ↔ ' + lower + ' · shared ' + upperLocal + ' ↔ ' + lowerLocal : ': no butterfly at this stage');
+    root.querySelector('[data-twiddle]').textContent = active ? 'CPU offset J = ' + cpuOffset + ' · c = ψ^' + distance + ' · w = ψ^' + twiddleExponent + ' (mod q)' : 'No twiddle read: this thread has no butterfly.';
+    const loads = state.threadIndex < groupLength;
+    root.querySelector('[data-thread-work]').textContent = 'Load/store: threads 0–' + (groupLength-1) + '. Butterfly work: threads 0–' + (pairCount-1) + '. Selected thread load/store: ' + (loads ? 'global position ' + globalIndex(state.threadIndex) : 'idle') + '. All 256 threads reach every block barrier.';
     root.querySelectorAll('[data-stage-index]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.stageIndex) === state.stageIndex)));
+    root.querySelectorAll('[data-size]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.size) === state.transformLength)));
   }
-  distances.forEach((distance,index) => {
-    const button = document.createElement('button');
-    button.type = 'button'; button.dataset.stageIndex = String(index);
-    button.textContent = String(distance);
-    button.setAttribute('aria-label', 'Stage ' + (index+1) + ', butterfly distance ' + distance);
-    button.addEventListener('click', () => { state.stageIndex = index; render(); });
-    root.querySelector(index < 4 ? '[data-stages="far"]' : '[data-stages="near"]').appendChild(button);
-  });
-  blockInput.addEventListener('input', () => { state.blockIndex = clamp(blockInput.value, state.stageIndex < 4 ? 255 : 15); render(); });
+  function buildStages() {
+    distances = Array.from({length:Math.log2(state.transformLength)}, (_,index) => state.transformLength / 2 ** (index+1));
+    root.querySelector('[data-stages="far"]').replaceChildren();
+    root.querySelector('[data-stages="near"]').replaceChildren();
+    distances.forEach((distance,index) => {
+      const button = document.createElement('button');
+      button.type = 'button'; button.dataset.stageIndex = String(index);
+      button.textContent = String(distance);
+      button.setAttribute('aria-label', 'Stage ' + (index+1) + ', butterfly distance ' + distance);
+      button.addEventListener('click', () => { state.stageIndex = index; render(); });
+      root.querySelector(distance >= 256 ? '[data-stages="far"]' : '[data-stages="near"]').appendChild(button);
+    });
+  }
+  root.querySelectorAll('[data-size]').forEach(button => button.addEventListener('click', () => {
+    state.transformLength = Number(button.dataset.size); state.stageIndex = 0; buildStages(); render();
+  }));
+  blockInput.addEventListener('input', () => { state.blockIndex = clamp(blockInput.value, distances[state.stageIndex] >= 256 ? 255 : state.transformLength/256-1); render(); });
   threadInput.addEventListener('input', () => { state.threadIndex = clamp(threadInput.value,255); render(); });
-  render();
+  buildStages(); render();
 })();
 </script>
 </body>
