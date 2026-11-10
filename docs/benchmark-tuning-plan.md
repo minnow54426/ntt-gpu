@@ -5,10 +5,8 @@
 **Workload target:** OpenFHE 1.6.1 CKKS with Hybrid key switching  
 **Ring dimensions:** `65536`
 
-Benchmarking and tuning are deliverables of the project. A kernel is not
-considered complete merely because it is correct or fast for one transform
-size. Selection must account for the GPU, CKKS parameters, batch shape, and
-whether the objective is latency or throughput.
+Choose kernels using exact checks and measured latency or throughput at
+N=65536. Record the GPU, CKKS parameters, batch shape, and transfer boundary.
 
 ## 1. Implementations to compare
 
@@ -23,10 +21,8 @@ same exact correctness gates.
 5. Coalesced Four-Step/transpose implementation.
 6. Fused variants used by base conversion and Hybrid key switching.
 
-External libraries such as GPU-NTT and FIDESlib are comparison baselines when
-their transform semantics, modulus limits, and timing boundaries can be matched.
-Their numbers must not be compared directly when one result includes transfers
-or an entire RNS polynomial and the other does not.
+Compare GPU-NTT and FIDESlib only when transform semantics, modulus limits,
+RNS workload, and timing boundaries match.
 
 ## 2. Workload matrix
 
@@ -44,9 +40,8 @@ The minimum matrix is:
 | Transfer policy | device-resident, pinned end-to-end, pageable end-to-end |
 | GPU | RTX 5090 primary; RTX 4090 control |
 
-The exact tower counts and Hybrid digit counts must come from the pinned
-OpenFHE parameter sets used by the inference examples, rather than synthetic
-three-limb inputs alone.
+Take tower and Hybrid digit counts from the pinned OpenFHE parameter sets.
+Three-limb synthetic fixtures alone are insufficient.
 
 ## 3. GPU and kernel parameters to tune
 
@@ -66,9 +61,8 @@ Tune or record all of the following:
 - CUDA stream count, asynchronous copies, and CUDA Graph replay;
 - scratch-buffer reuse and allocator behavior.
 
-Compiler resource reports (`ptxas -v`) and measured Nsight occupancy must both
-be retained. A lower register count is not automatically better: the decision
-criterion is end-to-end performance without spills or unacceptable occupancy.
+Retain `ptxas -v` reports and Nsight occupancy. Select by end-to-end performance,
+not register count alone.
 
 ## 4. Measurements
 
@@ -119,7 +113,7 @@ comparison tables.
 1. Run exact arithmetic and transform gates for the candidate variant.
 2. Reject variants that spill unexpectedly, exceed resource limits, or violate
    lazy-reduction bounds.
-3. Sweep launch and staging parameters for each supported ring dimension.
+3. Sweep launch and staging parameters at N=65536.
 4. Profile the best latency and throughput candidates with Nsight Compute.
 5. Repeat using realistic RNS tower and Hybrid digit batches.
 6. Validate finalists on RTX 4090 to identify architecture-specific choices.
@@ -134,7 +128,7 @@ comparison tables.
 - Exact forward/inverse agreement for every supported `N` and OpenFHE modulus.
 - No silent fallback to device-side integer remainder in optimized kernels.
 - No benchmark mixes kernel-only and end-to-end timing boundaries.
-- A selected implementation exists for all five ring dimensions on RTX 5090.
+- A selected latency and throughput implementation exists for N=65536 on RTX 5090.
 - RTX 4090 results either validate the same dispatch or document a separate one.
 - Full Hybrid key-switch and inference results accompany NTT microbenchmarks.
 - The HTML explainer identifies which schedule is the correctness baseline and

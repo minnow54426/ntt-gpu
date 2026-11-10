@@ -58,7 +58,7 @@ class MathExtension(Extension):
 
 def render_markdown(text):
     converter = markdown.Markdown(
-        extensions=["meta", "tables", "fenced_code", "toc", "sane_lists", MathExtension()],
+        extensions=["meta", "tables", "fenced_code", "toc", "sane_lists", "md_in_html", MathExtension()],
         extension_configs={"toc": {"permalink": "¶", "toc_depth": "2-3"}},
         output_format="html",
     )
@@ -201,7 +201,62 @@ def navigation(pages, current):
     return "".join(output)
 
 
+class SectionOutline(HTMLParser):
+    """Read real headings without treating JavaScript strings as HTML."""
+
+    def __init__(self, content):
+        super().__init__(convert_charrefs=True)
+        self.offsets = [0]
+        for line in content.splitlines(keepends=True):
+            self.offsets.append(self.offsets[-1] + len(line))
+        self.ids = set()
+        self.headings = []
+        self.heading = None
+        self.feed(content)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if attrs.get("id"):
+            self.ids.add(attrs["id"])
+        if tag == "h2":
+            line, column = self.getpos()
+            self.heading = {"id": attrs.get("id"), "text": [],
+                            "offset": self.offsets[line - 1] + column + 3}
+
+    def handle_data(self, data):
+        if self.heading is not None:
+            self.heading["text"].append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "h2" and self.heading is not None:
+            self.headings.append(self.heading)
+            self.heading = None
+
+
+def section_outline(content):
+    outline = SectionOutline(content)
+    links, insertions = [], []
+    for heading in outline.headings:
+        label = " ".join("".join(heading["text"]).replace("¶", "").split())
+        if not label:
+            continue
+        anchor = heading["id"]
+        if not anchor:
+            base = re.sub(r"[^\w-]+", "-", label.lower()).strip("-") or "section"
+            anchor, suffix = base, 2
+            while anchor in outline.ids:
+                anchor = f"{base}-{suffix}"
+                suffix += 1
+            outline.ids.add(anchor)
+            insertions.append((heading["offset"], f' id="{escape(anchor, quote=True)}"'))
+        links.append(f'<li><a href="#{quote(anchor)}">{escape(label)}</a></li>')
+    for offset, value in reversed(insertions):
+        content = content[:offset] + value + content[offset:]
+    return content, '<ol>' + "".join(links) + '</ol>' if links else ""
+
+
 def shell(page, content, pages, revision, repository, toc="", legacy_head="", public_base_url=""):
+    content, toc = section_outline(content)
     current = page["url"]
     prefix = relative_url(current, "assets/").rstrip("/")
     home = relative_url(current, "index.html")
@@ -219,7 +274,10 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
     title = escape(page["title"])
     description = escape(page["summary"], quote=True)
     article_toc = (
-        f'<aside class="site-on-this-page" aria-label="On this page"><p>On this page</p>{toc}</aside>'
+        '<aside class="site-on-this-page" id="site-section-nav" aria-label="On this page">'
+        '<div class="site-contents-heading"><p>On this page</p>'
+        '<button type="button" class="site-contents-close" aria-label="Close sections">×</button></div>'
+        f'<nav class="site-section-links" aria-label="Page sections">{toc}</nav></aside>'
         if toc else ""
     )
     return f"""<!DOCTYPE html>
@@ -250,6 +308,7 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
   <header class="site-topbar">
     <button class="site-menu-button" type="button" aria-controls="site-sidebar" aria-expanded="false">☰ <span>Menu</span></button>
     <div class="site-breadcrumb"><a href="{home}">Notebook</a><span>/</span>{escape(page["group"])}</div>
+    {'<button class="site-contents-button" type="button" aria-controls="site-section-nav" aria-expanded="false">Sections</button>' if toc else ''}
     <button class="site-search-button" type="button" aria-haspopup="dialog"><span>⌕</span> Search documentation <kbd>⌘ K</kbd></button>
   </header>
   <main id="site-main" class="site-main">
@@ -327,54 +386,38 @@ def page_directory(pages, entries, public_base_url=None):
 def home_content(pages, entries):
     state = checkpoint()
     latest = entries[0]["date"] if entries else "No published entries"
-    collections = []
-    for number, group in enumerate(("Learn", "Research", "Plans"), 1):
-        links = "".join(
-            f'<a href="{page["url"]}">{escape(page["title"])} <span>↗</span></a>'
-            for page in pages if page["group"] == group
-        )
-        descriptions = {
-            "Learn": "Follow the mathematics into the code.",
-            "Research": "Read the evidence behind our choices.",
-            "Plans": "See the gates between here and integration.",
-        }
-        collections.append(f'<div class="site-collection"><span class="site-section-number">0{number}</span><h3>{group}</h3><p>{descriptions[group]}</p>{links}</div>')
     return f"""
 <div class="site-home-hero">
   <div><p class="site-eyebrow"><span class="site-status-dot"></span> AN OPEN ENGINEERING PROJECT</p>
-    <h1>Building the GPU<br>path for <em>CKKS.</em></h1>
-    <p class="site-lede">From one butterfly to OpenFHE integration.<br>Follow the code, the evidence, and the decisions along the way.</p>
+    <h1>GPU kernels<br>for <em>CKKS.</em></h1>
+    <p class="site-lede">Learn the NTT, inspect the CUDA schedule, and follow the path to exact OpenFHE integration.</p>
     <div class="site-hero-actions"><a class="site-primary-link" href="#all-pages">Browse all pages <span>↓</span></a><a class="site-secondary-link" href="journal.html">Follow our progress →</a></div>
     <div class="site-specs"><span>RTX 5090</span><span>u64 / u32</span><span>N = 65,536</span></div>
   </div>
   <div class="site-checkpoint"><div class="site-checkpoint-label">CURRENT CHECKPOINT <span>{escape(state['Working day'])}</span></div>
     <div class="site-checkpoint-symbol" aria-hidden="true">⌁</div>
-    <h2>{escape(state['Active phase'])}</h2>
+    <h2>Current checkpoint</h2><p><strong>{escape(state['Active phase'])}</strong></p>
     <p>{escape(state['Active task'])}.</p>
     <a href="openfhe-integration-plan.html">Explore the working-day plan <span>↗</span></a>
   </div>
 </div>
 <div class="site-evidence-strip">
-  <div><span class="site-evidence-label">VERIFIED BASELINE</span><strong><span class="site-status-dot"></span> CPU + OpenFHE exactness</strong><p>Array equality and schedule simulation.</p></div>
+  <div><span class="site-evidence-label">VERIFIED BASELINE</span><strong><span class="site-status-dot"></span> CPU / OpenFHE baseline</strong><p>Exact array checks and CPU simulation.</p></div>
   <div><span class="site-evidence-label">GPU EXECUTION</span><strong><span class="site-pending-dot"></span> Hardware gate pending</strong><p>CUDA source exists; RTX validation is next.</p></div>
-  <div><span class="site-evidence-label">CURRENT RECORD</span><strong>{escape(latest)}</strong><p>Read dated evidence in the journal.</p></div>
+  <div><span class="site-evidence-label">CURRENT RECORD</span><strong>{escape(latest)}</strong><p>Latest published journal entry.</p></div>
 </div>
-<div class="site-section-heading" id="all-pages"><div><p class="site-eyebrow">THE MAIN DIRECTORY</p><h2>All pages, one place.</h2></div></div>
-<p class="site-directory-note">Open any page below. The public URLs shown here are ready to bookmark or share.</p>
+<div class="site-section-heading" id="all-pages"><h2>All pages</h2></div>
+<p class="site-directory-note">Choose a lesson, reference, plan, or dated journal entry.</p>
 {page_directory(pages, entries)}
-<div class="site-section-heading"><div><p class="site-eyebrow">THE DIRECTION</p><h2>One pipeline. Explicit gates.</h2></div><a href="openfhe-integration-plan.html">Full roadmap →</a></div>
-<div class="site-pipeline" aria-label="Implementation sequence">
-  <div class="site-pipeline-active"><span>01 / IN PROGRESS</span><strong>GPU NTT</strong><small>Exactness → hardware → tuning</small></div>
-  <div><span>02 / PLANNED</span><strong>Base conversion</strong><small>Q ↔ QP</small></div>
-  <div><span>03 / PLANNED</span><strong>Hybrid key switch</strong><small>Decompose → MAC → ModDown</small></div>
-  <div><span>04 / PLANNED</span><strong>OpenFHE</strong><small>Integration + CPU fallback</small></div>
-  <div><span>05 / AFTER INTEGRATION</span><strong>Cipher inference</strong><small>A separate delivery phase</small></div>
-</div>
-<div class="site-section-heading"><div><p class="site-eyebrow">THE DAILY JOURNAL</p><h2>What changed. What we learned.</h2></div><a href="journal.html">All entries →</a></div>
-<div class="site-entry-grid">{entry_cards(entries, 'index.html', 3)}</div>
-<div class="site-section-heading"><div><p class="site-eyebrow">EXPLORE THE NOTEBOOK</p><h2>Choose a thread to follow.</h2></div></div>
-<div class="site-collections">{''.join(collections)}</div>
-<div class="site-contribute-note"><strong>New here?</strong> Run the <a href="vscode-debugging.html">N=8 example</a>, or learn <a href="contributing-docs.html">how to add the next journal entry</a>.</div>
+<div class="site-section-heading"><h2>Implementation sequence</h2><a href="openfhe-integration-plan.html">Tracked plan →</a></div>
+<ol class="site-plan">
+  <li><strong>NTT</strong><span>Exactness, GPU validation, tuning</span></li>
+  <li><strong>Base conversion</strong><span>Q ↔ QP</span></li>
+  <li><strong>Hybrid key switching</strong><span>Decompose, multiply, reduce</span></li>
+  <li><strong>OpenFHE</strong><span>Integration and CPU fallback</span></li>
+  <li><strong>Encrypted inference</strong><span>After integration</span></li>
+</ol>
+
 """
 
 
@@ -462,6 +505,8 @@ def build():
                 write_page(page, '<div class="site-legacy">' + body + "</div>", legacy_head=head)
             else:
                 body, toc, _ = render_markdown(text)
+                if page["group"] == "Daily journal":
+                    body = re.sub(r"(</h1>)", r'\1<p class="site-journal-summary">' + escape(page["summary"]) + '</p>', body, count=1)
                 body = rewrite_links(body, page["source"], page["url"], routes, repository, revision)
                 content = '<article class="site-article">' + body + "</article>"
                 if page["group"] == "Daily journal":
@@ -479,9 +524,9 @@ def build():
 <div class="site-journal-intro"><p class="site-eyebrow">THE DAILY JOURNAL</p>
 <h1>The work, as it happens.</h1><p>Outcomes, decisions, and the evidence behind them.
 Follow the project one entry at a time.</p></div>
-<div class="site-journal-explainer">Calendar entries track the work. Roadmap working days track deliverables.
-Entries reconstructed from history are labeled in their articles.</div>
-<div class="site-journal-list">{entry_cards(entries, 'journal.html')}</div>""")
+<section><h2>How to read the journal</h2><p class="site-journal-explainer">Dates record when work was documented. Roadmap days track deliverables.
+Reconstructed history is labeled; CPU checks and GPU execution are recorded separately.</p></section>
+<section><h2>Entries</h2><div class="site-journal-list">{entry_cards(entries, 'journal.html')}</div></section>""")
         (output / "search-index.json").write_text(json.dumps(search, ensure_ascii=False))
         (output / "search-index.js").write_text(
             "window.nttNotebookSearchIndex = " + json.dumps(search, ensure_ascii=False) + ";\n"

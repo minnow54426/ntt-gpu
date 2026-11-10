@@ -1,147 +1,111 @@
 # ntt-gpu
 
-GPU-accelerated RNS NTT, key-switching, and automorphism kernels for FHE (and, by shared
-core operation, ZK proving). Target: best-in-class, honestly-benchmarked CUDA kernels.
+Exact GPU kernels for CKKS: NTT first, then base conversion, Hybrid key
+switching, and OpenFHE integration. The target workload is N=65,536 on RTX 5090,
+with RTX 4090 as the compatibility control.
 
-**Status:** Layer 1 (CPU `ref` backend) complete and cross-verified — 2026-10-29.
-Layer 2 written and Mac-proven (schedule simulator green); GPU gates light up
-automatically wherever nvcc exists.
-
-## Roadmap
-
-- **v0.1 (2027-01-31):** correct, tested RNS NTT CUDA kernel + benchmark table
-  (RTX 4090 + RTX 5090), e.g. "2^16 coefficients, 40-bit limbs: X ms, N× vs OpenFHE CPU".
-  - [x] Layer 1 — CPU reference negacyclic NTT + Python big-int oracle (2026-10-29)
-  - [ ] Layer 2 — CUDA kernel, validated on the same vectors
-    - [x] 2a — the GPU stage schedule (`include/ntt/dev_core.hpp`), proven on CPU
-      by a portable simulator gate (`device_schedule_check`) at n = 64 / 1024 / 65536
-    - [x] 2b — the kernels themselves (`src/cuda/ntt_kernels.cu`), thin wrappers
-      around the proven schedule; GPU gates register automatically under nvcc
-    - [ ] 2c — first run on a rented GPU (see below), bench table recorded
-    - [ ] 2d — systematic benchmark and autotuning matrix across GPU launch
-      parameters and NTT implementations; select winners per ring size, RNS
-      tower count, and latency/throughput objective
-- **v0.2 (2027-04-30):** key-switching / automorphism kernels; first upstream PRs.
-
-Benchmarking and tuning are part of the implementation, not a final reporting
-step. The primary target is RTX 5090 (`sm_120`), with RTX 4090 (`sm_89`) as the
-cross-architecture control. The matrix includes `N = 65536`, realistic
-CKKS modulus widths and tower counts, threads/block, values/thread, radix,
-register and shared-memory use, split/tile shape, batch size, streams, twiddle
-representation, and transfer policy. It compares the correctness baseline,
-optimized two-pass variants, radix-4/8 register staging, and a coalesced
-Four-Step/transpose path. Kernel-only and end-to-end results are reported
-separately. See [`docs/benchmark-tuning-plan.md`](docs/benchmark-tuning-plan.md).
+**Current state:** the CPU reference, Python oracle, portable GPU-schedule
+simulator, and OpenFHE transform gate are implemented. CUDA source is ready;
+execution on a real GPU remains the next hardware gate. CPU simulation does
+not validate GPU barriers or launch behavior.
 
 ## Build & test
 
-No dependencies beyond CMake, a C++20 compiler, and Python 3 (stdlib only).
-Without a CUDA toolkit (e.g. the dev Mac):
+Requires CMake, a C++20 compiler, and Python 3. CUDA is optional and detected
+automatically.
 
 ```sh
-cmake -S . -B build && cmake --build build -j && ctest --test-dir build --output-on-failure
+cmake -S . -B build
+cmake --build build -j
+ctest --test-dir build --output-on-failure
 ```
 
-Eight portable CTest checks: vector generation ×3 sizes (RNS primes + 2N-th roots of unity at
-n = 64/1024/65536), unit tests (modular arithmetic, bit-reversal, forward/inverse
-roundtrip, NTT-multiply vs O(N²) schoolbook mod x^N+1), the cross-language
-oracle check — the C++ fast transform must equal a definitional naive O(N²)
-big-integer transform in Python, limb by limb, with position-wise CRT
-reconstruction over all limbs — and the device-schedule check: the simulator
-(`src/device_sim.cpp`) runs the exact stage bodies the CUDA kernels run and
-must match the CPU reference array-for-array, bit-reversed order included.
-The remaining checks are the N=8 debug example and the exhaustive column
-mapping proof at N=65536. Small fixtures keep the quadratic oracle practical;
-the project workload and default vector generation use N=65536.
+The eight portable checks cover vector generation at N=64/1024/65536, unit
+tests, the independent Python oracle, the shared device schedule, the column
+index/twiddle proof, and the N=8 debug example. Small fixtures keep the
+quadratic oracle and schoolbook multiplication practical.
 
-For a ready-to-run macOS VS Code setup, including an `N=8` example and LLDB
-single-stepping instructions, see
-[`docs/vscode-debugging.md`](docs/vscode-debugging.md).
-
-With nvcc present, CMake auto-detects it and adds `ntt_cuda_cli` plus three
-GPU gates, unchanged commands otherwise: `cuda_oracle_crosscheck` (the same
-Python oracle against the CUDA binary — its output is byte-identical to
-`ntt_cli`), `cuda_matches_ref` (byte-compare of both binaries' transform
-output at n = 1024 and 65536; valid at any size, use a 2^18 fixture freely),
-and `cuda_verify` (in-process GPU-vs-ref forward/roundtrip/multiply on the
-fixtures plus a generated n = 65536 case).
+With nvcc, three more gates compare CUDA with the same oracle and CPU
+reference. Array ordering, forward/inverse results, round trips, and polynomial
+multiplication must agree exactly. See [run and debug](docs/vscode-debugging.md)
+to step through the N=8 example.
 
 ### Exact OpenFHE compatibility
 
-The OpenFHE gate pins **OpenFHE 1.6.1** at commit
-`b59e1f291965f14fbee5172cd83a20f5b856204f`, builds it under the ignored
-`build/` tree, and compares the public `NativePoly` coefficient/evaluation
-conversion against `NegacyclicNtt` element for element:
+The optional gate pins OpenFHE 1.6.1 at
+`b59e1f291965f14fbee5172cd83a20f5b856204f`:
 
 ```sh
 bash scripts/openfhe_setup.sh
 ```
 
-`openfhe_exact_compat` covers `N = 65536`, two
-OpenFHE-selected CKKS-sized modulus widths (50 and 59 bits), zero, maximum,
-ramp, and deterministic-random coefficient inputs, plus independent random
-evaluation-domain inputs for inverse transforms. Equality includes OpenFHE's
-exact bit-reversed evaluation ordering; this is not a decrypt-tolerance test.
-The CUDA gates already require GPU output to equal the same CPU reference, so
-the two exact gates compose to OpenFHE == reference == CUDA on GPU hardware.
+It compares N=65536 `NativePoly` coefficient/evaluation conversions with our
+reference, including bit-reversed evaluation order. Cases use 50- and 59-bit
+OpenFHE-selected primes, zero, maximum, ramp, random coefficients, and
+independent random inverse inputs.
 
-The ordinary dependency-free build remains unchanged. To reuse an existing
-OpenFHE installation instead of the setup script, configure with
-`-DNTT_ENABLE_OPENFHE_COMPAT=ON` and point `CMAKE_PREFIX_PATH` at its install
-prefix; CMake requires version 1.6.1 exactly.
-
-Architecture default: sm_89 + sm_120 when the toolkit is ≥ 12.8, else sm_89
-(the build embeds compute_89 PTX, which a 5090 driver JITs) — one build runs
-on both rentable cards. Override with `-DCMAKE_CUDA_ARCHITECTURES=native`
-(CMake ≥ 3.24) on a single known box.
+To reuse an installation, configure with `-DNTT_ENABLE_OPENFHE_COMPAT=ON`
+and set `CMAKE_PREFIX_PATH` to its install prefix. OpenFHE is not required
+for the standalone build.
 
 ### First session on a rented GPU
 
 ```sh
-bash scripts/autodl_setup.sh          # or: NTT_REPO_DIR=... NTT_CUDA_ARCH=...
+bash scripts/autodl_setup.sh
 ```
 
-Idempotent one-shot: finds nvcc (PATH or `/usr/local/cuda/bin`), clone-or-pull,
-configure + build, run every gate, run the bench sweep, and write `VERDICT.txt`
-(GPU name, driver, toolkit, arch sanity check, per-gate results, bench table).
-Exit code reflects the gates. Bench numbers are attached to that hardware
-header or they don't get quoted.
+The script finds nvcc, updates source, builds, runs the gates, benchmarks N=65536,
+and writes hardware details and results to `VERDICT.txt`. Override the checkout,
+architecture, or benchmark arguments with `NTT_REPO_DIR`, `NTT_CUDA_ARCH`, and
+`NTT_BENCH_ARGS`.
+
+The default build targets `sm_89` and, with CUDA 12.8+, `sm_120`. For one known
+GPU, use `-DCMAKE_CUDA_ARCHITECTURES=native` (CMake 3.24+).
 
 ## Design
 
-Two backends behind one interface:
+Both backends use the same negacyclic transform convention:
 
-- `ref` — CPU reference (correctness is defined here; big-int-checked test vectors)
-- `cuda` — GPU kernel (validated against `ref` on identical vectors)
+```text
+psi is a primitive 2N-th root modulo q; psi^N = -1
+forward: A_j = sum_i a_i * psi^((2j+1)*i) mod q
+input: natural coefficient order; output: bit-reversed evaluation order
+```
 
-The CUDA port's index math lives once in `include/ntt/dev_core.hpp`, compiled
-by the Mac simulator and by the kernels alike, so schedule and device cannot
-drift; the reference arithmetic (`mod_arith.hpp`) is `__host__ __device__`, so
-the GPU runs literally the reference `mul_mod`. The schedule is a two-pass
-split at 256: pass 1 over 256 strided groups (the far stages, whose pair
-distance is a multiple of 256, pair values sharing their offset mod 256),
-pass 2 over contiguous 256-tiles (the near stages). All 16 stages at
-N = 65,536 run on shared-memory counters; the "mix" between passes is pure
-data movement (scatter strided, gather contiguous), so VRAM traffic is 4
-round-trips per value instead of the 14 a global-memory phase would cost —
-and one forward is 2 kernel launches. v1 uses the `__uint128_t`
-division lowering on device — emulated there, and honestly slow; the bench
-table quantifies exactly that pre-Barrett gap, and Barrett/Montgomery lands
-later behind the same signature with a dedicated cross-check. The simulator
-is serial by nature: it proves the math, not barriers or launch configs —
-the GPU gates exist for that residue.
+The CUDA schedule splits at 256. Pass 1 gathers 256 strided columns; pass 2
+loads 256 contiguous rows. At N=65536, each pass handles eight stages in shared
+memory. One forward uses two launches and four logical array movements.
+The strided pass is uncoalesced, so logical bytes are not measured DRAM traffic.
 
-Benchmarks are only ever reported from the `cuda` backend on named hardware.
+Stage bodies in [`dev_core.hpp`](include/ntt/dev_core.hpp) are compiled for
+both CPU simulation and CUDA. The current `__uint128_t` remainder arithmetic
+is a correctness baseline. Shoup/Barrett reduction, coalesced layouts, and
+register staging are planned optimizations, subject to exact checks and profiling.
 
-Transform convention (see `include/ntt/ntt.hpp`): ψ a primitive 2N-th root of
-unity mod q, `forward: A_j = Σ_i a_i·ψ^((2j+1)·i) mod q` — evaluation at the
-odd powers of ψ, where x^N+1 splits into linear factors.
+Use the [work-distribution explorer](docs/ntt-65536-work-distribution.html)
+to inspect blocks, threads, pairs, and twiddle exponents.
+
+## Roadmap
+
+| Deliverable | State |
+|---|---|
+| CPU reference, oracle, schedule simulation | Complete |
+| CUDA kernels and automatic GPU test registration | Implemented; hardware validation pending |
+| Named-device baseline and tuning | Planned |
+| Base conversion and Hybrid key switching | Planned |
+| OpenFHE integration with CPU fallback | Planned |
+
+The v0.1 target is 2027-01-31; v0.2 key-switch/automorphism work targets
+2027-04-30. See the [tracked integration plan](docs/openfhe-integration-plan.md)
+for working-day gates and the [benchmark plan](docs/benchmark-tuning-plan.md)
+for measurements. Performance claims require named hardware and matching timing
+boundaries.
 
 ## Docs
 
-The documentation now builds as one HTML engineering notebook: shared navigation,
-search, learning pages, research, plans, and a daily journal recording outcomes,
-reasoning, evidence, open questions, and next steps.
+Start with [NTT and butterflies](docs/butterfly-explained.html), then
+[CPU to CUDA](docs/gpu-ntt-explained.html). The [implementation survey](docs/gpu-ntt-survey.md)
+and [GPU comparison](docs/gpu-selection-survey.md) explain the design choices.
 
 ```sh
 python3 -m venv .venv
@@ -150,41 +114,14 @@ python3 -m venv .venv
 python3 -m http.server 8000 --bind 127.0.0.1 --directory build/docs-site
 ```
 
-Open `http://127.0.0.1:8000/`. Markdown remains editable source; the generated
-site publishes HTML. The existing interactive explainers also work independently.
-See [writing and publishing](docs/README.md) for GitHub Pages setup and the
-daily-entry workflow. These optional dependencies do not affect the C++ build.
-
-- [`docs/butterfly-explained.html`](docs/butterfly-explained.html) — an interactive,
-  dependency-free beginner's explainer: why the NTT is built from butterfly units,
-  from the one-line definition through the negacyclic fold rule to the full N=8
-  network (open in any browser).
-- [`docs/gpu-ntt-explained.html`](docs/gpu-ntt-explained.html) — the GPU port
-  explained from zero: the machine's concepts and real parameters (threads,
-  blocks, SMs, the 4090/5090 numbers), then how this repo splits the NTT into
-  strided groups and contiguous tiles so every stage runs on a shared-memory
-  counter.
-- [`docs/gpu-ntt-survey.md`](docs/gpu-ntt-survey.md) — primary-source survey of
-  GPU NTT and CKKS implementations, with the techniques this project can absorb.
-- [`docs/gpu-selection-survey.md`](docs/gpu-selection-survey.md) — primary-source
-  comparison of RTX 5090, RTX 4090, RTX PRO 6000, L40S, A100, H100/H200, and
-  B200 for this project's exact `u32`/`u64` modular-arithmetic workload.
-- [`docs/benchmark-tuning-plan.md`](docs/benchmark-tuning-plan.md) — reproducible
-  benchmark matrix and tuning/selection rules for GPU parameters and kernel
-  variants.
-- [`docs/openfhe-integration-plan.md`](docs/openfhe-integration-plan.md) — the
-  tracked 95-day implementation plan (plus risk reserve) from the current NTT
-  baseline through GPU base conversion, Hybrid key switching, and validated
-  OpenFHE integration.
-- [`docs/vscode-debugging.md`](docs/vscode-debugging.md) — shared VS Code build,
-  run, test, and LLDB step-debugging setup for the small CPU NTT example.
+Open `http://127.0.0.1:8000/`. See [writing and publishing](docs/README.md)
+for editing, journals, and GitHub Pages export.
 
 ## Provenance
 
-Independent clean-room implementation. Contains no code, data, or artifacts from any
-past or present employer. Development history is fully documented in this repository's
-git log from the first commit.
+Independent clean-room implementation. No code, data, or artifacts from past
+or present employers. Development history is recorded in git.
 
 ## License
 
-TBD (decide before accepting outside contributions).
+TBD before accepting outside contributions.

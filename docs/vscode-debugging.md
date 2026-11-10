@@ -1,8 +1,7 @@
 # Run and debug the NTT in VS Code
 
-This project checks in a shared VS Code configuration for macOS. The first
-debug target uses the CPU reference implementation, so CUDA hardware is not
-required.
+Run the N=8 CPU example on macOS, then step through its butterflies in VS Code.
+CUDA hardware is not required.
 
 ## One-time setup
 
@@ -13,9 +12,7 @@ required.
    - LLDB DAP
 3. Wait for CMake Tools to finish configuring `build/debug`.
 
-The extensions are already installed on the current development Mac. The
-workspace explicitly uses Xcode's matching `lldb-dap` binary instead of
-CodeLLDB's bundled LLDB.
+The workspace uses Xcode's `lldb-dap`; check that Xcode command-line tools are installed.
 
 ## Run the small example
 
@@ -68,8 +65,7 @@ CUDA build is available.
 
 ## CodeLLDB crash on current macOS/Xcode
 
-CodeLLDB 1.11.4's bundled LLDB 19.1.7 crashes with `SIGBUS` while parsing the
-Mach-O symbols produced by the current AppleClang toolchain. Xcode's native
-`lldb-dap` has been tested against this executable and stops at `main`
-correctly. If VS Code still shows a launch configuration with type `lldb`, run
-**Developer: Reload Window** and select the `lldb-dap` configuration again.
+The recorded CodeLLDB 1.11.4 / LLDB 19.1.7 setup crashed with `SIGBUS` on
+AppleClang symbols. Xcode `lldb-dap` stopped correctly at `main`. If an old
+`lldb` configuration appears, run **Developer: Reload Window** and select
+the `lldb-dap` configuration.

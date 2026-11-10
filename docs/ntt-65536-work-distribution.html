@@ -89,17 +89,17 @@
 <div class="ntt-lesson" id="ntt65536-distribution">
   <header>
     <p class="eyebrow">CUDA execution · a worked example</p>
-    <h1>One polynomial.<br>Two passes. Many threads.</h1>
-    <p class="lede">See how our 65536-point forward NTT distributes data and butterflies. Start with what a block owns, then zoom into what a thread does.</p>
+    <h1>How 65,536 coefficients<br>map to GPU threads.</h1>
+    <p class="lede">One forward NTT uses two passes. Each block owns a column or row; each active thread computes a butterfly. Use the explorer to follow its indices and twiddles.</p>
     <div class="reading-path" aria-label="Execution hierarchy"><span>Polynomial</span><span>→</span><span>Pass</span><span>→</span><span>Block</span><span>→</span><span>Thread</span></div>
     <nav class="jump-links" aria-label="On this page"><a href="#whole-job">The whole job</a><a href="#two-passes">The two passes</a><a href="#larger-polynomial">Resources &amp; memory access</a><a href="#column-proof">Indices &amp; twiddle proof</a><a href="#explore">Explore a thread</a><a href="#synchronization">Synchronization &amp; RNS</a></nav>
   </header>
 
   <section id="whole-job">
     <div class="section-title"><span class="section-number">01</span><h2>Start with the data</h2></div>
-    <p>Consider one polynomial modulo one prime: <code>a[0], a[1], …, a[65535]</code>. Each residue is an unsigned 64-bit integer. The flat array occupies 512 KiB.</p>
+    <p>Consider one polynomial modulo one prime: <code>a[0], a[1], …, a[65535]</code>. Each residue uses 8 bytes, so one RNS limb occupies 512 KiB.</p>
     <div class="facts"><div><strong>65536</strong><span>coefficients per modulus</span></div><div><strong>16</strong><span>stages · 32768 butterflies each</span></div><div><strong>524,288</strong><span>butterflies · two kernel launches</span></div></div>
-    <p>Imagine the same array as <strong>256 rows × 256 columns</strong>. This is only a way to read the indices—we do not allocate a matrix or transpose the array.</p>
+    <p>Imagine the same array as <strong>256 rows × 256 columns</strong>. This is an index view; the stored array stays flat.</p>
     <div class="layout-rule"><code>global_index = row × 256 + column</code></div>
   </section>
 
@@ -109,7 +109,7 @@
       <article class="pass"><div class="pass-label">Pass 1 · far stages</div><h3>One block owns one column</h3><span class="distances mono">32768 → 16384 → 8192 → 4096 → 2048 → 1024 → 512 → 256</span><p>These distances preserve the index modulo 256. Each block gathers 256 strided values into shared memory, executes eight stages, and scatters the results back.</p><p>256 blocks per modulus. Every block launches 256 threads: 256 load/store values; 128 compute butterflies at each stage.</p><small class="mono">256 values · 2 KiB shared memory / block</small></article>
       <article class="pass"><div class="pass-label">Pass 2 · near stages</div><h3>One block owns one row</h3><span class="distances mono">128 → 64 → 32 → 16 → 8 → 4 → 2 → 1</span><p>These butterflies stay inside an aligned 256-value row. Each block loads its contiguous row into shared memory, executes eight stages, and writes it back.</p><p>256 blocks per modulus. All 256 threads load/store values; 128 compute butterflies at each stage.</p><small class="mono">256 values · 2 KiB shared memory / block</small></article>
     </div>
-    <p class="note">These are stages of <strong>one 65536-point transform</strong>, using its twiddle factors—not independent smaller NTTs. This page shows our current baseline schedule, including its inactive threads.</p>
+    <p class="note">Both passes use twiddles from the <strong>same 65536-point transform</strong>. Threads 128–255 still load, store, and reach every barrier, even when they have no butterfly.</p>
   </section>
 
   <section id="larger-polynomial">
@@ -204,7 +204,7 @@ ctest --test-dir build -R 'column_mapping_check|device_schedule_check' --output-
     <div class="sync-list"><div><h3>Inside a block</h3><p>All 256 threads reach <code>__syncthreads()</code> after loading and after each stage—even threads without a butterfly. This barrier synchronizes only that block.</p></div><div><h3>Between the passes</h3><p>The kernels use the same CUDA stream, so pass 2 starts after pass 1 finishes. Blocks within a pass are independent; SM scheduling does not guarantee they all execute simultaneously.</p></div></div>
     <p>For CKKS with multiple RNS primes, repeat this arrangement per limb. Storage is limb-major: <code>values[limb × N + index]</code>. <code>blockIdx.y</code> selects the limb; <code>blockIdx.x</code> selects the column in pass 1 or the row in pass 2.</p>
   </section>
-  <p class="closing">The mental model: <strong>a block owns a data subset; a thread computes a butterfly within it at each stage.</strong></p>
+  <p class="closing"><strong>A block owns a row or column. A thread computes a different pair at each stage.</strong></p>
 </div>
 <script>
 (() => {

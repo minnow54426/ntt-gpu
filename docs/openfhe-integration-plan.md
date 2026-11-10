@@ -5,12 +5,11 @@
 `uint32_t` indexing/control paths where safe  
 **Ring dimension:** `65536`<br>
 **Estimate:** 95 planned working days + 15 risk-reserve days  
-**Last updated:** 2026-11-08 (Asia/Shanghai)
+**Last updated:** 2026-11-10 (Asia/Shanghai)
 
-This file is the source of truth for work from the current correctness-first
-NTT implementation through GPU base conversion, GPU Hybrid key switching, and
-validated OpenFHE integration. Update the tracker and progress log in the same
-commit as each completed gate.
+Follow the live tracker, then open the phase you need from the section sidebar.
+The sequence is NTT → base conversion → Hybrid key switching → OpenFHE.
+Update this tracker only when a deliverable passes its gate.
 
 ## Live tracker
 
@@ -22,11 +21,8 @@ commit as each completed gate.
 | Next gate | P1 architecture review: frozen OpenFHE representation, buffer, ordering, and integration contracts |
 | Overall state | In progress |
 
-Hardware decision: use RTX 5090 as the primary development/optimization target,
-retain RTX 4090 as the Ada control, and move to RTX PRO 6000 Blackwell only if
-measured resident memory or production reliability requires it. H200/B200 remain
-benchmark candidates rather than assumed winners. See
-[`gpu-selection-survey.md`](gpu-selection-survey.md).
+Hardware: RTX 5090 primary, RTX 4090 control. Use larger-memory hardware only
+when measurements justify it; see the [GPU comparison](gpu-selection-survey.md).
 
 Status vocabulary: `DONE`, `IN PROGRESS`, `NOT STARTED`, `BLOCKED`.
 
@@ -146,7 +142,7 @@ P2 exit gate:
 | D30–D32 | Implement radix-4 register staging |
 | D33–D35 | Implement radix-8 register staging and padded shared memory |
 | D36 | Compare warp shuffle and shared-memory exchange for small stages |
-| D37 | Add compile-time specializations for the five ring dimensions |
+| D37 | Add compile-time specialization for N=65536 |
 | D38 | Run latency/throughput autotuning over real tower and batch counts |
 | D39 | Freeze the per-device/per-size dispatch table |
 | D40 | Production NTT gate and documentation update |
