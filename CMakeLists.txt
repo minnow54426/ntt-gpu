@@ -15,7 +15,8 @@ add_executable(ntt_debug_example examples/step_by_step.cpp)
 # stage bodies the kernels run (include/ntt/dev_core.hpp), serially.
 add_executable(ntt_device_sim src/device_sim.cpp)
 add_executable(ntt_column_mapping_tests tests/column_mapping_tests.cpp)
-foreach(t ntt_cli ntt_tests ntt_debug_example ntt_device_sim ntt_column_mapping_tests)
+add_executable(ntt_tile_mapping_tests tests/tile_mapping_tests.cpp)
+foreach(t ntt_cli ntt_tests ntt_debug_example ntt_device_sim ntt_column_mapping_tests ntt_tile_mapping_tests)
   target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_compile_options(${t} PRIVATE -Wall -Wextra -Werror)
 endforeach()
@@ -25,6 +26,8 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 add_test(NAME debug_example COMMAND ntt_debug_example)
 add_test(NAME column_mapping_check COMMAND ntt_column_mapping_tests)
+add_test(NAME inverse_column_check COMMAND ntt_column_mapping_tests --inverse)
+add_test(NAME tile_mapping_check COMMAND ntt_tile_mapping_tests)
 
 set(VEC ${CMAKE_CURRENT_BINARY_DIR}/vector_n1024.txt)
 

@@ -14,7 +14,7 @@ class Element {
   textContent = '';
   value = '';
   appendChild(child) { this.children.push(child); }
-  replaceChildren() { this.children = []; }
+  replaceChildren(...children) { this.children = children; }
   setAttribute(name, value) { this.attributes[name] = value; }
   addEventListener(name, callback) { this.listeners[name] = callback; }
   click() { this.listeners.click(); }
@@ -26,57 +26,81 @@ function explorer() {
   const sizes = [4096,65536].map(size => {
     const button = new Element(); button.dataset.size = String(size); return button;
   });
+  const directions = ['forward','inverse'].map(direction => {
+    const button = new Element(); button.dataset.direction = direction; return button;
+  });
   const get = selector => {
     if (!elements.has(selector)) elements.set(selector, new Element());
     return elements.get(selector);
   };
-  const buttons = () => [...get('[data-stages="far"]').children, ...get('[data-stages="near"]').children];
+  const buttons = () => [...get('[data-stages="far"]').children, ...get('[data-stages="near"]').children].sort((a,b) => Number(a.dataset.stageIndex)-Number(b.dataset.stageIndex));
   const root = {
     querySelector:get,
-    querySelectorAll:selector => selector === '[data-size]' ? sizes : buttons(),
+    querySelectorAll:selector => selector === '[data-size]' ? sizes : selector === '[data-direction]' ? directions : buttons(),
   };
   const source = readFileSync(join(__dirname,'../../docs/ntt-4096-work-distribution.html'),'utf8');
   const script = source.match(/<script>([\s\S]*?)<\/script>/)[1];
   runInNewContext(script, {document:{getElementById:() => root, createElement:() => new Element()}});
-  return {get, buttons, size:n => sizes.find(button => Number(button.dataset.size) === n).click()};
+  return {get, buttons, size:n => sizes.find(button => Number(button.dataset.size) === n).click(), direction:value => directions.find(button => button.dataset.direction === value).click()};
 }
 
 test('both sizes: all stages and boundary thread/block selections match the CPU pair schedule', () => {
   const page = explorer();
   for (const n of [4096,65536]) {
     page.size(n);
-    assert.equal(page.buttons().length, Math.log2(n));
-    for (let stage=0; stage<Math.log2(n); stage++) {
-      page.buttons()[stage].click();
-      const distance = n / 2 ** (stage+1);
-      const far = distance >= 256;
-      const rows = n/256;
-      const pairCount = far ? rows/2 : 128;
-      for (const block of [0,3,far ? 255 : rows-1]) {
-        page.get('[data-block]').fill(String(block));
-        for (const thread of [0,5,21,pairCount-1,pairCount,200,255]) {
-          page.get('[data-thread]').fill(String(thread));
-          const selection = page.get('[data-selection]').textContent;
-          if (thread >= pairCount) {
-            assert.match(selection,/no butterfly/);
-            assert.match(page.get('[data-twiddle]').textContent,/No twiddle read/);
-          } else {
-            // Independent form of the kernel mapping: insert the distance bit.
-            const localDistance = far ? distance/256 : distance;
-            const u = (thread & (localDistance-1)) + Math.floor(thread/localDistance)*2*localDistance;
-            const upper = far ? u*256+block : block*256+u;
-            assert.ok(selection.includes('global ' + upper + ' ↔ ' + (upper+distance)),selection);
-            const cpuOffset = upper % (2*distance);
-            const exponent = (n/distance)*cpuOffset;
-            assert.equal(page.get('[data-twiddle]').textContent,
-              'CPU offset J = ' + cpuOffset + ' · c = ψ^' + distance + ' · w = ψ^' + exponent + ' (mod q)');
-            const cells = page.get('[data-matrix] tbody').children.flatMap(row => row.children);
-            assert.equal(cells.find(cell => cell.className === 'matrix-upper').textContent,String(upper));
-            assert.equal(cells.find(cell => cell.className === 'matrix-lower').textContent,String(upper+distance));
+    for (const direction of ['forward','inverse']) {
+      page.direction(direction);
+      assert.equal(page.buttons().length, Math.log2(n));
+      for (let stage=0; stage<Math.log2(n); stage++) {
+        page.buttons()[stage].click();
+        const distance = direction === 'inverse' ? 2 ** stage : n / 2 ** (stage+1);
+        const far = distance >= 256;
+        const rows = n/256;
+        const pairCount = far ? rows/2 : 128;
+        for (const block of [0,3,far ? 255 : rows-1]) {
+          page.get('[data-block]').fill(String(block));
+          for (const thread of [0,5,21,pairCount-1,pairCount,200,255]) {
+            page.get('[data-thread]').fill(String(thread));
+            const selection = page.get('[data-selection]').textContent;
+            if (thread >= pairCount) {
+              assert.match(selection,/no butterfly/);
+              assert.match(page.get('[data-twiddle]').textContent,/No twiddle read/);
+            } else {
+              // Independent form of the kernel mapping: insert the distance bit.
+              const localDistance = far ? distance/256 : distance;
+              const u = (thread & (localDistance-1)) + Math.floor(thread/localDistance)*2*localDistance;
+              const upper = far ? u*256+block : block*256+u;
+              assert.ok(selection.includes('global ' + upper + ' ↔ ' + (upper+distance)),selection);
+              const cpuOffset = upper % (2*distance);
+              const exponent = (n/distance)*cpuOffset;
+              const multipliers = direction === 'inverse' ?
+                ' · c⁻¹ = (ψ⁻¹)^' + distance + ' · w⁻¹ = (ψ⁻¹)^' + exponent :
+                ' · c = ψ^' + distance + ' · w = ψ^' + exponent;
+              assert.equal(page.get('[data-twiddle]').textContent,
+                'CPU offset J = ' + cpuOffset + multipliers + ' (mod q)');
+              const cells = page.get('[data-matrix] tbody').children.flatMap(row => row.children);
+              assert.equal(cells.find(cell => cell.className === 'matrix-upper').textContent,String(upper));
+              assert.equal(cells.find(cell => cell.className === 'matrix-lower').textContent,String(upper+distance));
+            }
           }
         }
       }
     }
+  }
+});
+
+test('inverse starts with rows, then columns, and includes a final normalization launch', () => {
+  const page = explorer();
+  for (const n of [4096,65536]) {
+    page.size(n); page.direction('inverse');
+    assert.equal(page.buttons()[0].textContent,'1');
+    assert.match(page.get('[data-ownership]').textContent,/Pass 1 · row/);
+    page.buttons()[8].click();
+    assert.equal(page.buttons()[8].textContent,'256');
+    assert.match(page.get('[data-ownership]').textContent,/Pass 2 · column/);
+    assert.match(page.get('[data-transform-summary]').textContent,/three launches, including N⁻¹ scale/);
+    assert.equal(page.get('[data-stage-groups]').className,'stage-groups inverse');
+    assert.equal(page.get('[data-stage-groups]').children[0],page.get('[data-near-panel]'));
   }
 });
 

@@ -44,6 +44,7 @@
   .ntt-lesson .note { color:var(--muted); font-size:14px; }
   .ntt-lesson .explorer { padding:24px; margin-top:22px; background:var(--surface); border:1px solid var(--line); border-radius:8px; }
   .ntt-lesson .stage-groups { display:grid; grid-template-columns:1fr 2fr; gap:22px; }
+  .ntt-lesson .stage-groups.inverse { grid-template-columns:2fr 1fr; }
   .ntt-lesson [data-transform-summary] { margin-bottom:18px; }
   .ntt-lesson .control-label { display:block; font-size:12px; color:var(--muted); margin-bottom:9px; }
   .ntt-lesson .stage-buttons { display:flex; flex-wrap:wrap; gap:7px; }
@@ -75,7 +76,7 @@
   .ntt-lesson .closing { border-top:1px solid var(--line); margin-top:36px; padding-top:20px; font-size:14px; color:var(--muted); }
   @media(max-width:650px) {
     .ntt-lesson { padding:26px 16px 42px; }
-    .ntt-lesson .pass-grid,.ntt-lesson .stage-groups,.ntt-lesson .sync-list { grid-template-columns:1fr; }
+    .ntt-lesson .pass-grid,.ntt-lesson .stage-groups,.ntt-lesson .stage-groups.inverse,.ntt-lesson .sync-list { grid-template-columns:1fr; }
     .ntt-lesson .explorer { padding:16px; }
     .ntt-lesson .facts { gap:12px; }
     .ntt-lesson .facts strong { font-size:23px; }
@@ -90,9 +91,9 @@
   <header>
     <p class="eyebrow">CUDA execution · a worked example</p>
     <h1>One polynomial.<br>Two passes. Many threads.</h1>
-    <p class="lede">See how our 4096- and 65536-point forward NTTs distribute data and butterflies. Start with what a block owns, then zoom into what a thread does.</p>
+    <p class="lede">See how our 4096- and 65536-point forward and inverse NTTs distribute data and butterflies. Start with what a block owns, then zoom into what a thread does.</p>
     <div class="reading-path" aria-label="Execution hierarchy"><span>Polynomial</span><span>→</span><span>Pass</span><span>→</span><span>Block</span><span>→</span><span>Thread</span></div>
-    <nav class="jump-links" aria-label="On this page"><a href="#whole-job">The whole job</a><a href="#two-passes">The two passes</a><a href="#larger-polynomial">Scale to 65536</a><a href="#column-proof">Indices &amp; twiddle proof</a><a href="#explore">Explore a thread</a><a href="#synchronization">Synchronization &amp; RNS</a></nav>
+    <nav class="jump-links" aria-label="On this page"><a href="#whole-job">The whole job</a><a href="#two-passes">The two passes</a><a href="#larger-polynomial">Scale to 65536</a><a href="#column-proof">Forward proof</a><a href="#inverse-proof">Inverse proof · D3</a><a href="#tile-proof">Row kernels &amp; coverage · D4</a><a href="#explore">Explore a thread</a><a href="#synchronization">Synchronization &amp; RNS</a></nav>
   </header>
 
   <section id="whole-job">
@@ -180,16 +181,110 @@ cmake --build build --target ntt_column_mapping_tests ntt_device_sim
 ctest --test-dir build -R 'column_mapping_check|device_schedule_check' --output-on-failure</pre>
   </section>
 
+  <section id="inverse-proof">
+    <div class="section-title"><span class="section-number">05 · D3</span><h2>Undo the forward butterfly</h2></div>
+    <p>The inverse-column helper <code>dev_dit_col_stage</code> uses the <strong>same pair mapping</strong> as D2. Only the arithmetic and stage order change. It reads an inverse-power table: entry e is <code>(ψ⁻¹)^e</code>. The exponents d and E stay positive; we do not use negative table indices.</p>
+    <div class="sync-list"><div><h3>Forward · DIF</h3><pre class="derivation">c = ψ^d; w = ψ^E
+x = a + c × b
+y = (a − c × b) × w</pre></div><div><h3>Inverse · DIT (unscaled)</h3><pre class="derivation">t = y × w⁻¹
+a′ = x + t
+b′ = (x − t) × c⁻¹</pre></div></div>
+    <p>All operations are modulo the limb prime q. Substitute the forward outputs into the inverse:</p>
+    <pre class="derivation">t  = (a − cb) × w × w⁻¹ = a − cb
+a′ = (a + cb) + (a − cb) = 2a
+b′ = ((a + cb) − (a − cb)) × c⁻¹ = 2b</pre>
+    <p>So the inverse first untwiddles the difference leg by w⁻¹, then forms the sum/difference, then multiplies the lower result by c⁻¹. Swapping those multipliers or omitting either one is incorrect. To recover a and b from just one butterfly, divide both results by 2 modulo q.</p>
+    <h3 style="margin-top:24px">Why scale only once?</h3>
+    <p>Every coefficient traverses log₂N butterflies. Each reversed stage contributes a factor of 2. These factors commute with every stage because the operations are linear modulo q. Thus the entire unnormalized inverse of the forward transform gives <code>2^(log₂N) × input = N × input</code>.</p>
+    <div class="layout-rule"><code>recovered[i] = unnormalized_inverse[i] × N⁻¹ mod q</code></div>
+    <p>The modulus q is an odd prime and N is a power of two, so N has an inverse modulo q. Our code applies <code>inverse_scale_kernel</code> once at the end, using the inverse length for the selected RNS limb—not floating-point division and not a separate coefficient twist.</p>
+    <h3 style="margin-top:24px">Reverse the execution, not the array</h3>
+    <p>Forward column distances decrease, then forward row distances decrease. The inverse reverses that sequence: row distances increase, then column distances increase, then normalization. Gather/scatter addresses, grid sizes, shared-memory sizes, and active-thread ranges are unchanged for each data subset.</p>
+    <div class="matrix-scroll"><table><caption>Execution order per modulus · the inverse has three launches</caption><thead><tr><th scope="col">N</th><th scope="col">Forward (2 launches)</th><th scope="col">Inverse (3 launches)</th></tr></thead><tbody>
+      <tr><td>4096</td><td>columns: 2048…256 ↓<br>rows: 128…1 ↓</td><td>rows: 1…128 ↑<br>columns: 256…2048 ↑<br>scale by 4096⁻¹</td></tr>
+      <tr><td>65536</td><td>columns: 32768…256 ↓<br>rows: 128…1 ↓</td><td>rows: 1…128 ↑<br>columns: 256…32768 ↑<br>scale by 65536⁻¹</td></tr>
+    </tbody></table></div>
+    <p class="note">Forward input is in natural coefficient order; its output is bit-reversed evaluation order. The inverse consumes that order directly and returns natural coefficient order. No extra bit-reversal pass is needed. Scale uses a flat grid over all limb coefficients; its block count is ceil(limb_count × N / 256).</p>
+    <h3 style="margin-top:24px">Worked column pairs: r = 3, thread p = 5</h3>
+    <div class="matrix-scroll"><table><caption>The first inverse-column stage follows the eight row stages</caption><thead><tr><th scope="col">N / inverse stage</th><th scope="col">d</th><th scope="col">U ↔ V</th><th scope="col">c⁻¹</th><th scope="col">w⁻¹</th></tr></thead><tbody>
+      <tr><td>4096 / 9 of 12</td><td>256</td><td>2563 ↔ 2819</td><td>ψ^−256</td><td>ψ^−48</td></tr>
+      <tr><td>4096 / 12 of 12</td><td>2048</td><td>1283 ↔ 3331</td><td>ψ^−2048</td><td>ψ^−2566</td></tr>
+      <tr><td>65536 / 9 of 16</td><td>256</td><td>2563 ↔ 2819</td><td>ψ^−256</td><td>ψ^−768</td></tr>
+      <tr><td>65536 / 16 of 16</td><td>32768</td><td>1283 ↔ 34051</td><td>ψ^−32768</td><td>ψ^−2566</td></tr>
+    </tbody></table></div>
+    <h3 style="margin-top:24px">A small numeric butterfly</h3>
+    <p>For arithmetic only, take N=8, q=17, ψ=3, d=2, J=1: E=4, c=9, w=13. Let a=4 and b=5. Forward gives <code>x=15, y=11</code>. Since w⁻¹=4 and c⁻¹=2, inverse gives <code>t=10, a′=8, b′=10</code>, exactly 2a and 2b modulo 17. Multiplying by 2⁻¹=9 recovers 4 and 5. This toy example illustrates one butterfly; it is not a column launch for N=8.</p>
+    <h3 style="margin-top:24px">What the D3 checks establish</h3>
+    <p><a href="../tests/column_mapping_tests.cpp">inverse_column_check</a> executes the real inverse-column helper on CPU. It checks every column pair at N=4096 and N=65536 with tagged tables (270,336 pairs, two basis-input probes each), and every inactive thread. With valid roots for two 46-bit primes per size, it checks <code>DIT(DIF(stage)) = 2 × input</code> at every column stage and column. A full near→far inverse fed by the independent CPU forward transform must equal <code>N × input</code> before scaling and the original array after scaling.</p>
+    <pre class="derivation">cmake -S . -B build
+cmake --build build --target ntt_column_mapping_tests ntt_device_sim
+ctest --test-dir build -R 'column_mapping_check|inverse_column_check|device_schedule_check' --output-on-failure</pre>
+    <p class="note">These checks establish the shared stage arithmetic and CPU-reproduced ordering. They do not compile CUDA, exercise actual launch/barrier behavior, or measure GPU performance. The D4 section below examines contiguous kernels and stage coverage in detail.</p>
+  </section>
+
+  <section id="tile-proof">
+    <div class="section-title"><span class="section-number">06 · D4</span><h2>Why two passes equal the full transform</h2></div>
+    <p>The column proof handles far stages. The remaining kernels—<code>forward_contiguous_tile_kernel</code> and <code>inverse_contiguous_tile_kernel</code>—assign one contiguous tile to each block. For our target sizes, tile length L is 256; for smaller transforms it is <code>min(256,N)</code>.</p>
+    <h3 style="margin-top:24px">1. Map a row thread to the CPU pair</h3>
+    <p>Let b be the row block, p the pair index, and d a near-stage distance (128 down to 1 for forward, 1 up to 128 for inverse). Each active thread has p = threadIdx.x for these tiles.</p>
+    <pre class="derivation">g = floor(p / d); j = p mod d
+u_local = 2dg + j; v_local = u_local + d
+U = Lb + u_local; V = U + d
+
+CPU group start = Lb + 2dg
+CPU offset J = j
+E = (N / d) × j</pre>
+    <p>Why is this a valid CPU group? Since d is a power of two and <code>2d ≤ L</code>, <strong>2d divides L</strong>. Therefore Lb + 2dg is a multiple of 2d, exactly where the CPU group loop begins. Also <code>0 ≤ j &lt; d</code> and the final local lower index is at most L−1. Every CPU group fits entirely inside an aligned tile.</p>
+    <p>Notice what disappears: the row number b does <strong>not</strong> appear in J or E. Moving to another aligned row changes the group number, not the offset within that group. But N still appears: these are global-transform powers, not the twiddles of an independent 256-point NTT.</p>
+    <pre class="derivation">Forward: c = ψ^d;       w = ψ^((N/d)j)
+Inverse: c⁻¹ = (ψ⁻¹)^d; w⁻¹ = (ψ⁻¹)^((N/d)j)</pre>
+    <h3 style="margin-top:24px">2. Trace row 3, thread 5</h3>
+    <div class="matrix-scroll"><table><caption>Same indices, different global twiddle exponents</caption><thead><tr><th scope="col">d</th><th scope="col">g / j</th><th scope="col">U ↔ V</th><th scope="col">E at N=4096</th><th scope="col">E at N=65536</th></tr></thead><tbody>
+      <tr><td>128</td><td>0 / 5</td><td>773 ↔ 901</td><td>160</td><td>2560</td></tr>
+      <tr><td>8</td><td>0 / 5</td><td>773 ↔ 781</td><td>2560</td><td>40960</td></tr>
+      <tr><td>1</td><td>5 / 0</td><td>778 ↔ 779</td><td>0</td><td>0</td></tr>
+    </tbody></table></div>
+    <p>At N=65536, row 255/thread 127/distance 128 reaches the final coefficient: <code>U=65407, V=65535, J=127, E=65024</code>. At N=4096, row 15/thread 127 at that distance gives <code>U=3967, V=4095, E=4064</code>. Inverse uses the same pairs and reciprocal powers, visited in ascending d order.</p>
+    <h3 style="margin-top:24px">3. Account for every stage exactly once</h3>
+    <p>The CPU distances are precisely the powers of two from N/2 down to 1. At N≥512, they partition into two disjoint sets:</p>
+    <pre class="derivation">Far:  d = 256δ, δ = (N/256)/2 … 1
+      therefore d = N/2 … 256
+Near: d = 128 … 1
+
+Forward: Far descending → Near descending
+Inverse: Near ascending → Far ascending → N⁻¹ scale</pre>
+    <p>There is no missing distance between 128 and 256: no power of two lies between them. Neither set overlaps the other. The far count is <code>log₂N − 8</code>; the near count is 8. Each stage has exactly N/2 disjoint butterflies, so the full count is <code>(N/2) × log₂N</code> per direction. Scaling is not an additional butterfly stage.</p>
+    <div class="matrix-scroll"><table><caption>All target ring sizes · forward and inverse share these stage counts</caption><thead><tr><th scope="col">N</th><th scope="col">Far + near stages</th><th scope="col">Total butterflies / direction</th></tr></thead><tbody>
+      <tr><td>4096</td><td>4 + 8 = 12</td><td>24,576</td></tr>
+      <tr><td>8192</td><td>5 + 8 = 13</td><td>53,248</td></tr>
+      <tr><td>16384</td><td>6 + 8 = 14</td><td>114,688</td></tr>
+      <tr><td>32768</td><td>7 + 8 = 15</td><td>245,760</td></tr>
+      <tr><td>65536</td><td>8 + 8 = 16</td><td>524,288</td></tr>
+    </tbody></table></div>
+    <p class="note">At N≤256, the far pass is skipped and one tile covers all log₂N stages. The coverage check also exercises N=2, 64, 256 and 512, including the tile clamp and first column-pass boundary.</p>
+    <h3 style="margin-top:24px">4. Why block-local stage fusion is safe</h3>
+    <p>During all far stages, every dependency stays inside the same column; during all near stages, every dependency stays inside the same tile. A block may therefore finish all its stages before another block finishes its first: those blocks do not consume each other's intermediate values within that pass. This reorders independent operations without changing the CPU result.</p>
+    <p>Each tile loads <code>values[Lb+t]</code> into <code>shared[t]</code>. All threads reach the load barrier and every stage barrier. Threads 0…127 compute butterflies at L=256, while all 256 threads participate in loading/storing and synchronization. The block stores its tile once after the last stage. Within a stage, pair endpoints do not overlap; between stages, the shared-memory barrier makes the preceding writes visible.</p>
+    <p>The dependency rule changes between passes. Results must be scattered before the next pass gathers them; our same-stream kernel sequence provides that boundary. Thus gather/scatter is a change in block ownership, <strong>not a transpose or extra arithmetic transform</strong>. Together with D2/D3's identical pair arithmetic, exact ordered stage coverage establishes equivalence to the CPU transform.</p>
+    <h3 style="margin-top:24px">5. Executable evidence</h3>
+    <p><a href="../tests/tile_mapping_tests.cpp">tile_mapping_check</a> runs the actual row-stage helpers on CPU, comparing against independent CPU group/offset enumeration. At N=4096 and N=65536 it checks every row, stage and pair in both directions, using two tagged-table input probes per pair, plus inactive-thread checks. That is <strong>278,528 pairs per direction and 1,114,112 active probes in total</strong>.</p>
+    <p>The same test checks forward and inverse stage lists and per-stage global endpoint coverage at all five target sizes, plus the small-size boundaries. Existing real-root schedule and inverse-normalization gates remain complementary checks. This is not a CUDA compile, barrier/race check, or GPU performance measurement.</p>
+    <pre class="derivation">cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure</pre>
+  </section>
+
   <section id="explore">
-    <div class="section-title"><span class="section-number">05</span><h2>Follow one thread</h2></div>
+    <div class="section-title"><span class="section-number">07</span><h2>Follow one thread</h2></div>
     <p>An active thread computes one butterfly per stage and writes both results to shared memory. <strong>Its pair changes with the stage.</strong> Loading a value and computing a butterfly are separate assignments; a thread does not permanently own one coefficient.</p>
     <p class="note">Keep block 3 and thread 5. Try distances 2048, 128, then 1. Try thread 200 to see the difference between load/store work and butterfly work.</p>
     <div class="explorer">
       <div class="inputs" style="margin-top:0"><div><span class="control-label">Polynomial size · one RNS limb</span><div class="stage-buttons"><button type="button" data-size="4096" aria-pressed="true">N = 4096</button><button type="button" data-size="65536" aria-pressed="false">N = 65536</button></div></div></div>
+      <div class="inputs"><div><span class="control-label">Transform direction</span><div class="stage-buttons"><button type="button" data-direction="forward" aria-pressed="true">Forward · DIF</button><button type="button" data-direction="inverse" aria-pressed="false">Inverse · DIT</button></div></div></div>
       <p class="note" data-transform-summary></p>
-      <div class="stage-groups">
-        <div><span class="control-label">Pass 1 · column blocks · butterfly distance</span><div class="stage-buttons" data-stages="far"></div></div>
-        <div><span class="control-label">Pass 2 · row blocks · butterfly distance</span><div class="stage-buttons" data-stages="near"></div></div>
+      <div class="stage-groups" data-stage-groups>
+        <div data-far-panel><span class="control-label" data-far-label>Pass 1 · column blocks · butterfly distance</span><div class="stage-buttons" data-stages="far"></div></div>
+        <div data-near-panel><span class="control-label" data-near-label>Pass 2 · row blocks · butterfly distance</span><div class="stage-buttons" data-stages="near"></div></div>
       </div>
       <div class="inputs"><label><span class="control-label">Block index</span><input data-block type="number" min="0" max="255" value="3" step="1"></label><label><span class="control-label">Thread index</span><input data-thread type="number" min="0" max="255" value="5" step="1"></label></div>
       <div class="ownership" data-ownership></div>
@@ -203,7 +298,7 @@ ctest --test-dir build -R 'column_mapping_check|device_schedule_check' --output-
   </section>
 
   <section id="synchronization">
-    <div class="section-title"><span class="section-number">06</span><h2>What keeps the work ordered?</h2></div>
+    <div class="section-title"><span class="section-number">08</span><h2>What keeps the work ordered?</h2></div>
     <div class="sync-list"><div><h3>Inside a block</h3><p>All 256 threads reach <code>__syncthreads()</code> after loading and after each stage—even threads without a butterfly. This barrier synchronizes only that block.</p></div><div><h3>Between the passes</h3><p>The kernels use the same CUDA stream, so pass 2 starts after pass 1 finishes. Blocks within a pass are independent; SM scheduling does not guarantee they all execute simultaneously.</p></div></div>
     <p>For CKKS with multiple RNS primes, repeat this arrangement per limb. Storage is limb-major: <code>values[limb × N + index]</code>. <code>blockIdx.y</code> selects the limb; <code>blockIdx.x</code> selects the column in pass 1 or the row in pass 2.</p>
   </section>
@@ -217,10 +312,11 @@ ctest --test-dir build -R 'column_mapping_check|device_schedule_check' --output-
   const threadInput = root.querySelector('[data-thread]');
   const heading = root.querySelector('[data-matrix] thead');
   const body = root.querySelector('[data-matrix] tbody');
-  const state = { transformLength:4096, stageIndex:0, blockIndex:3, threadIndex:5 };
+  const state = { transformLength:4096, direction:'forward', stageIndex:0, blockIndex:3, threadIndex:5 };
   const clamp = (value, maximum) => Math.max(0, Math.min(maximum, Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0));
 
   function render() {
+    const inverse = state.direction === 'inverse';
     const rowCount = state.transformLength / 256;
     const distance = distances[state.stageIndex];
     const far = distance >= 256;
@@ -288,17 +384,26 @@ ctest --test-dir build -R 'column_mapping_check|device_schedule_check' --output-
       body.appendChild(tr);
     }
     root.querySelector('[data-caption]').textContent = 'Global array positions · ' + rowCount + ' rows × 256 columns · … indicates omitted rows or columns';
-    root.querySelector('[data-transform-summary]').textContent = 'N = ' + state.transformLength + ' · ' + (state.transformLength*8/1024) + ' KiB per limb · ' + distances.length + ' stages · ' + (state.transformLength/2*distances.length).toLocaleString('en-US') + ' butterflies · two launches';
-    root.querySelector('[data-ownership]').textContent = (far ? 'Pass 1 · column ' : 'Pass 2 · row ') + state.blockIndex + ' · ' + (far ? 256 : rowCount) + ' blocks per limb · ' + groupLength + ' values / ' + (groupLength*8) + ' B shared memory per block · 256 threads';
+    root.querySelector('[data-transform-summary]').textContent = 'N = ' + state.transformLength + ' · ' + (state.transformLength*8/1024) + ' KiB per limb · ' + distances.length + ' stages · ' + (state.transformLength/2*distances.length).toLocaleString('en-US') + ' butterflies · ' + (inverse ? 'three launches, including N⁻¹ scale after all stages' : 'two launches');
+    const pass = far ? (inverse ? 2 : 1) : (inverse ? 1 : 2);
+    root.querySelector('[data-ownership]').textContent = 'Pass ' + pass + (far ? ' · column ' : ' · row ') + state.blockIndex + ' · ' + (far ? 256 : rowCount) + ' blocks per limb · ' + groupLength + ' values / ' + (groupLength*8) + ' B shared memory per block · 256 threads';
     root.querySelector('[data-selection]').textContent = 'Stage ' + (state.stageIndex+1) + '/' + distances.length + ' · distance ' + distance + ' · thread ' + state.threadIndex + (active ? ': global ' + upper + ' ↔ ' + lower + ' · shared ' + upperLocal + ' ↔ ' + lowerLocal : ': no butterfly at this stage');
-    root.querySelector('[data-twiddle]').textContent = active ? 'CPU offset J = ' + cpuOffset + ' · c = ψ^' + distance + ' · w = ψ^' + twiddleExponent + ' (mod q)' : 'No twiddle read: this thread has no butterfly.';
+    root.querySelector('[data-twiddle]').textContent = active ? 'CPU offset J = ' + cpuOffset + (inverse ? ' · c⁻¹ = (ψ⁻¹)^' : ' · c = ψ^') + distance + (inverse ? ' · w⁻¹ = (ψ⁻¹)^' : ' · w = ψ^') + twiddleExponent + ' (mod q)' : 'No twiddle read: this thread has no butterfly.';
     const loads = state.threadIndex < groupLength;
     root.querySelector('[data-thread-work]').textContent = 'Load/store: threads 0–' + (groupLength-1) + '. Butterfly work: threads 0–' + (pairCount-1) + '. Selected thread load/store: ' + (loads ? 'global position ' + globalIndex(state.threadIndex) : 'idle') + '. All 256 threads reach every block barrier.';
     root.querySelectorAll('[data-stage-index]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.stageIndex) === state.stageIndex)));
     root.querySelectorAll('[data-size]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.size) === state.transformLength)));
+    root.querySelectorAll('[data-direction]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.direction === state.direction)));
+    root.querySelector('[data-stage-groups]').className = inverse ? 'stage-groups inverse' : 'stage-groups';
+    root.querySelector('[data-far-label]').textContent = 'Pass ' + (inverse ? 2 : 1) + ' · column blocks · butterfly distance';
+    root.querySelector('[data-near-label]').textContent = 'Pass ' + (inverse ? 1 : 2) + ' · row blocks · butterfly distance';
   }
   function buildStages() {
+    const farPanel = root.querySelector('[data-far-panel]');
+    const nearPanel = root.querySelector('[data-near-panel]');
+    root.querySelector('[data-stage-groups]').replaceChildren(...(state.direction === 'inverse' ? [nearPanel,farPanel] : [farPanel,nearPanel]));
     distances = Array.from({length:Math.log2(state.transformLength)}, (_,index) => state.transformLength / 2 ** (index+1));
+    if (state.direction === 'inverse') distances.reverse();
     root.querySelector('[data-stages="far"]').replaceChildren();
     root.querySelector('[data-stages="near"]').replaceChildren();
     distances.forEach((distance,index) => {
@@ -312,6 +417,9 @@ ctest --test-dir build -R 'column_mapping_check|device_schedule_check' --output-
   }
   root.querySelectorAll('[data-size]').forEach(button => button.addEventListener('click', () => {
     state.transformLength = Number(button.dataset.size); state.stageIndex = 0; buildStages(); render();
+  }));
+  root.querySelectorAll('[data-direction]').forEach(button => button.addEventListener('click', () => {
+    state.direction = button.dataset.direction; state.stageIndex = 0; buildStages(); render();
   }));
   blockInput.addEventListener('input', () => { state.blockIndex = clamp(blockInput.value, distances[state.stageIndex] >= 256 ? 255 : state.transformLength/256-1); render(); });
   threadInput.addEventListener('input', () => { state.threadIndex = clamp(threadInput.value,255); render(); });

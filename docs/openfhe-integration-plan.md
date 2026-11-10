@@ -16,9 +16,9 @@ commit as each completed gate.
 
 | Field | Current value |
 |---|---|
-| Working day | **D3** |
+| Working day | **D5** |
 | Active phase | **P1 — contract and architecture freeze** |
-| Active task | Read inverse column kernel and DIT arithmetic; establish forward/inverse correspondence (D1–D2 complete) |
+| Active task | Read constructor, buffers, and public API; document host/device dataflow and allocations (D1–D4 complete) |
 | Next gate | P1 architecture review: frozen OpenFHE representation, buffer, ordering, and integration contracts |
 | Overall state | In progress |
 
@@ -95,6 +95,22 @@ and six worked examples. `column_mapping_check` runs the production stage
 body with two tagged-table probes for every column butterfly at both sizes;
 the separate schedule gate checks real-root arrays. Real-GPU validation is
 still a P2 deliverable.
+
+D3 complete: the [inverse proof](ntt-4096-work-distribution.html#inverse-proof)
+derives the factor of 2 per butterfly and final N-inverse normalization,
+documents row→column→scale ordering, and provides worked examples.
+`inverse_column_check` probes every inverse column pair and inactive thread
+at both sizes, then checks real-root stage composition and full normalization
+for two 46-bit primes per size. These are CPU-side checks of shared helpers,
+not actual GPU execution.
+
+D4 complete: the [row-kernel and coverage proof](ntt-4096-work-distribution.html#tile-proof)
+derives tile-local/global group equivalence and global twiddle exponents,
+proves the far/near stage partition and legal block-local stage fusion, and
+provides worked examples. `tile_mapping_check` probes every near-stage pair
+in both directions at both endpoint sizes and checks stage/endpoint coverage
+for all five target ring sizes plus N=2,64,256,512. Hardware races and CUDA
+launch behavior remain P2 work.
 
 P1 exit gate:
 
@@ -294,4 +310,6 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 | 2026-11-08 | D1 | Organized the documentation into an HTML engineering notebook with a daily journal, shared navigation, search, and a Pages workflow. Historical entries cite commits and are marked reconstructed. Implementation gates remain unchanged. | [Daily entry](journal/2026-11-08.md); documentation build and regression checks |
 | 2026-11-09 | D1 → D2 | Completed both endpoint index/memory maps (4096 and 65536), with an interactive size comparison and portable schedule regression at N=65536. Next: column butterfly indices and twiddle proof. P1 exit gate remains open. | [Work-distribution map](ntt-4096-work-distribution.html); [daily entry](journal/2026-11-09.md); CPU schedule and explorer checks |
 | 2026-11-09 | D2 → D3 | Completed the column-pair/twiddle proof and six worked examples; exhaustive CPU execution of the real stage helper checked 270,336 pairs using 540,672 probes. Next: inverse-column correspondence. P1 exit gate remains open. | [Column proof](ntt-4096-work-distribution.html#column-proof); `column_mapping_check`; `device_schedule_check` |
+| 2026-11-10 | D3 → D4 | Completed inverse-column correspondence, factor-2/factor-N checks and normalization, plus inverse-mode explorer and worked examples. Next: contiguous kernels and exact stage coverage. P1 exit gate remains open. | [Inverse proof](ntt-4096-work-distribution.html#inverse-proof); `inverse_column_check`; [daily entry](journal/2026-11-10.md) |
+| 2026-11-10 | D4 → D5 | Completed row-kernel pair/twiddle equivalence and exact stage coverage. Added exhaustive CPU execution of both row-stage helpers plus all-size stage-list and endpoint checks. Next: constructor/buffer/API dataflow. P1 exit gate remains open. | [Row proof](ntt-4096-work-distribution.html#tile-proof); `tile_mapping_check`; all 11 CTests passed |
 

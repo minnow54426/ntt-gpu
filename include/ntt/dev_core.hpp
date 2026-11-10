@@ -168,7 +168,9 @@ NTT_DEV void dev_dif_col_stage(uint64_t *gathered_group_values,
   }
 }
 
-// DIT mirror: the exact inverse butterfly, same q-coordinates and tables.
+// DIT mirror: same q-coordinates, inverse-power table. Composing this
+// unscaled stage with its DIF counterpart yields 2*input; the complete
+// transform pays all per-stage factors with a single final N^-1 scale.
 NTT_DEV void dev_dit_col_stage(uint64_t *gathered_group_values,
                                uint64_t strided_group_length,
                                uint64_t local_pair_distance, uint64_t transform_length,

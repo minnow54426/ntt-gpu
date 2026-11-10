@@ -241,8 +241,8 @@ namespace {
 
 // Device-resident drivers, one per public operation — exactly the launch
 // sequences src/device_sim.cpp walks: forward = strided pass then tile
-// pass; inverse = tile pass, strided pass, n^-1 scale. Two launches per
-// transform (one when n <= 256).
+// pass; inverse = tile pass, strided pass, n^-1 scale. Forward uses two
+// launches and inverse uses three (one fewer each when n <= 256).
 void launch_forward_transform(CudaNttTransform::Impl &impl, uint64_t *device_values) {
   if (impl.transform_length > kPassSplitWidth) {
     forward_strided_group_kernel<<<
