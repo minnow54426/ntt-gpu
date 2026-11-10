@@ -454,7 +454,7 @@
         <span class="numchip">4<small>slot 4</small></span><span class="numchip">0<small>slot 5</small></span>
         <span class="numchip">5<small>slot 6</small></span><span class="numchip">2<small>slot 7</small></span>
       </div>
-      <p class="dim">For this project, N ranges from 4,096 to 65,536. We need to multiply two such lists efficiently:</p>
+      <p class="dim">For this project, N is 65,536. We need to multiply two such lists efficiently:</p>
       <div class="math" style="width:100%; text-align:center;">multiply two lists of length N,  get back a list of length N</div>
       <p class="dim">The NTT (Number Theoretic Transform) is how that multiplication gets done fast. (How the product stays length N — the fold rule — is chapter 9's story.)</p>
     </section>
@@ -586,8 +586,8 @@
         <div class="w-title">Interactive · feel the N² pain</div>
         <div class="w-row">
           <div style="text-align:center;">
-            <div style="font-family:var(--mono); font-size:14px; color:var(--ink-soft); margin-bottom:10px;">list length N = <b id="nval" style="color:var(--accent); font-size:19px;">1024</b></div>
-            <input type="range" id="nslider" min="0" max="6" step="1" value="1" aria-label="Choose list length">
+            <div style="font-family:var(--mono); font-size:14px; color:var(--ink-soft); margin-bottom:10px;">list length N = <b id="nval" style="color:var(--accent); font-size:19px;">65,536</b></div>
+            <input type="range" id="nslider" min="0" max="5" step="1" value="3" aria-label="Choose list length">
             <div style="font-family:var(--mono); font-size:12px; color:var(--ink-faint); margin-top:8px;">2<sup>8</sup> … 2<sup>18</sup></div>
           </div>
         </div>
@@ -960,7 +960,7 @@ w_{d,j} &= \psi^{\frac{N}{d}j} = \omega^{\frac{N}{2d}j} \\[0.5em]
     var nval = document.getElementById("nval");
     var grid = document.getElementById("costgrid");
     var note = document.getElementById("costnote");
-    var NS = [256, 1024, 4096, 16384, 65536, 131072, 262144];
+    var NS = [256, 1024, 16384, 65536, 131072, 262144];
     function fmt(x) { return x.toLocaleString("en-US"); }
     function render() {
       var N = NS[+slider.value];
@@ -1364,7 +1364,7 @@ w_{d,j} &= \psi^{\frac{N}{d}j} = \omega^{\frac{N}{2d}j} \\[0.5em]
       txt(L - 8, yy + 4, tk[1], 11.5, FAINT, "end");
     });
     // x ticks
-    [[3, "8"], [6, "64"], [9, "512"], [12, "4,096"], [16, "65,536"]].forEach(function (tk) {
+    [[3, "8"], [6, "64"], [9, "512"], [16, "65,536"]].forEach(function (tk) {
       el("line", { x1: x(tk[0]), y1: H - B, x2: x(tk[0]), y2: H - B + 5, stroke: INK, "stroke-width": 1 });
       txt(x(tk[0]), H - B + 20, tk[1], 11.5, FAINT, "middle");
     });

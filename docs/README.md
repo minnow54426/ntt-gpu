@@ -86,7 +86,7 @@ node --test tests/docs/work_distribution.test.cjs
 The build validates catalog coverage, journal metadata, and local links,
 assets, and heading fragments. The site supports project subpaths.
 The Node test runs the work-distribution page's actual inline script using a
-small DOM stub and checks both sizes, stage controls, boundary selections,
+small DOM stub and checks N=65536, stage controls, boundary selections,
 and complete per-stage index coverage. It requires Node.js and no packages;
 it does not replace browser inspection or CUDA execution.
 
@@ -99,7 +99,7 @@ ctest --test-dir build -R 'column_mapping_check|device_schedule_check' --output-
 ```
 
 The column check executes the real shared stage helper with tagged power
-tables at N=4096 and N=65536. It probes the input pair, ladder multiplier,
+tables at N=65536. It probes the input pair, ladder multiplier,
 and twiddle selection for every column butterfly. This is CPU verification,
 not a native CUDA build or a GPU race check.
 

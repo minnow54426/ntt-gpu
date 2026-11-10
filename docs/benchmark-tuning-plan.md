@@ -3,7 +3,7 @@
 **Primary target:** NVIDIA RTX 5090 (`sm_120`)  
 **Cross-architecture control:** NVIDIA RTX 4090 (`sm_89`)  
 **Workload target:** OpenFHE 1.6.1 CKKS with Hybrid key switching  
-**Ring dimensions:** `4096`, `8192`, `16384`, `32768`, `65536`
+**Ring dimensions:** `65536`
 
 Benchmarking and tuning are deliverables of the project. A kernel is not
 considered complete merely because it is correct or fast for one transform
@@ -34,7 +34,7 @@ The minimum matrix is:
 
 | Axis | Values |
 |---|---|
-| Ring dimension | `2^12`, `2^13`, `2^14`, `2^15`, `2^16` |
+| Ring dimension | `2^16` |
 | Modulus width | OpenFHE-compatible 50, 55, 59/60-bit primes |
 | Active RNS towers | representative shallow, medium, and deep CKKS levels |
 | Polynomial count | one component, full ciphertext, key-switch digits |

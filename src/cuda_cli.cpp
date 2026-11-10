@@ -191,8 +191,8 @@ int cmd_verify(int argc, char **argv) {
 }
 
 int cmd_bench(int argc, char **argv) {
-  uint32_t minimum_size_exponent = 12;
-  uint32_t maximum_size_exponent = 18;
+  uint32_t minimum_size_exponent = 16;
+  uint32_t maximum_size_exponent = 16;
   uint64_t limb_count = 3;
   if (argc >= 4) {
     minimum_size_exponent = static_cast<uint32_t>(std::stoul(argv[2]));

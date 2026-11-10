@@ -30,7 +30,7 @@ class MarkdownTests(unittest.TestCase):
 
 | Size | State |
 |---|---|
-| 4096 | checked |
+| 65536 | checked |
 
 - [x] CPU gate
 - [ ] GPU gate

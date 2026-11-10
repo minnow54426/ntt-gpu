@@ -345,7 +345,7 @@ def home_content(pages, entries):
     <h1>Building the GPU<br>path for <em>CKKS.</em></h1>
     <p class="site-lede">From one butterfly to OpenFHE integration.<br>Follow the code, the evidence, and the decisions along the way.</p>
     <div class="site-hero-actions"><a class="site-primary-link" href="#all-pages">Browse all pages <span>↓</span></a><a class="site-secondary-link" href="journal.html">Follow our progress →</a></div>
-    <div class="site-specs"><span>RTX 5090</span><span>u64 / u32</span><span>N = 4,096–65,536</span></div>
+    <div class="site-specs"><span>RTX 5090</span><span>u64 / u32</span><span>N = 65,536</span></div>
   </div>
   <div class="site-checkpoint"><div class="site-checkpoint-label">CURRENT CHECKPOINT <span>{escape(state['Working day'])}</span></div>
     <div class="site-checkpoint-symbol" aria-hidden="true">⌁</div>

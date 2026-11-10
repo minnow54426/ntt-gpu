@@ -105,7 +105,6 @@ void check_transform(uint64_t transform_length) {
 
 int main() {
   try {
-    check_transform(4096);
     check_transform(65536);
   } catch (const std::exception &error) {
     std::cerr << "FAIL: " << error.what() << '\n';

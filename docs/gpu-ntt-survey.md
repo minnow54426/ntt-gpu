@@ -1,7 +1,7 @@
 # GPU NTT survey for CKKS, Hybrid key switching, OpenFHE, and RTX 5090
 
 **Date:** 2026-11-05  
-**Project target:** CKKS, OpenFHE 1.6.1, Hybrid RNS key switching, NVIDIA RTX 5090 (`sm_120`), ring dimensions `4096..65536`  
+**Project target:** CKKS, OpenFHE 1.6.1, Hybrid RNS key switching, NVIDIA RTX 5090 (`sm_120`), ring dimension `65536`<br>
 **Current repository revision inspected:** `363f972`  
 **Evidence policy:** implementation facts below come only from author papers, official repositories/source code, or NVIDIA documentation. Recommendations and inferences are explicitly labelled.
 
@@ -59,7 +59,7 @@ Primary code: [`ntt_kernels.cu`](../src/cuda/ntt_kernels.cu), [`dev_core.hpp`](.
 
 **Repository fact:** every transform uses 256 threads and a 256-way split, independent of `N`, modulus count, register pressure, shared-memory use, and GPU architecture.
 
-**Recommendation/inference:** replace the single hard-coded shape with a small, benchmarked dispatch table for `N = 2^12..2^16` and for low/high tower counts. Compile-time specialization for five supported sizes is reasonable and permits unrolling and constant launch geometry.
+**Recommendation/inference:** replace the single hard-coded shape with a small, benchmarked dispatch table for `N = 2^16` and for low/high tower counts. Compile-time specialization for the target size is reasonable and permits unrolling and constant launch geometry.
 
 **Repository fact:** the public interface accepts host `std::vector` objects and uses synchronous `cudaMemcpy`; it has no stream, device-buffer, external allocator, or graph-capture contract.
 
@@ -293,7 +293,7 @@ Recommended API split:
 
 1. Arithmetic primitive versus `__uint128_t % q`, including adversarial bounds and every OpenFHE modulus.
 2. Butterfly and single-stage exact tests for CT/DIF and GS/DIT, including lazy-range invariants.
-3. Complete forward/inverse exact equality against the existing CPU and Python oracle for every `N` in `{4096, 8192, 16384, 32768, 65536}`.
+3. Complete forward/inverse exact equality against the existing CPU and Python oracle for every `N` in `{65536}`.
 4. RNS batches across realistic CKKS tower counts, not only three limbs.
 5. Negacyclic polynomial multiplication exact equality.
 6. Basis conversion exact equality to the pinned OpenFHE 1.6.1 implementation.
@@ -335,7 +335,7 @@ Do not compare one implementation's kernel-only time with another's transfer-inc
 
 ### P1: first competitive NTT
 
-- Implement per-size compile-time dispatch for `2^12..2^16`.
+- Implement per-size compile-time dispatch for `2^16`.
 - Implement radix-4/8 register staging with padded shared memory.
 - Pack stage-major twiddle and Shoup tables.
 - Prototype a coalesced transpose/Four-Step alternative to the strided column pass.

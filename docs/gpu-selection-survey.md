@@ -134,7 +134,7 @@ Run the same commit, CUDA version where possible, and fixed clocks/power policy.
 - coalesced copy and strided gather bandwidth;
 - L2-resident and DRAM-resident cases;
 - shared-memory butterfly throughput;
-- NTT forward/inverse for `N = 4,096, 8,192, 16,384, 32,768, 65,536`;
+- NTT forward/inverse for `N = 65,536`;
 - active RNS tower counts representative of early and late CKKS levels;
 - kernel-only latency and end-to-end latency separately.
 

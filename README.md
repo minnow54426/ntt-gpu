@@ -14,7 +14,7 @@ automatically wherever nvcc exists.
   - [x] Layer 1 — CPU reference negacyclic NTT + Python big-int oracle (2026-10-29)
   - [ ] Layer 2 — CUDA kernel, validated on the same vectors
     - [x] 2a — the GPU stage schedule (`include/ntt/dev_core.hpp`), proven on CPU
-      by a portable simulator gate (`device_schedule_check`) at n = 64 / 1024 / 4096
+      by a portable simulator gate (`device_schedule_check`) at n = 64 / 1024 / 65536
     - [x] 2b — the kernels themselves (`src/cuda/ntt_kernels.cu`), thin wrappers
       around the proven schedule; GPU gates register automatically under nvcc
     - [ ] 2c — first run on a rented GPU (see below), bench table recorded
@@ -25,7 +25,7 @@ automatically wherever nvcc exists.
 
 Benchmarking and tuning are part of the implementation, not a final reporting
 step. The primary target is RTX 5090 (`sm_120`), with RTX 4090 (`sm_89`) as the
-cross-architecture control. The matrix includes `N = 4096..65536`, realistic
+cross-architecture control. The matrix includes `N = 65536`, realistic
 CKKS modulus widths and tower counts, threads/block, values/thread, radix,
 register and shared-memory use, split/tile shape, batch size, streams, twiddle
 representation, and transfer policy. It compares the correctness baseline,
@@ -42,14 +42,17 @@ Without a CUDA toolkit (e.g. the dev Mac):
 cmake -S . -B build && cmake --build build -j && ctest --test-dir build --output-on-failure
 ```
 
-Six gates: vector generation ×3 sizes (RNS primes + 2N-th roots of unity at
-n = 64/1024/4096), unit tests (modular arithmetic, bit-reversal, forward/inverse
+Eight portable CTest checks: vector generation ×3 sizes (RNS primes + 2N-th roots of unity at
+n = 64/1024/65536), unit tests (modular arithmetic, bit-reversal, forward/inverse
 roundtrip, NTT-multiply vs O(N²) schoolbook mod x^N+1), the cross-language
 oracle check — the C++ fast transform must equal a definitional naive O(N²)
 big-integer transform in Python, limb by limb, with position-wise CRT
 reconstruction over all limbs — and the device-schedule check: the simulator
 (`src/device_sim.cpp`) runs the exact stage bodies the CUDA kernels run and
 must match the CPU reference array-for-array, bit-reversed order included.
+The remaining checks are the N=8 debug example and the exhaustive column
+mapping proof at N=65536. Small fixtures keep the quadratic oracle practical;
+the project workload and default vector generation use N=65536.
 
 For a ready-to-run macOS VS Code setup, including an `N=8` example and LLDB
 single-stepping instructions, see
@@ -59,7 +62,7 @@ With nvcc present, CMake auto-detects it and adds `ntt_cuda_cli` plus three
 GPU gates, unchanged commands otherwise: `cuda_oracle_crosscheck` (the same
 Python oracle against the CUDA binary — its output is byte-identical to
 `ntt_cli`), `cuda_matches_ref` (byte-compare of both binaries' transform
-output at n = 1024 and 4096; valid at any size, use a 2^18 fixture freely),
+output at n = 1024 and 65536; valid at any size, use a 2^18 fixture freely),
 and `cuda_verify` (in-process GPU-vs-ref forward/roundtrip/multiply on the
 fixtures plus a generated n = 65536 case).
 
@@ -74,7 +77,7 @@ conversion against `NegacyclicNtt` element for element:
 bash scripts/openfhe_setup.sh
 ```
 
-`openfhe_exact_compat` covers `N = 4096, 8192, 16384, 32768, 65536`, two
+`openfhe_exact_compat` covers `N = 65536`, two
 OpenFHE-selected CKKS-sized modulus widths (50 and 59 bits), zero, maximum,
 ramp, and deterministic-random coefficient inputs, plus independent random
 evaluation-domain inputs for inverse transforms. Equality includes OpenFHE's
