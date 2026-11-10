@@ -15,9 +15,9 @@ Update this tracker only when a deliverable passes its gate.
 
 | Field | Current value |
 |---|---|
-| Working day | **D6** |
+| Working day | **D7** |
 | Active phase | **P1 — contract and architecture freeze** |
-| Active task | Review modular arithmetic, bounds, and exact test gates; produce an adversarial-test list (D1–D5 complete) |
+| Active task | Trace OpenFHE NTT/DCRT representation and freeze natural/bit-reversed, coefficient/evaluation contracts (D1–D6 complete) |
 | Next gate | P1 architecture review: frozen OpenFHE representation, buffer, ordering, and integration contracts |
 | Overall state | In progress |
 
@@ -116,6 +116,15 @@ are not CUDA-runtime tests. Constructor exception cleanup is an open gap:
 the raw `Impl*` can leak host state and partially allocated device buffers.
 RAII/failure-path verification and device/stream ownership must be addressed
 before the production API is accepted; no cleanup fix is claimed here.
+
+D6 complete: [Arithmetic bounds and tests](modular-arithmetic-contract.md)
+records canonical-range induction, integer-width bounds, parameter preconditions,
+the exactness ladder and deferred adversarial cases. Two CPU gates compare
+14,956 primitive results against Python big integers and exercise six patterns
+in both transform directions plus a closed-form negacyclic product at N=65536
+with 50/55/60-bit primes. The multiplication-count comment is corrected;
+arithmetic algorithms are unchanged. Native GPU and invalid-input hardening
+remain explicit later gates, not evidence claimed by this review.
 
 P1 exit gate:
 
@@ -318,4 +327,5 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 | 2026-11-10 | D3 → D4 | Completed inverse-column correspondence, factor-2/factor-N checks and normalization, plus inverse-mode explorer and worked examples. Next: contiguous kernels and exact stage coverage. P1 exit gate remains open. | [Inverse proof](ntt-65536-work-distribution.html#inverse-proof); `inverse_column_check`; [daily entry](journal/2026-11-10.md) |
 | 2026-11-10 | D4 → D5 | Completed row-kernel pair/twiddle equivalence and exact stage coverage. Added exhaustive CPU execution of both row-stage helpers plus all-size stage-list and endpoint checks. Next: constructor/buffer/API dataflow. P1 exit gate remains open. | [Row proof](ntt-65536-work-distribution.html#tile-proof); `tile_mapping_check`; all 11 CTests passed |
 | 2026-11-10 | D5 → D6 | Completed constructor/allocation/transfer/API map and six static source-contract checks. Recorded constructor exception cleanup and device/stream ownership gaps. Next: modular arithmetic bounds and adversarial tests. P1 exit gate remains open. | [D5 map](cuda-buffer-dataflow.md); `tests/docs/test_cuda_dataflow.py`; [daily entry](journal/2026-11-10.md) |
+| 2026-11-10 | D6 → D7 | Completed arithmetic bounds, canonical-range proof and adversarial-test inventory; added independent bigint and full-size 50/55/60-bit CPU gates. Next: OpenFHE representation/tower contract. P1 remains open. | [D6 contract](modular-arithmetic-contract.md); `arithmetic_bigint_check`; `arithmetic_transform_check`; [daily entry](journal/2026-11-10.md) |
 

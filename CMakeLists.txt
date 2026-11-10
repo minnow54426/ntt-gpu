@@ -16,13 +16,21 @@ add_executable(ntt_debug_example examples/step_by_step.cpp)
 add_executable(ntt_device_sim src/device_sim.cpp)
 add_executable(ntt_column_mapping_tests tests/column_mapping_tests.cpp)
 add_executable(ntt_tile_mapping_tests tests/tile_mapping_tests.cpp)
-foreach(t ntt_cli ntt_tests ntt_debug_example ntt_device_sim ntt_column_mapping_tests ntt_tile_mapping_tests)
+add_executable(ntt_arithmetic_contract_tests tests/arithmetic_contract_tests.cpp)
+foreach(t ntt_cli ntt_tests ntt_debug_example ntt_device_sim ntt_column_mapping_tests ntt_tile_mapping_tests ntt_arithmetic_contract_tests)
   target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_compile_options(${t} PRIVATE -Wall -Wextra -Werror)
 endforeach()
 
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_test(NAME arithmetic_bigint_check
+         COMMAND Python3::Interpreter
+                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/test_arithmetic.py
+                 $<TARGET_FILE:ntt_arithmetic_contract_tests>)
+add_test(NAME arithmetic_transform_check
+         COMMAND ntt_arithmetic_contract_tests --transforms)
 
 add_test(NAME debug_example COMMAND ntt_debug_example)
 add_test(NAME column_mapping_check COMMAND ntt_column_mapping_tests)

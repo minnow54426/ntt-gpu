@@ -28,7 +28,7 @@
 
 namespace ntt {
 
-// Requires: a < q, b < q, q < 2^63.
+// Requires: a < q, b < q, 0 < q < 2^63.
 // Single conditional subtraction: the 128-bit sum cannot overflow, and the
 // result of a+b is at most one q past the target range [0, q).
 NTT_HD uint64_t add_mod(uint64_t a, uint64_t b, uint64_t q) {
@@ -38,7 +38,7 @@ NTT_HD uint64_t add_mod(uint64_t a, uint64_t b, uint64_t q) {
   return static_cast<uint64_t>(s);
 }
 
-// Requires: a < q, b < q, q < 2^63.
+// Requires: a < q, b < q, 0 < q < 2^63.
 // Branch instead of 128-bit: if a >= b the difference is already in range;
 // otherwise add back q-b (a borrowed q), which lands in [0, q) because
 // a < q and q-b <= q. Avoids the borrow a raw a-b would produce.
@@ -46,18 +46,17 @@ NTT_HD uint64_t sub_mod(uint64_t a, uint64_t b, uint64_t q) {
   return a >= b ? a - b : a + (q - b);
 }
 
-// Requires: a < q, b < q, q < 2^64.
-// The hot primitive: every butterfly costs two of these (one twiddle
-// multiply, one twiddle advance), so the whole reference transform is
-// ~2 * (n/2) * log2(n) mul_mods. The full 64x64 product needs 128 bits,
-// hence one hardware division per call — correct, order-dependent slow,
-// and exactly what the CUDA port replaces with Barrett/Montgomery while
-// keeping these signatures as the cross-check oracle.
+// Requires: a < q, b < q, 0 < q < 2^64.
+// The full 64x64 product needs 128 bits. Remainder lowering is compiler /
+// target dependent; do not assume one native division instruction on a GPU.
+// ntt.hpp uses three calls per butterfly (including twiddle advance), while
+// dev_core.hpp uses two with precomputed tables. Inverse normalization adds
+// N calls. Setup-time powers/table generation are additional work.
 NTT_HD uint64_t mul_mod(uint64_t a, uint64_t b, uint64_t q) {
   return static_cast<uint64_t>(static_cast<__uint128_t>(a) * b % q);
 }
 
-// Requires: q odd is irrelevant here; any modulus works for square-multiply.
+// Requires: q > 0. Oddness/primality is irrelevant for square-multiply.
 // Binary exponentiation, least-significant bit first: e's bits select
 // which squarings get folded into the result, so the cost is O(log e)
 // mul_mods. `1 % q` (not plain 1) keeps q == 1 correct, returning 0.

@@ -189,8 +189,9 @@ timing.
   here. CPU schedule tests do not compile or run this CUDA wrapper.
 
 D9 should freeze these ownership/API decisions; the production device API and
-RAII implementation must follow explicit failure/lifetime tests. D6 next
-examines arithmetic bounds, parameter assumptions, and adversarial exactness.
+RAII implementation must follow explicit failure/lifetime tests. The
+[D6 arithmetic review](modular-arithmetic-contract.md) examines arithmetic
+bounds, parameter assumptions, and adversarial exactness.
 
 ## Verification and limits
 

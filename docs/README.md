@@ -112,6 +112,16 @@ the allocation/copy/API map. These inspect C++ source text and pin byte-count
 arithmetic; they do not compile CUDA, inject failures, or validate runtime
 resource cleanup. See [CUDA buffers and dataflow](cuda-buffer-dataflow.md).
 
+The D6 [arithmetic contract](modular-arithmetic-contract.md) has two CPU gates:
+
+```sh
+cmake --build build --target ntt_arithmetic_contract_tests
+ctest --test-dir build -R 'arithmetic_' --output-on-failure
+```
+
+They check compiled primitives against Python big integers and run full-size
+50/55/60-bit transform patterns. They are not native CUDA tests.
+
 ## Publish with GitHub Pages
 
 ### Add the notebook to the personal website
