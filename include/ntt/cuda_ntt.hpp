@@ -10,8 +10,9 @@
 // with NegacyclicNtt on identical vectors — never approximate agreement.
 //
 // Data layout: one flat limb-major buffer of limbs()*n values; every
-// launch batches the RNS limbs as blockIdx.y, so one transform call
-// covers all limbs and pointwise products stay limb-local.
+// transform launch batches RNS limbs as blockIdx.y. Elementwise kernels
+// use a flat K*n grid and recover the limb from index/n. One public call
+// covers all limbs; pointwise products stay limb-local.
 
 #include <cstdint>
 #include <iosfwd>
@@ -28,7 +29,7 @@ public:
   // n: power-of-two transform length; q[k]/psi[k]: per-limb prime and
   // primitive 2n-th root. Parameters are validated by constructing the
   // CPU reference per limb (throws the same exceptions as
-  // NegacyclicNtt) before anything is allocated; twiddle tables are
+  // NegacyclicNtt) before device buffers are allocated; twiddle tables are
   // built with the reference arithmetic and uploaded once.
   CudaNttTransform(uint64_t transform_length, const std::vector<uint64_t> &moduli,
                    const std::vector<uint64_t> &primitive_roots);

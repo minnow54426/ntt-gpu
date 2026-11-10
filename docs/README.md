@@ -119,6 +119,11 @@ and global endpoint coverage at all five target ring sizes and small-size
 boundaries. Run a full build and `ctest --test-dir build --output-on-failure`
 to include the D3 and D4 gates together.
 
+The Python documentation suite also includes D5 source-contract checks for
+the allocation/copy/API map. These inspect C++ source text and pin byte-count
+arithmetic; they do not compile CUDA, inject failures, or validate runtime
+resource cleanup. See [CUDA buffers and dataflow](cuda-buffer-dataflow.md).
+
 ## Publish with GitHub Pages
 
 ### Add the notebook to the personal website

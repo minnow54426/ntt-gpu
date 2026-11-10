@@ -16,9 +16,9 @@ commit as each completed gate.
 
 | Field | Current value |
 |---|---|
-| Working day | **D5** |
+| Working day | **D6** |
 | Active phase | **P1 — contract and architecture freeze** |
-| Active task | Read constructor, buffers, and public API; document host/device dataflow and allocations (D1–D4 complete) |
+| Active task | Review modular arithmetic, bounds, and exact test gates; produce an adversarial-test list (D1–D5 complete) |
 | Next gate | P1 architecture review: frozen OpenFHE representation, buffer, ordering, and integration contracts |
 | Overall state | In progress |
 
@@ -111,6 +111,15 @@ provides worked examples. `tile_mapping_check` probes every near-stage pair
 in both directions at both endpoint sizes and checks stage/endpoint coverage
 for all five target ring sizes plus N=2,64,256,512. Hardware races and CUDA
 launch behavior remain P2 work.
+
+D5 complete: [CUDA buffers and dataflow](cuda-buffer-dataflow.md) maps the
+constructor, all six device allocations, normal destruction, per-method
+copies, launch composition, representation ownership and missing integration
+contracts. Static source checks pin this map and byte-count arithmetic; they
+are not CUDA-runtime tests. Constructor exception cleanup is an open gap:
+the raw `Impl*` can leak host state and partially allocated device buffers.
+RAII/failure-path verification and device/stream ownership must be addressed
+before the production API is accepted; no cleanup fix is claimed here.
 
 P1 exit gate:
 
@@ -312,4 +321,5 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 | 2026-11-09 | D2 → D3 | Completed the column-pair/twiddle proof and six worked examples; exhaustive CPU execution of the real stage helper checked 270,336 pairs using 540,672 probes. Next: inverse-column correspondence. P1 exit gate remains open. | [Column proof](ntt-4096-work-distribution.html#column-proof); `column_mapping_check`; `device_schedule_check` |
 | 2026-11-10 | D3 → D4 | Completed inverse-column correspondence, factor-2/factor-N checks and normalization, plus inverse-mode explorer and worked examples. Next: contiguous kernels and exact stage coverage. P1 exit gate remains open. | [Inverse proof](ntt-4096-work-distribution.html#inverse-proof); `inverse_column_check`; [daily entry](journal/2026-11-10.md) |
 | 2026-11-10 | D4 → D5 | Completed row-kernel pair/twiddle equivalence and exact stage coverage. Added exhaustive CPU execution of both row-stage helpers plus all-size stage-list and endpoint checks. Next: constructor/buffer/API dataflow. P1 exit gate remains open. | [Row proof](ntt-4096-work-distribution.html#tile-proof); `tile_mapping_check`; all 11 CTests passed |
+| 2026-11-10 | D5 → D6 | Completed constructor/allocation/transfer/API map and six static source-contract checks. Recorded constructor exception cleanup and device/stream ownership gaps. Next: modular arithmetic bounds and adversarial tests. P1 exit gate remains open. | [D5 map](cuda-buffer-dataflow.md); `tests/docs/test_cuda_dataflow.py`; [daily entry](journal/2026-11-10.md) |
 

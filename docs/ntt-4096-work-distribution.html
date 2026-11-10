@@ -302,7 +302,7 @@ ctest --test-dir build --output-on-failure</pre>
     <div class="sync-list"><div><h3>Inside a block</h3><p>All 256 threads reach <code>__syncthreads()</code> after loading and after each stage—even threads without a butterfly. This barrier synchronizes only that block.</p></div><div><h3>Between the passes</h3><p>The kernels use the same CUDA stream, so pass 2 starts after pass 1 finishes. Blocks within a pass are independent; SM scheduling does not guarantee they all execute simultaneously.</p></div></div>
     <p>For CKKS with multiple RNS primes, repeat this arrangement per limb. Storage is limb-major: <code>values[limb × N + index]</code>. <code>blockIdx.y</code> selects the limb; <code>blockIdx.x</code> selects the column in pass 1 or the row in pass 2.</p>
   </section>
-  <p class="closing">The mental model: <strong>a block owns a data subset; a thread computes a butterfly within it at each stage.</strong></p>
+  <p class="closing">The mental model: <strong>a block owns a data subset; a thread computes a butterfly within it at each stage.</strong> Next, follow the <a href="cuda-buffer-dataflow.md">constructor, buffers, and host/device dataflow (D5)</a>.</p>
 </div>
 <script>
 (() => {
