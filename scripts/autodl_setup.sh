@@ -7,7 +7,7 @@
 #   bash scripts/autodl_setup.sh              # clone-or-pull, then everything
 #   NTT_REPO_DIR=/path/to/ntt-gpu bash scripts/autodl_setup.sh
 #   NTT_CUDA_ARCH="89" bash scripts/autodl_setup.sh    # force one arch
-#   NTT_BENCH_ARGS="12 16 3" bash scripts/autodl_setup.sh
+#   NTT_BENCH_ARGS="16 16 3" bash scripts/autodl_setup.sh
 #
 # What it reports (VERDICT.txt + stdout): date, GPU name/driver, toolkit
 # version, the compile-arch sanity check, per-gate ctest results, and the
@@ -21,7 +21,7 @@ ROOT="${NTT_REPO_DIR:-$HOME/ntt-gpu}"
 BUILD="$ROOT/build"
 VERDICT="$ROOT/VERDICT.txt"
 BENCH_OUT="$ROOT/bench_latest.txt"
-BENCH_ARGS="${NTT_BENCH_ARGS:-12 18 3}"
+BENCH_ARGS="${NTT_BENCH_ARGS:-16 16 3}"
 
 log() { printf '\n== %s ==\n' "$*"; }
 

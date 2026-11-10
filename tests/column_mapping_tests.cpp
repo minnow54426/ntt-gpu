@@ -200,7 +200,7 @@ int main(int argc, char **argv) {
   try {
     const bool inverse = argc == 2 && std::string(argv[1]) == "--inverse";
     require(argc == 1 || inverse, "usage: ntt_column_mapping_tests [--inverse]");
-    for (const uint64_t length : {4096ULL, 65536ULL}) {
+    for (const uint64_t length : {65536ULL}) {
       check_transform(length, inverse);
       if (inverse)
         check_inverse_correspondence(length);

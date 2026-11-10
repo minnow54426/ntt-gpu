@@ -3,7 +3,7 @@
 This is a map of the current implementation, not a proposed device-resident
 API. Read it alongside the [public interface](../include/ntt/cuda_ntt.hpp),
 [implementation and launchers](../src/cuda/ntt_kernels.cu), and
-[kernel schedule](ntt-4096-work-distribution.html).
+[kernel schedule](ntt-65536-work-distribution.html).
 
 ## The big picture
 
@@ -87,7 +87,6 @@ For **three limbs**, the source formulas give:
 
 | N | One operand S | Both operands | Constants / constructor upload | All six allocations |
 |---|---:|---:|---:|---:|
-| 4096 | 98,304 B (96 KiB) | 196,608 B | 196,704 B | 393,312 B |
 | 65536 | 1,572,864 B (1.5 MiB) | 3,145,728 B | 3,145,824 B | 6,291,552 B |
 
 The extra 96 bytes comprise 48 bytes for the two power tables' final entries
@@ -197,7 +196,7 @@ examines arithmetic bounds, parameter assumptions, and adversarial exactness.
 
 [Source-contract tests](../tests/docs/test_cuda_dataflow.py) check that this map
 matches current allocation sizes, frees, public copy directions, operation
-ordering and host-only interface shape. They also pin the endpoint arithmetic
+ordering and host-only interface shape. They also pin the N=65536 arithmetic
 above. These are deliberately **static source checks**, not CUDA-runtime tests
 or proof of constructor failure safety. Existing CTests verify CPU arithmetic
 and shared stage helpers. No new claim of actual GPU support/performance is

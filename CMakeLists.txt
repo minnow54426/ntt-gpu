@@ -34,7 +34,7 @@ set(VEC ${CMAKE_CURRENT_BINARY_DIR}/vector_n1024.txt)
 add_test(NAME gen_vectors
          COMMAND Python3::Interpreter
                  ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/gen_vectors.py
-                 ${VEC})
+                 ${VEC} 1024)
 set_tests_properties(gen_vectors PROPERTIES FIXTURES_SETUP VECTORS)
 
 add_test(NAME unit_tests COMMAND ntt_tests ${VEC})
@@ -47,11 +47,10 @@ add_test(NAME oracle_crosscheck
 set_tests_properties(oracle_crosscheck PROPERTIES FIXTURES_REQUIRED VECTORS)
 
 # --- Layer 2a fixtures: n=64 exercises the min(256, n) tile clamp with
-# fewer pairs than threads; n=4096 exercises the global (inter-block)
-# phase; n=65536 exercises 256-value columns and 8+8 stages; n=1024
+# fewer pairs than threads; n=65536 exercises the global (inter-block)
+# phase, 256-value columns, and 8+8 stages; n=1024
 # (above) exercises both passes. gen_vectors.py takes N as its second argument.
 set(VEC64 ${CMAKE_CURRENT_BINARY_DIR}/vector_n64.txt)
-set(VEC4K ${CMAKE_CURRENT_BINARY_DIR}/vector_n4096.txt)
 set(VEC64K ${CMAKE_CURRENT_BINARY_DIR}/vector_n65536.txt)
 
 add_test(NAME gen_vectors_n64
@@ -59,12 +58,6 @@ add_test(NAME gen_vectors_n64
                  ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/gen_vectors.py
                  ${VEC64} 64 3 1)
 set_tests_properties(gen_vectors_n64 PROPERTIES FIXTURES_SETUP VECTORS_N64)
-
-add_test(NAME gen_vectors_n4096
-         COMMAND Python3::Interpreter
-                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/gen_vectors.py
-                 ${VEC4K} 4096 3 1)
-set_tests_properties(gen_vectors_n4096 PROPERTIES FIXTURES_SETUP VECTORS_N4K)
 
 add_test(NAME gen_vectors_n65536
          COMMAND Python3::Interpreter
@@ -74,9 +67,9 @@ set_tests_properties(gen_vectors_n65536 PROPERTIES FIXTURES_SETUP VECTORS_N64K)
 
 # The schedule gate: the simulator must equal the CPU reference on every
 # fixture, exact arrays, bit-reversed order included.
-add_test(NAME device_schedule_check COMMAND ntt_device_sim ${VEC} ${VEC64} ${VEC4K} ${VEC64K})
+add_test(NAME device_schedule_check COMMAND ntt_device_sim ${VEC} ${VEC64} ${VEC64K})
 set_tests_properties(device_schedule_check PROPERTIES
-  FIXTURES_REQUIRED "VECTORS;VECTORS_N64;VECTORS_N4K;VECTORS_N64K")
+  FIXTURES_REQUIRED "VECTORS;VECTORS_N64;VECTORS_N64K")
 
 # --- OpenFHE compatibility gate ------------------------------------------
 # This is opt-in because OpenFHE is deliberately not a dependency of the
@@ -156,19 +149,19 @@ if(CMAKE_CUDA_COMPILER)
          "\$C ${VEC} transform > ${CMAKE_CURRENT_BINARY_DIR}/cu1; "
          "\$R ${VEC} transform > ${CMAKE_CURRENT_BINARY_DIR}/rf1; "
          "cmp cu1 rf1; "
-         "\$C ${VEC4K} transform > ${CMAKE_CURRENT_BINARY_DIR}/cu2; "
-         "\$R ${VEC4K} transform > ${CMAKE_CURRENT_BINARY_DIR}/rf2; "
+         "\$C ${VEC64K} transform > ${CMAKE_CURRENT_BINARY_DIR}/cu2; "
+         "\$R ${VEC64K} transform > ${CMAKE_CURRENT_BINARY_DIR}/rf2; "
          "cmp cu2 rf2")
   add_test(NAME cuda_matches_ref COMMAND bash -c
            "${CUDA_MATCHES_REF_SCRIPT}"
            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   set_tests_properties(cuda_matches_ref PROPERTIES
-    FIXTURES_REQUIRED "VECTORS;VECTORS_N4K")
+    FIXTURES_REQUIRED "VECTORS;VECTORS_N64K")
 
   # In-process: GPU fwd/roundtrip/multiply vs the CPU reference on the
   # fixtures plus a generated n=65536 case.
   add_test(NAME cuda_verify
-           COMMAND $<TARGET_FILE:ntt_cuda_cli> verify ${VEC} ${VEC4K})
+           COMMAND $<TARGET_FILE:ntt_cuda_cli> verify ${VEC} ${VEC64K})
   set_tests_properties(cuda_verify PROPERTIES
-    FIXTURES_REQUIRED "VECTORS;VECTORS_N4K")
+    FIXTURES_REQUIRED "VECTORS;VECTORS_N64K")
 endif()

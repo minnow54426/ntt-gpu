@@ -3,14 +3,13 @@
 **Target:** OpenFHE 1.6.1 CKKS with Hybrid key switching  
 **Primary arithmetic:** 50–60-bit RNS primes stored in `uint64_t`, with
 `uint32_t` indexing/control paths where safe  
-**Ring dimensions:** `4096`, `8192`, `16384`, `32768`, `65536`  
+**Ring dimension:** `65536`<br>
 **Estimate:** 95 planned working days + 15 risk-reserve days  
-**Last updated:** 2026-11-08 (Asia/Shanghai)
+**Last updated:** 2026-11-10 (Asia/Shanghai)
 
-This file is the source of truth for work from the current correctness-first
-NTT implementation through GPU base conversion, GPU Hybrid key switching, and
-validated OpenFHE integration. Update the tracker and progress log in the same
-commit as each completed gate.
+Follow the live tracker, then open the phase you need from the section sidebar.
+The sequence is NTT → base conversion → Hybrid key switching → OpenFHE.
+Update this tracker only when a deliverable passes its gate.
 
 ## Live tracker
 
@@ -22,11 +21,8 @@ commit as each completed gate.
 | Next gate | P1 architecture review: frozen OpenFHE representation, buffer, ordering, and integration contracts |
 | Overall state | In progress |
 
-Hardware decision: use RTX 5090 as the primary development/optimization target,
-retain RTX 4090 as the Ada control, and move to RTX PRO 6000 Blackwell only if
-measured resident memory or production reliability requires it. H200/B200 remain
-benchmark candidates rather than assumed winners. See
-[`gpu-selection-survey.md`](gpu-selection-survey.md).
+Hardware: RTX 5090 primary, RTX 4090 control. Use larger-memory hardware only
+when measurements justify it; see the [GPU comparison](gpu-selection-survey.md).
 
 Status vocabulary: `DONE`, `IN PROGRESS`, `NOT STARTED`, `BLOCKED`.
 
@@ -73,7 +69,7 @@ Every production kernel must pass, in order:
 
 | Day | Work | Required output |
 |---:|---|---|
-| D1 | Read forward column kernel and launch geometry | Index and memory-access map for `N=4096` and `N=65536` |
+| D1 | Read forward column kernel and launch geometry | Index and memory-access map for `N=65536` |
 | D2 | Derive forward column butterfly indices | Worked `p,g,j,u,v,r,d` example and twiddle proof |
 | D3 | Read inverse column kernel and DIT arithmetic | Forward/inverse correspondence |
 | D4 | Read contiguous tile kernels | Proof that every global stage appears exactly once |
@@ -84,32 +80,32 @@ Every production kernel must pass, in order:
 | D9 | Design buffer views and backend seam | Device buffer/stream/cache API proposal |
 | D10 | Architecture review | Accepted ADR and implementation backlog |
 
-D1 complete: the [interactive work-distribution map](ntt-4096-work-distribution.html)
-covers both sizes, gather/scatter and shared-memory indices, launch geometry,
+D1 complete: the [interactive work-distribution map](ntt-65536-work-distribution.html)
+covers N=65536, gather/scatter and shared-memory indices, launch geometry,
 active thread ranges, and requested memory-access patterns. This is a source
 analysis and CPU-schedule check, not evidence of real-GPU correctness or speed.
 
-D2 complete: the same page's [column proof](ntt-4096-work-distribution.html#column-proof)
+D2 complete: the same page's [column proof](ntt-65536-work-distribution.html#column-proof)
 derives CPU group/offset equivalence, both global exponents, coverage, bounds,
-and six worked examples. `column_mapping_check` runs the production stage
-body with two tagged-table probes for every column butterfly at both sizes;
+and three worked examples. `column_mapping_check` runs the production stage
+body with two tagged-table probes for every column butterfly at N=65536;
 the separate schedule gate checks real-root arrays. Real-GPU validation is
 still a P2 deliverable.
 
-D3 complete: the [inverse proof](ntt-4096-work-distribution.html#inverse-proof)
+D3 complete: the [inverse proof](ntt-65536-work-distribution.html#inverse-proof)
 derives the factor of 2 per butterfly and final N-inverse normalization,
 documents row→column→scale ordering, and provides worked examples.
 `inverse_column_check` probes every inverse column pair and inactive thread
-at both sizes, then checks real-root stage composition and full normalization
-for two 46-bit primes per size. These are CPU-side checks of shared helpers,
+at N=65536, then checks real-root stage composition and full normalization
+for two 46-bit primes. These are CPU-side checks of shared helpers,
 not actual GPU execution.
 
-D4 complete: the [row-kernel and coverage proof](ntt-4096-work-distribution.html#tile-proof)
+D4 complete: the [row-kernel and coverage proof](ntt-65536-work-distribution.html#tile-proof)
 derives tile-local/global group equivalence and global twiddle exponents,
 proves the far/near stage partition and legal block-local stage fusion, and
 provides worked examples. `tile_mapping_check` probes every near-stage pair
-in both directions at both endpoint sizes and checks stage/endpoint coverage
-for all five target ring sizes plus N=2,64,256,512. Hardware races and CUDA
+in both directions at N=65536 and checks stage/endpoint coverage
+for N=65536 plus N=2,64,256,512. Hardware races and CUDA
 launch behavior remain P2 work.
 
 D5 complete: [CUDA buffers and dataflow](cuda-buffer-dataflow.md) maps the
@@ -171,7 +167,7 @@ P2 exit gate:
 | D30–D32 | Implement radix-4 register staging |
 | D33–D35 | Implement radix-8 register staging and padded shared memory |
 | D36 | Compare warp shuffle and shared-memory exchange for small stages |
-| D37 | Add compile-time specializations for the five ring dimensions |
+| D37 | Add compile-time specialization for N=65536 |
 | D38 | Run latency/throughput autotuning over real tower and batch counts |
 | D39 | Freeze the per-device/per-size dispatch table |
 | D40 | Production NTT gate and documentation update |
@@ -317,9 +313,9 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 | 2026-11-06 | D1 | Created tracked integration plan; began line-by-line CUDA forward-column review; completed primary-source GPU selection survey | dbf06cd |
 | 2026-11-07 | D1 | Added the N=8 VS Code debug example and native LLDB DAP setup; clarified CPU butterfly variable names; expanded the direct-sum and negacyclic derivations with locally bundled math rendering. CPU learning prerequisites are covered; the D1 CUDA index/memory map remains the next deliverable. | Debug example and CTest gates; 57 formulas verified in the browser |
 | 2026-11-08 | D1 | Organized the documentation into an HTML engineering notebook with a daily journal, shared navigation, search, and a Pages workflow. Historical entries cite commits and are marked reconstructed. Implementation gates remain unchanged. | [Daily entry](journal/2026-11-08.md); documentation build and regression checks |
-| 2026-11-09 | D1 → D2 | Completed both endpoint index/memory maps (4096 and 65536), with an interactive size comparison and portable schedule regression at N=65536. Next: column butterfly indices and twiddle proof. P1 exit gate remains open. | [Work-distribution map](ntt-4096-work-distribution.html); [daily entry](journal/2026-11-09.md); CPU schedule and explorer checks |
-| 2026-11-09 | D2 → D3 | Completed the column-pair/twiddle proof and six worked examples; exhaustive CPU execution of the real stage helper checked 270,336 pairs using 540,672 probes. Next: inverse-column correspondence. P1 exit gate remains open. | [Column proof](ntt-4096-work-distribution.html#column-proof); `column_mapping_check`; `device_schedule_check` |
-| 2026-11-10 | D3 → D4 | Completed inverse-column correspondence, factor-2/factor-N checks and normalization, plus inverse-mode explorer and worked examples. Next: contiguous kernels and exact stage coverage. P1 exit gate remains open. | [Inverse proof](ntt-4096-work-distribution.html#inverse-proof); `inverse_column_check`; [daily entry](journal/2026-11-10.md) |
-| 2026-11-10 | D4 → D5 | Completed row-kernel pair/twiddle equivalence and exact stage coverage. Added exhaustive CPU execution of both row-stage helpers plus all-size stage-list and endpoint checks. Next: constructor/buffer/API dataflow. P1 exit gate remains open. | [Row proof](ntt-4096-work-distribution.html#tile-proof); `tile_mapping_check`; all 11 CTests passed |
+| 2026-11-09 | D1 → D2 | Completed both endpoint index/memory maps (4096 and 65536), with an interactive size comparison and portable schedule regression at N=65536. Next: column butterfly indices and twiddle proof. P1 exit gate remains open. | [Work-distribution map](ntt-65536-work-distribution.html); [daily entry](journal/2026-11-09.md); CPU schedule and explorer checks |
+| 2026-11-09 | D2 → D3 | Completed the column-pair/twiddle proof and six worked examples; exhaustive CPU execution of the real stage helper checked 270,336 pairs using 540,672 probes. Next: inverse-column correspondence. P1 exit gate remains open. | [Column proof](ntt-65536-work-distribution.html#column-proof); `column_mapping_check`; `device_schedule_check` |
+| 2026-11-10 | D3 → D4 | Completed inverse-column correspondence, factor-2/factor-N checks and normalization, plus inverse-mode explorer and worked examples. Next: contiguous kernels and exact stage coverage. P1 exit gate remains open. | [Inverse proof](ntt-65536-work-distribution.html#inverse-proof); `inverse_column_check`; [daily entry](journal/2026-11-10.md) |
+| 2026-11-10 | D4 → D5 | Completed row-kernel pair/twiddle equivalence and exact stage coverage. Added exhaustive CPU execution of both row-stage helpers plus all-size stage-list and endpoint checks. Next: constructor/buffer/API dataflow. P1 exit gate remains open. | [Row proof](ntt-65536-work-distribution.html#tile-proof); `tile_mapping_check`; all 11 CTests passed |
 | 2026-11-10 | D5 → D6 | Completed constructor/allocation/transfer/API map and six static source-contract checks. Recorded constructor exception cleanup and device/stream ownership gaps. Next: modular arithmetic bounds and adversarial tests. P1 exit gate remains open. | [D5 map](cuda-buffer-dataflow.md); `tests/docs/test_cuda_dataflow.py`; [daily entry](journal/2026-11-10.md) |
 

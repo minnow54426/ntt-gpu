@@ -1,6 +1,6 @@
 """Generate a vector file consumed by ntt_cli, unit tests, and test_vectors.py.
 
-Usage: gen_vectors.py <out-path> [N=1024] [num_primes=3] [seed=1]
+Usage: gen_vectors.py <out-path> [N=65536] [num_primes=3] [seed=1]
 """
 
 import os
@@ -13,7 +13,7 @@ from ntt_oracle import find_primes, find_psi
 
 def main() -> int:
     out = sys.argv[1]
-    n = int(sys.argv[2]) if len(sys.argv) > 2 else 1024
+    n = int(sys.argv[2]) if len(sys.argv) > 2 else 65536
     num_primes = int(sys.argv[3]) if len(sys.argv) > 3 else 3
     seed = int(sys.argv[4]) if len(sys.argv) > 4 else 1
 

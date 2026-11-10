@@ -3,26 +3,87 @@
 (function () {
   const menu = document.querySelector(".site-menu-button");
   const sidebar = document.querySelector(".site-sidebar");
+  const contentsButton = document.querySelector(".site-contents-button");
+  const contents = document.querySelector(".site-on-this-page");
+  function closeContents() {
+    if (!contents) return;
+    contentsButton.setAttribute("aria-expanded", "false");
+    contents.classList.remove("site-open");
+  }
   function closeMenu() {
     menu.setAttribute("aria-expanded", "false");
     sidebar.classList.remove("site-open");
   }
   menu.addEventListener("click", function () {
+    closeContents();
     const expanded = menu.getAttribute("aria-expanded") !== "true";
     menu.setAttribute("aria-expanded", String(expanded));
     sidebar.classList.toggle("site-open", expanded);
   });
   document.addEventListener("click", function (event) {
     if (!sidebar.contains(event.target) && !menu.contains(event.target)) closeMenu();
+    if (contents && !contents.contains(event.target) && !contentsButton.contains(event.target)) closeContents();
   });
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") closeMenu();
+    if (event.key === "Escape" && contents && contents.classList.contains("site-open")) {
+      closeContents();
+      contentsButton.focus();
+    }
   });
   sidebar.addEventListener("click", function (event) {
     if (event.target.closest("a")) closeMenu();
   });
 
-  document.querySelectorAll(".site-article table").forEach(function (table) {
+  if (contents) {
+    contentsButton.addEventListener("click", function () {
+      closeMenu();
+      const expanded = contentsButton.getAttribute("aria-expanded") !== "true";
+      contentsButton.setAttribute("aria-expanded", String(expanded));
+      contents.classList.toggle("site-open", expanded);
+      if (expanded) contents.querySelector("a").focus();
+    });
+    contents.querySelector(".site-contents-close").addEventListener("click", function () {
+      closeContents();
+      contentsButton.focus();
+    });
+    const links = [...contents.querySelectorAll("a")];
+    const sections = links.map(link => document.getElementById(decodeURIComponent(link.hash.slice(1))));
+    contents.addEventListener("click", function (event) {
+      const link = event.target.closest("a");
+      if (!link) return;
+      closeContents();
+      const section = document.getElementById(decodeURIComponent(link.hash.slice(1)));
+      section.tabIndex = -1;
+      section.focus({preventScroll:true});
+    });
+    let framePending = false;
+    function updateSection() {
+      let selected = 0;
+      sections.forEach((section, index) => {
+        if (section.getBoundingClientRect().top <= 140) selected = index;
+      });
+      if (window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
+        selected = sections.length - 1;
+      }
+      links.forEach((link, index) => {
+        if (index === selected) link.setAttribute("aria-current", "location");
+        else link.removeAttribute("aria-current");
+      });
+      framePending = false;
+    }
+    window.addEventListener("scroll", function () {
+      if (!framePending) {
+        framePending = true;
+        requestAnimationFrame(updateSection);
+      }
+    }, {passive:true});
+    window.addEventListener("resize", updateSection);
+    updateSection();
+  }
+
+  document.querySelectorAll(".site-article table, .site-legacy table").forEach(function (table) {
+    if (table.closest(".site-table-scroll, .matrix-scroll")) return;
     const wrapper = document.createElement("div");
     wrapper.className = "site-table-scroll";
     wrapper.tabIndex = 0;
@@ -102,6 +163,7 @@
   }
   function openSearch() {
     closeMenu();
+    closeContents();
     if (!dialog.open) dialog.showModal();
     input.focus();
   }
@@ -109,6 +171,10 @@
   document.querySelector(".site-search-close").addEventListener("click", function () { dialog.close(); });
   input.addEventListener("input", search);
   document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && dialog.open) {
+      event.preventDefault();
+      dialog.close();
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
       openSearch();

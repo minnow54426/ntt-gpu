@@ -23,6 +23,37 @@ with patch.dict(sys.modules, {"build_docs": site}):
 
 
 class MarkdownTests(unittest.TestCase):
+    def test_section_outline_preserves_anchors_scripts_and_duplicate_headings(self):
+        source = '''<section id="example"><h2>Example</h2>
+<h2 id="existing">Existing &amp; exact <a class="headerlink">¶</a></h2>
+<h2>Example</h2><script>const label = "<h2>Not a heading</h2>";</script></section>'''
+        body, outline = site.section_outline(source)
+        self.assertIn('<h2 id="example-2">', body)
+        self.assertIn('<h2 id="example-3">', body)
+        self.assertIn('href="#existing">Existing &amp; exact</a>', outline)
+        self.assertIn('const label = "<h2>Not a heading</h2>";', body)
+        self.assertNotIn('Not a heading', outline)
+        self.assertEqual(outline.count('<li>'), 3)
+
+    def test_collapsed_markdown_keeps_links_and_math_readable(self):
+        body, _, _ = site.render_markdown('''## Evidence
+
+<details markdown="1">
+<summary>Sources</summary>
+
+[Reference](https://example.com) and \\(a_i\\).
+
+| Size | State |
+|---|---|
+| 65536 | checked |
+
+</details>
+''')
+        self.assertIn('<details>', body)
+        self.assertIn('<a href="https://example.com">Reference</a>', body)
+        self.assertIn('<table>', body)
+        self.assertIn('class="site-math"', body)
+
     def test_tables_tasks_code_and_anchors(self):
         source = """# Page
 
@@ -30,7 +61,7 @@ class MarkdownTests(unittest.TestCase):
 
 | Size | State |
 |---|---|
-| 4096 | checked |
+| 65536 | checked |
 
 - [x] CPU gate
 - [ ] GPU gate

@@ -102,9 +102,8 @@ class CudaDataflowSourceTests(unittest.TestCase):
             self.assertIn("value_index / transform_length", body)
             self.assertNotIn("blockIdx.y", body)
 
-    def test_endpoint_allocation_and_transfer_arithmetic(self):
+    def test_65536_allocation_and_transfer_arithmetic(self):
         for n, operand, constants, total in (
-            (4096, 98304, 196704, 393312),
             (65536, 1572864, 3145824, 6291552),
         ):
             k = 3

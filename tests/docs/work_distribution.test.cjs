@@ -23,9 +23,6 @@ class Element {
 
 function explorer() {
   const elements = new Map();
-  const sizes = [4096,65536].map(size => {
-    const button = new Element(); button.dataset.size = String(size); return button;
-  });
   const directions = ['forward','inverse'].map(direction => {
     const button = new Element(); button.dataset.direction = direction; return button;
   });
@@ -36,18 +33,17 @@ function explorer() {
   const buttons = () => [...get('[data-stages="far"]').children, ...get('[data-stages="near"]').children].sort((a,b) => Number(a.dataset.stageIndex)-Number(b.dataset.stageIndex));
   const root = {
     querySelector:get,
-    querySelectorAll:selector => selector === '[data-size]' ? sizes : selector === '[data-direction]' ? directions : buttons(),
+    querySelectorAll:selector => selector === '[data-direction]' ? directions : buttons(),
   };
-  const source = readFileSync(join(__dirname,'../../docs/ntt-4096-work-distribution.html'),'utf8');
+  const source = readFileSync(join(__dirname,'../../docs/ntt-65536-work-distribution.html'),'utf8');
   const script = source.match(/<script>([\s\S]*?)<\/script>/)[1];
   runInNewContext(script, {document:{getElementById:() => root, createElement:() => new Element()}});
-  return {get, buttons, size:n => sizes.find(button => Number(button.dataset.size) === n).click(), direction:value => directions.find(button => button.dataset.direction === value).click()};
+  return {get, buttons, direction:value => directions.find(button => button.dataset.direction === value).click()};
 }
 
-test('both sizes: all stages and boundary thread/block selections match the CPU pair schedule', () => {
+test('65536: all stages and boundary thread/block selections match the CPU pair schedule', () => {
   const page = explorer();
-  for (const n of [4096,65536]) {
-    page.size(n);
+  for (const n of [65536]) {
     for (const direction of ['forward','inverse']) {
       page.direction(direction);
       assert.equal(page.buttons().length, Math.log2(n));
@@ -91,8 +87,8 @@ test('both sizes: all stages and boundary thread/block selections match the CPU 
 
 test('inverse starts with rows, then columns, and includes a final normalization launch', () => {
   const page = explorer();
-  for (const n of [4096,65536]) {
-    page.size(n); page.direction('inverse');
+  for (const n of [65536]) {
+    page.direction('inverse');
     assert.equal(page.buttons()[0].textContent,'1');
     assert.match(page.get('[data-ownership]').textContent,/Pass 1 · row/);
     page.buttons()[8].click();
@@ -104,18 +100,20 @@ test('inverse starts with rows, then columns, and includes a final normalization
   }
 });
 
-test('size switches rebuild controls and clamp blocks; inactive butterfly threads may still load', () => {
+test('65536 clamps controls; inactive butterfly threads may still load', () => {
   const page = explorer();
-  page.size(65536);
+  assert.match(page.get('[data-transform-summary]').textContent,/N = 65536.*16 stages.*524,288 butterflies/);
+  assert.match(page.get('[data-selection]').textContent,/global 1283 ↔ 34051/);
   page.get('[data-block]').fill('255');
   page.get('[data-thread]').fill('200');
   assert.match(page.get('[data-selection]').textContent,/no butterfly/);
   assert.match(page.get('[data-thread-work]').textContent,/load\/store: global position 51455/);
-  page.size(4096);
-  assert.match(page.get('[data-thread-work]').textContent,/load\/store: idle/);
   page.buttons().find(button => button.textContent === '128').click();
-  assert.equal(page.get('[data-block]').value,'15');
-  assert.equal(page.get('[data-block]').max,'15');
+  assert.equal(page.get('[data-block]').value,'255');
+  assert.equal(page.get('[data-block]').max,'255');
+  assert.match(page.get('[data-thread-work]').textContent,/load\/store: global position 65480/);
+  page.get('[data-block]').fill('999');
+  assert.equal(page.get('[data-block]').value,'255');
   page.get('[data-thread]').fill('-1');
   assert.equal(page.get('[data-thread]').value,'0');
   page.get('[data-thread]').fill('999');
@@ -123,7 +121,7 @@ test('size switches rebuild controls and clamp blocks; inactive butterfly thread
 });
 
 test('kernel-shaped mapping covers each global index once at every stage', () => {
-  for (const n of [4096,65536]) {
+  for (const n of [65536]) {
     let butterflies = 0;
     for (let d=n/2; d>=1; d/=2) {
       const seen = new Uint8Array(n);

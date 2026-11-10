@@ -130,13 +130,12 @@ void check_stage_coverage(uint64_t n) {
 
 int main() {
   try {
-    for (const uint64_t n : {4096ULL, 65536ULL})
+    for (const uint64_t n : {65536ULL})
       for (const bool inverse : {false, true})
         check_tile_mapping(n, inverse);
-    // Target ring range plus small sizes exercising the min(256,N) clamp
+    // Fixed target ring size plus small sizes exercising the min(256,N) clamp
     // and the first size with a column pass.
-    for (const uint64_t n : {2ULL, 64ULL, 256ULL, 512ULL, 4096ULL, 8192ULL,
-                             16384ULL, 32768ULL, 65536ULL})
+    for (const uint64_t n : {2ULL, 64ULL, 256ULL, 512ULL, 65536ULL})
       check_stage_coverage(n);
   } catch (const std::exception &error) {
     std::cerr << "FAIL: " << error.what() << '\n';
