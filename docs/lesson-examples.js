@@ -53,7 +53,7 @@
       const svg=get('svg'),ns='http://www.w3.org/2000/svg';svg.replaceChildren();
       function node(tag,attrs,label){const el=document.createElementNS(ns,tag);Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));if(label!==undefined)el.textContent=label;svg.appendChild(el);}
       const xs=[65,240,415,590,765], y=i=>60+34*i;
-      for(let s=0;s<4;s++)for(const p of model.stages[s])for(const [a,b] of [[p.u,p.u],[p.u,p.v],[p.v,p.u],[p.v,p.v]])node('line',{x1:xs[s]+22,y1:y(a),x2:xs[s+1]-22,y2:y(b),stroke:s===stage&&(p===pairs[pair])?'#b64d16':'#91a6ba','stroke-width':s===stage&&p===pairs[pair]?2.5:0.7,opacity:s===stage?1:0.45});
+      for(let s=0;s<4;s++)for(const p of model.stages[s])for(const [a,b] of [[p.u,p.u],[p.u,p.v],[p.v,p.u],[p.v,p.v]])node('line',{x1:xs[s]+22,y1:y(a),x2:xs[s+1]-22,y2:y(b),stroke:s===stage&&(p===pairs[pair])?'#b64d16':'#526f87','stroke-width':s===stage&&p===pairs[pair]?2.8:1.15,opacity:1});
       for(let col=0;col<5;col++){
         node('text',{x:xs[col],y:22,'text-anchor':'middle','font-size':14,fill:'#26384b'},col===0?'Input':'Stage '+(col-1));
         if(col)node('text',{x:xs[col],y:40,'text-anchor':'middle','font-size':12,fill:'#53654a'},'d='+2**(4-col));

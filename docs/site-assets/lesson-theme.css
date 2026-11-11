@@ -3,3 +3,19 @@
 @font-face{font-family:'Source Sans 3';src:url('fonts/source-sans-3.woff2') format('woff2');font-weight:400 700;font-display:swap}
 :root{--serif:Newsreader,Georgia,serif;--sans:'Source Sans 3',sans-serif;--paper:#f5f7fa;--paper-deep:#eaf0f5;--card:#fff;--ink:#26384b;--ink-soft:#52677c;--ink-faint:#617183;--line:#d7dfe7;--accent:#355a7a;--teal:#426f82}
 body{font-family:'Source Sans 3',sans-serif}h1,h2,h3{font-family:Newsreader,Georgia,serif}.widget,.callout,.definition{box-shadow:none;border-color:#d7dfe7;border-radius:5px}.ntt-lesson{--paper:#f5f7fa;--surface:#fff;--ink:#26384b;--muted:#617183;--line:#d7dfe7;--green:#355a7a;--owned:#eaf0f5;font-family:'Source Sans 3',sans-serif}.reveal{opacity:1;transform:none}.w-title{font:600 15px 'Source Sans 3',sans-serif;text-transform:none;letter-spacing:0}.notes-result{background:#eaf0f5}
+
+/* Keep foregrounds paired with the light lesson panels in both layouts. */
+.definition{background:#fff;color:#26384b}
+.definition .eq,.definition .big,.definition p b{color:#26384b}
+.definition p,.definition .why{color:#41556b}
+.definition .kicker,.definition .chain{color:#355a7a}
+.definition .eq .om,.definition .big b,.definition .big .g{color:#93420f}
+.definition .big .s{color:#245677}
+.definition::after,.summary::after{display:none}
+.summary{background:#eaf0f5;color:#26384b}
+.summary h3,.summary p,.summary p b{color:#26384b}
+.summary a{color:#245677}
+button.ctl.on,button.ctl.ghost.on{background:#355a7a;border-color:#355a7a;color:#fff}
+button.ctl.on:hover,button.ctl.ghost.on:hover{background:#263f58;border-color:#263f58;color:#fff}
+.equals-badge{--teal:#245168;--teal-soft:#e0ecf3;background:var(--teal-soft);color:var(--teal)}
+button.ctl,nav.toc a{transition:transform .12s}
