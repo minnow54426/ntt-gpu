@@ -312,3 +312,13 @@ html { scroll-behavior:smooth; scroll-padding-top:84px; }
 @media(max-width:600px) { .site-plan li { grid-template-columns:24px 1fr; gap:6px 12px; } .site-plan li span { grid-column:2; } }
 
 @media(min-width:360px) and (max-width:600px) { .site-legacy .quick-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+/* Concrete host/device flow, stacked naturally on phones. */
+.dataflow-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:14px;margin:18px 0; }
+.dataflow-grid>div,.flow-host,.flow-device { border:1px solid #cbd5be;border-radius:8px;padding:16px;min-width:0; }
+.dataflow-grid p,.multiply-flow p { margin:10px 0;font-size:14px;line-height:1.8; }
+.flow-host { background:#f0eadd; }
+.flow-device { background:#edf3e6; }
+.flow-arrow { text-align:center;padding:14px 4px;font-size:14px;color:#426449; }
+.flow-constants { border-top:1px solid #cbd5be;padding-top:14px; }
+.notes-result .katex-display { overflow-x:auto;overflow-y:hidden; }

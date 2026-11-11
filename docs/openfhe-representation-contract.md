@@ -12,12 +12,12 @@ It uses the real OpenFHE core library on CPU. No native CUDA result is claimed.
 
 | Property | Required contract |
 |---|---|
-| Ring | Z_q[x]/(x^N+1), N=65536; cyclotomic order m=2N=131072 |
-| Coefficient index i | Coefficient of x^i, in natural order |
-| Evaluation memory index k | Evaluation at ψ^(2·rev16(k)+1), with 16-bit index reversal |
+| Ring | \(\mathbb Z_q[x]/(x^N+1)\), \(N=65536\); cyclotomic order \(m=2N=131072\) |
+| Coefficient index i | Coefficient of \(x^i\), in natural order |
+| Evaluation memory index k | Evaluation at \(\psi^{2\operatorname{rev}_{16}(k)+1}\), with 16-bit index reversal |
 | Tower modulus q | The exact modulus in that tower's OpenFHE parameters |
 | Root ψ | The exact primitive 2N-th root in those same parameters |
-| Residue representation | Unsigned canonical values in [0,q); no external twist or Montgomery conversion |
+| Residue representation | Unsigned canonical values in \([0,q)\); no external twist or Montgomery conversion |
 | Forward | Natural coefficients → bit-reversed evaluations, in place |
 | Inverse | Bit-reversed evaluations → natural coefficients; N-inverse normalization included |
 | GPU buffer order | `values[limb*N + index]`, preserving the supplied tower list |
@@ -56,15 +56,15 @@ Let `rev16(k)` reverse the low 16 bits of k and define
 The first natural evaluation indices in memory are
 `0, 32768, 16384, 49152, 8192, ...`. Thus the corresponding root exponents
 begin `1, 65537, 32769, 98305, 16385, ...`. In particular, slot 0 contains
-`a(ψ)` and slot 1 contains `a(-ψ)`.
+\(a(\psi)\) and slot 1 contains \(a(-\psi)\).
 
 | Probe | Expected array |
 |---|---|
-| a(x)=1 | Every evaluation is 1 |
-| a(x)=x | Slot k is r_k |
-| a(x)=x^17 | Slot k is r_k^17 |
-| a(x)=x^(N-1) | Slot k is r_k^(N-1) |
-| Evaluation array with 1 only at slot s | Coefficient i is N^-1·r_s^-i |
+| \(a(x)=1\) | Every evaluation is 1 |
+| \(a(x)=x\) | Slot k is \(r_k\) |
+| \(a(x)=x^{17}\) | Slot k is \(r_k^{17}\) |
+| \(a(x)=x^{N-1}\) | Slot k is \(r_k^{N-1}\) |
+| Evaluation array with 1 only at slot s | Coefficient i is \(N^{-1}r_s^{-i}\) |
 
 These closed forms distinguish order and scaling errors that a shared
 forward/inverse round trip could conceal. The D7 gate checks all N outputs,
@@ -96,7 +96,7 @@ using a separate DCRT object.
 ## 5. Roots, prime widths, and the transform cache
 
 A valid primitive root is not necessarily the **same** root. Replacing ψ by
-ψ^3 still gives a primitive 2N-th root but changes the evaluation addresses.
+\(\psi^3\) still gives a primitive 2N-th root but changes the evaluation addresses.
 Do not regenerate roots using this repository's independent parameter finder
 when comparing or importing an OpenFHE context. Read each tower's root.
 
@@ -105,7 +105,7 @@ root by enumerating primitive powers. The D7 fixtures use this function with
 `LastPrime(bits, 2N)` for exact **50-, 55-, and 60-bit** primes. The test
 independently enumerates odd root powers and checks the minimum.
 
-`FirstPrime(bits, m)` searches above 2^bits; its argument is not a guarantee
+`FirstPrime(bits, m)` searches above \(2^{\mathrm{bits}}\); its argument is not a guarantee
 of a prime with exactly that many bits. `LastPrime` searches below that bound
 and checks the resulting bit length. This is why the D7 matrix uses LastPrime.
 
@@ -118,7 +118,7 @@ inside an integration adapter to work around this constraint.
 
 OpenFHE's bit-reversed power tables and preconditioned multiplication constants
 are internal implementation data. They are not interchangeable with this
-repository's `[ψ^0, ..., ψ^N]` table. Share parameter values and polynomial
+repository's \([\psi^0,\ldots,\psi^N]\) table. Share parameter values and polynomial
 arrays; construct backend-specific twiddle tables separately.
 
 ## 6. DCRT tower order and flat GPU packing
@@ -131,20 +131,26 @@ forms the composite modulus Q as their product.
 The polynomial's composite Q can exceed 64 bits. It is not a native tower
 modulus and must not be truncated into the CUDA modulus array.
 
-```text
-OpenFHE tower list:  tower 0      tower 1      tower 2
-parameters:         (q0, ψ0)     (q1, ψ1)     (q2, ψ2)
-GPU values:         [0 ... N-1 | 0 ... N-1 | 0 ... N-1]
-GPU address:        limb*N + index
-```
+For N=65536, each row below is copied from its own NativePoly allocation:
+
+| OpenFHE tower | Parameters | Flat GPU element range | Byte offset |
+|---|---|---|---:|
+| 0 | \((q_0,\psi_0)\) | 0…65535 | 0 |
+| 1 | \((q_1,\psi_1)\) | 65536…131071 | 524288 |
+| 2 | \((q_2,\psi_2)\) | 131072…196607 | 1048576 |
+
+\[
+\mathrm{address}(\ell,i)=65536\ell+i,\qquad
+Q=q_0q_1q_2.
+\]
 
 Read the active tower list from the object, not a hard-coded sorted list or
 an assumed CKKS level. The D7 test deliberately uses bit widths in the order
 `55, 50, 60` so sorting or swapping towers cannot silently pass.
 
-Packing coefficient data requires `a_i mod q_limb` at each address. For an
-integer coefficient -1, this is q_limb-1 in every tower. The test starts from
-a BigInteger polynomial containing Q-1 and 2^64+17, imports it as a DCRTPoly,
+Packing coefficient data requires \(a_i\bmod q_\ell\) at each address. For an
+integer coefficient -1, this is \(q_\ell-1\) in every tower. The test starts from
+a BigInteger polynomial containing \(Q-1\) and \(2^{64}+17\), imports it as a DCRTPoly,
 and checks all residues and coefficient-domain CRT reconstruction. No
 interpolation is needed to run the per-tower NTT itself.
 
@@ -164,10 +170,13 @@ With matching q, ψ, format, and slot order, pointwise evaluation multiplication
 followed by inverse gives the negacyclic ring product. D7 multiplies a full
 three-tower DCRT polynomial by x and checks the independent coefficient rule:
 
-```text
-out[0] = -in[N-1] mod q
-out[i] = in[i-1],  i=1...N-1
-```
+\[
+\mathrm{out}_i=
+\begin{cases}
+-\mathrm{in}_{N-1}\pmod q,&i=0,\\
+\mathrm{in}_{i-1},&1\le i<N.
+\end{cases}
+\]
 
 Both the wrap term and large-input coefficient residues are checked.
 

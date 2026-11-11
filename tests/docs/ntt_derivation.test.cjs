@@ -113,6 +113,6 @@ test('stage numbering changes the distance direction and labels the folded twist
   assert.match(page.field('context').textContent,/输入先按位逆序/);
   page.set('mode','repo');
   assert.equal(page.read().distance,8);
-  assert.match(page.field('result').textContent,/c = ψ\^d = ψ\^8/);
+  assert.ok(page.field('result').textContent.includes(String.raw`c=\psi^d=\psi^{8}`));
   assert.match(page.field('context').textContent,/自然输入/);
 });

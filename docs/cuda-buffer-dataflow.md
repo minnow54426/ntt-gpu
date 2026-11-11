@@ -5,23 +5,21 @@ API. Read it alongside the [public interface](../include/ntt/cuda_ntt.hpp),
 [implementation and launchers](../src/cuda/ntt_kernels.cu), and
 [kernel schedule](ntt-65536-work-distribution.html).
 
-## The big picture
+## The big picture: N=65536, three towers
 
 One `CudaNttTransform` represents one fixed ring size and a fixed list of RNS
 moduli/roots. It owns two reusable operand buffers and four constant buffers.
 The public interface accepts **host vectors**, not device pointers.
 
-```text
-construct once
-  validate parameters → build host tables → allocate six device buffers
-  → upload constants once
+For this page, **N=65536 and K=3**. One polynomial contains 196,608
+64-bit residues: **1,572,864 bytes (1.5 MiB)**. Each tower occupies 512 KiB.
 
-each public operation
-  host inputs → upload to reusable scratch → kernels → download result
+<div class="dataflow-grid">
+<div><strong>① Construct once</strong><p>Allocate six GPU buffers: 6,291,552 B total.</p><p>Upload four constant arrays: 3,145,824 B, four copies.</p></div>
+<div><strong>② Reuse for each call</strong><p>Host inputs → GPU A/B → kernels → host result.</p><p>A and B are each 1.5 MiB. Constants stay on the GPU.</p></div>
+<div><strong>③ Destroy</strong><p>Free all six allocations after successful construction.</p><p>CPU vectors and GPU allocations have separate ownership.</p></div>
+</div>
 
-destroy after successful construction
-  delete Impl → free six device buffers
-```
 
 Constants and scratch allocations persist across calls. Operand contents are
 scratch state and are overwritten by the next call. Only the internal chain
@@ -53,17 +51,18 @@ second permanent host copy of every power table.
 
 ## Persistent allocation and ownership map
 
-Define S=`8*K*N` bytes, T=`8*K*(N+1)` bytes, R=`8*K` bytes.
+For N=65536/K=3, define S=1,572,864 B, T=1,572,888 B, R=24 B.
+In general, \(S=8KN,\ T=8K(N+1),\ R=8K\) bytes.
 Every stored element is `uint64_t`.
 
 | Device allocation | Elements / bytes | Layout and role | Writer / reader |
 |---|---|---|---|
-| `device_operand_a` | K*N / S | `[limb][coefficient or evaluation position]`; working input/output | Public input copy and kernels write; result copy reads |
-| `device_operand_b` | K*N / S | Second operand; separate from A | Input copy and its forward transform write; pointwise kernel reads |
-| `device_twiddle_powers` | K*(N+1) / T | `[limb][exponent]`, ψ^e | Constructor uploads; forward kernels read |
-| `device_inverse_twiddle_powers` | K*(N+1) / T | `[limb][exponent]`, (ψ-inverse)^e | Constructor uploads; inverse kernels read |
-| `device_moduli` | K / R | q for each limb | Constructor uploads; arithmetic kernels read |
-| `device_inverse_transform_lengths` | K / R | N-inverse modulo each q | Constructor uploads; final scale kernel reads |
+| `device_operand_a` | 196,608 / 1,572,864 B | `[limb][coefficient or evaluation position]`; working input/output | Public input copy and kernels write; result copy reads |
+| `device_operand_b` | 196,608 / 1,572,864 B | Second operand; separate from A | Input copy and its forward transform write; pointwise kernel reads |
+| `device_twiddle_powers` | 196,611 / 1,572,888 B | `[limb][exponent]`, \(\psi^e\) | Constructor uploads; forward kernels read |
+| `device_inverse_twiddle_powers` | 196,611 / 1,572,888 B | `[limb][exponent]`, \((\psi^{-1})^e\) | Constructor uploads; inverse kernels read |
+| `device_moduli` | 3 / 24 B | q for each limb | Constructor uploads; arithmetic kernels read |
+| `device_inverse_transform_lengths` | 3 / 24 B | N-inverse modulo each q | Constructor uploads; final scale kernel reads |
 
 `CudaNttTransform` owns `Impl*`; `Impl` owns the CUDA pointers. They are private:
 callers cannot retain a borrowed device-buffer view. Copy construction and
@@ -77,11 +76,13 @@ infer safe concurrent destruction or synchronization with unrelated GPU work.
 
 ### Exact byte counts (requested allocations, not measured device usage)
 
-```text
-two operand buffers = 2S            = 16KN bytes
-constant buffers    = 2T + 2R       = 16KN + 32K bytes
-total               = 2S + 2T + 2R = 32K(N+1) bytes
-```
+\[
+\begin{aligned}
+\text{Operands}&=2S=3{,}145{,}728\ \mathrm{B},\\
+\text{Constants}&=2T+2R=3{,}145{,}824\ \mathrm{B},\\
+\text{All six}&=2S+2T+2R=6{,}291{,}552\ \mathrm{B}.
+\end{aligned}
+\]
 
 For **three limbs**, the source formulas give:
 
@@ -122,17 +123,27 @@ GPU allocation or transfer data.
 
 ## Follow a complete multiplication
 
-```text
-HOST left (by-value local) ──H2D──> A: coefficients
-HOST right (const input) ──H2D──> B: coefficients
+<div class="multiply-flow">
+<div class="flow-host"><strong>HOST · input</strong><p>left: 196,608 residues<br>right: 196,608 residues</p></div>
+<div class="flow-arrow">↓ H2D · 2 copies · 3 MiB total</div>
+<div class="flow-device"><strong>GPU · reusable A and B</strong>
+<div class="dataflow-grid">
+<div><strong>A · 1.5 MiB</strong><p>Coefficients<br>↓ column DIF · 256 blocks/tower<br>↓ row DIF · 256 blocks/tower<br>Bit-reversed evaluations</p></div>
+<div><strong>B · 1.5 MiB</strong><p>Coefficients<br>↓ column DIF · 256 blocks/tower<br>↓ row DIF · 256 blocks/tower<br>Bit-reversed evaluations</p></div>
+</div>
+<div class="flow-arrow">↓ A × B, write A · 1 kernel · 768 blocks</div>
+<div><strong>A · product evaluations</strong><p>↓ row DIT → column DIT → inverse scale<br>3 kernels; result: 196,608 coefficient residues</p></div>
+<p class="flow-constants">Constants stay here: forward powers 1,572,888 B + inverse powers 1,572,888 B + moduli 24 B + inverse lengths 24 B.</p>
+</div>
+<div class="flow-arrow">↓ D2H · 1 copy · 1.5 MiB</div>
+<div class="flow-host"><strong>HOST · returned left</strong><p>196,608 residues · 1.5 MiB · natural coefficient order</p></div>
+</div>
 
-A ──column DIF──row DIF──> A: bit-reversed evaluations
-B ──column DIF──row DIF──> B: bit-reversed evaluations
-A,B ──pointwise (write A only)──> A: product evaluations
-A ──row DIT──column DIT──N-inverse scale──> A: product coefficients
+For this three-tower example, each transform launch has a 256×3 grid,
+256 threads per block, and 2 KiB shared memory per block. The pointwise and
+scale grids each have 768 blocks. A complete multiply uses **eight launches
+and three operand copies, totaling 4,718,592 B (4.5 MiB)**.
 
-A ──D2H──> returned HOST left
-```
 
 The four constant buffers are read throughout this chain; they are not
 re-uploaded per operation. B is scratch after the call, not a cached operand
@@ -152,12 +163,11 @@ buffer API. `cudaGetLastError()` follows launches; copies are also checked by
 Excluding construction, each forward/inverse transfers 2S bytes and pointwise
 or fused multiply transfers 3S bytes. For a fair comparison of **two inputs**:
 
-```text
-forward(a) + forward(b) + pointwise_multiply(a,b) + inverse(a)
-    2S     +    2S     +          3S             +   2S = 9S
+| Route for two input polynomials | Copies | Requested transfer payload | Kernel launches |
+|---|---:|---:|---:|
+| Four public calls: forward A, forward B, pointwise, inverse | 9 | 14,155,776 B (13.5 MiB) | 8 |
+| One `multiply(A,B)` call | 3 | 4,718,592 B (4.5 MiB) | 8 |
 
-multiply(a,b) = 3S
-```
 
 Both paths perform eight kernels at the target sizes. Fusion removes six
 operand-sized transfer copies (9S→3S), not six kernels. At N=65536/K=3 this is

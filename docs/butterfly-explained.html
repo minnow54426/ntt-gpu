@@ -384,6 +384,7 @@
   .notes-values dt { font-size:13px; color:var(--ink-soft); }
   .notes-values dd { font:18px/1.8 var(--mono); margin:4px 0 0; overflow-wrap:anywhere; }
 </style>
+<script defer src="lesson-examples.js"></script>
 </head>
 <body>
 <div class="page">
@@ -452,12 +453,11 @@
       <a href="#s1"><span class="n">01</span>Input: coefficients</a>
       <a href="#s2"><span class="n">02</span>Special points</a>
       <a href="#s3"><span class="n">03</span>What the NTT does</a>
-      <a href="#s4"><span class="n">04</span>Why direct is slow</a>
+      <a href="#s4"><span class="n">04</span>Cost &amp; savings</a>
       <a href="#s5"><span class="n">05</span>Sum → butterflies</a>
       <a href="#handwritten-derivation"><span class="n">05+</span>手稿推导与旋转因子</a>
       <a href="#s6"><span class="n">06</span>One butterfly</a>
       <a href="#s7"><span class="n">07</span>Full N = 8 network</a>
-      <a href="#s8"><span class="n">08</span>Work saved</a>
       <a href="#s9"><span class="n">09</span>Negacyclic NTT</a>
       <a href="#s10"><span class="n">10</span>Code mapping</a>
     </nav>
@@ -600,7 +600,7 @@
 
     <!-- ============================ 4. THE DIRECT COST ============================ -->
     <section id="s4" class="reveal">
-      <div class="sec-head"><div class="sec-num">04</div><h2>Direct evaluation is too expensive</h2></div>
+      <div class="sec-head"><div class="sec-num">04</div><h2>Direct evaluation vs butterflies: work saved</h2></div>
       <p>The equation demands N outputs, each a sum of N products — computed one by one, that's <span class="m">\(N \times  N\)</span> multiplications per transform:</p>
       <div class="widget">
         <div class="w-title">Interactive · feel the N² pain</div>
@@ -614,7 +614,21 @@
         <div class="cost-grid" id="costgrid"></div>
         <div class="w-note" id="costnote"></div>
       </div>
-      <p>At N = 65,536: <b>4.3 billion</b> products per transform — and transforms run constantly. The escape plan: find the repeats hiding inside the equation.</p>
+      <div id="s8"></div>
+      <p>Radix-2 uses \(N/2\) butterflies in each of \(\log_2 N\) stages. At N=65536, direct evaluation forms <b>4,294,967,296 products</b>; the network uses <b>524,288 butterflies</b>. The ratio is 8192:1 in these different counting units.</p>
+      <div class="widget">
+        <div class="w-title">Interactive · direct N² vs butterflies (N/2)·log₂N — log–log plot</div>
+        <div class="legend" style="margin:0 0 10px;">
+          <span><i style="background:#C2410C;"></i>direct — each output on its own (N² products)</span>
+          <span><i style="background:#0369A1;"></i>butterflies — shared brackets ((N/2)·log₂N units)</span>
+        </div>
+        <div style="position:relative;">
+          <svg id="plotsvg" viewBox="0 0 820 400" style="max-width:820px; width:100%; display:block; margin:0 auto;" role="img" aria-label="Log-log comparison of N squared versus N over two times log N, from N equals 8 to 65536"></svg>
+          <div id="plotip" style="position:absolute; display:none; pointer-events:none; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-family:var(--mono); font-size:13px; color:var(--ink); box-shadow:3px 4px 0 rgba(87,80,63,0.10); white-space:nowrap; z-index:2;"></div>
+        </div>
+        <div class="w-note" id="plotnote">hover the plot — at N = 65,536 the direct line stands 8,192× above the butterfly line</div>
+      </div>
+      <p class="dim">This compares arithmetic counts, not measured speed. A cyclic butterfly uses one multiply, one add and one subtract; this repository's folded negacyclic device butterfly uses two multiplies. CPU twiddle advancement adds another multiply. Doubling N multiplies the direct count by 4, and the butterfly count by \(2(\log_2N+1)/\log_2N\). The butterfly curve is slightly curved on a log–log plot.</p>
     </section>
 
     <!-- ============================ 5. EXPANSION ============================ -->
@@ -651,6 +665,16 @@ t &= \omega^k O_k \\[0.5em]
         <h4>Why the optimization keeps working</h4>
         <p><span class="m">\(ω^{2}\)</span> is an N/2-th root of unity, so E and O have exactly the same shape as the original problem, only half as large. Repeating the split reaches two-value problems. Each level contains N/2 butterflies, and there are log₂N levels.</p>
       </div>
+      <h3>What exactly happens in each stage?</h3>
+      <p>For this cyclic DIT explanation, first place input coefficients in bit-reversed order. Stage s starts at zero, uses group width M and distance d, and combines two completed half-transforms. Every pair reads the previous stage and writes two new values:</p>
+      <div class="math typeset">\[
+M=2^{s+1},\quad d=M/2,\quad U=gM+j,\quad V=U+d,\quad 0\le j&lt;d,
+\qquad t=\omega_N^{jN/M}X^{(s)}_V.
+\]
+\[
+X^{(s+1)}_U=X^{(s)}_U+t,\qquad X^{(s+1)}_V=X^{(s)}_U-t.
+\]</div>
+      <p>Stage 0 combines pairs into 2-point transforms; stage 1 combines two 2-point results into a 4-point result; stage s combines two d-point results into one M-point result. A stage has N/M groups and d butterflies per group, giving N/2 disjoint pairs. A later stage must wait until its input stage finishes. The complete numerical example in the negacyclic section uses the repository's opposite, DIF stage order.</p>
       <p>The <a href="#handwritten-derivation">handwritten derivation below</a> expands N=4, recurses into the second split, and derives the twiddle exponent for every stage. Try its four-point arithmetic here first:</p>
       <div class="widget">
         <div class="w-title">Interactive · both levels, real numbers — mod 17, ω = 4 (ω² = 16 ≡ −1)</div>
@@ -779,7 +803,7 @@ w_{s,j}&=\omega_M^j=\left(\omega_N^{N/2^{s+1}}\right)^j
           <label>组内偏移 j<input data-note-j type="number" min="0" max="1" value="1" step="1"></label>
           <label>组号 g<input data-note-group type="number" min="0" max="0" value="0" step="1"></label>
         </div>
-        <pre class="notes-result" data-note-result aria-live="polite"></pre>
+        <div class="notes-result" data-note-result aria-live="polite"></div>
         <dl class="notes-values"><div><dt>ω<sub>N</sub> 指数 E</dt><dd data-note-omega></dd></div><div><dt>ψ 指数（仓库 w）</dt><dd data-note-psi></dd></div><div><dt>upper / lower</dt><dd><span data-note-upper></span> / <span data-note-lower></span></dd></div><div><dt>配对距离 d</dt><dd data-note-distance></dd></div></dl>
         <p class="w-note" data-note-context></p>
       </div>
@@ -827,9 +851,11 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
     field('psi').textContent = state.mode === 'repo' ? String(2*exponent) : '—';
     field('upper').textContent = String(upper); field('lower').textContent = String(upper+distance);
     field('distance').textContent = String(distance);
-    field('result').textContent = 'N = ' + state.n + '，stage = ' + state.stage + '，组长 M = ' + length + '\n' +
-      'E = j × (N/M) = ' + state.j + ' × ' + (state.n/length) + ' = ' + exponent + '\n' +
-      'w = ω_N^' + exponent + (state.mode === 'repo' ? ' = ψ^' + (2*exponent) + '\nc = ψ^d = ψ^' + distance : '');
+    field('result').textContent = '\\[N='+state.n+',\\quad M='+length+',\\quad E='+state.j+'\\times'+(state.n/length)+'='+exponent+'\\]' +
+      '\\[w=\\omega_N^{'+exponent+'}'+(state.mode==='repo'?'=\\psi^{'+(2*exponent)+'},\\quad c=\\psi^d=\\psi^{'+distance+'}':'')+'\\]';
+    if (typeof renderMathInElement === 'function') renderMathInElement(field('result'), {
+      delimiters:[{left:'\\[',right:'\\]',display:true}], throwOnError:true
+    });
     field('context').textContent = state.mode === 'dit'
       ? '这里是 cyclic DIT 的工作数组索引：输入先按位逆序重排，阶段距离由小到大。不同组共用相同的 j→乘子规则；中间值不再固定对应某一个原始系数。'
       : '这里是仓库 negacyclic DIF 的全局蝶形索引：自然输入，阶段距离由大到小，最终输出位逆序。c 与 w 是不同乘子；CUDA 两遍分组还需按列/行映射。';
@@ -944,31 +970,13 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
       </div>
       <div class="callout teal">
         <h4>And the negacyclic variant?</h4>
-        <p>This network is the plain ("cyclic") transform. The negacyclic variant — chapter 10 — is the same network with its stage twiddles scaled by wheel powers: same butterflies, one pass (<code class="inline">ntt.hpp:87</code>).</p>
+        <p>This network is the plain ("cyclic") transform. The <a href="#s9">negacyclic variant below</a> uses the same pair network with a folded ψ factor on the lower input of each butterfly (<code class="inline">ntt.hpp:87</code>).</p>
       </div>
     </section>
 
     <!-- ============================ 8. THE SCORE ============================ -->
-    <section id="s8" class="reveal">
-      <div class="sec-head"><div class="sec-num">08</div><h2>How much work is saved?</h2></div>
-      <p>Count the X's in the picture: 4 per stage × 3 stages = <b>12 butterflies</b> for N = 8, against the 64 products of computing chapter 3's equation output-by-output. In general: <span class="m">\((N/2) \, \log_{2}(N)\)</span> butterflies versus <span class="m">\(N^{2}\)</span> products. The two complexities, side by side:</p>
-      <div class="widget">
-        <div class="w-title">Interactive · direct N² vs butterflies (N/2)·log₂N — log–log plot</div>
-        <div class="legend" style="margin:0 0 10px;">
-          <span><i style="background:#C2410C;"></i>direct — each output on its own (N² products)</span>
-          <span><i style="background:#0369A1;"></i>butterflies — shared brackets ((N/2)·log₂N units)</span>
-        </div>
-        <div style="position:relative;">
-          <svg id="plotsvg" viewBox="0 0 820 400" style="max-width:820px; width:100%; display:block; margin:0 auto;" role="img" aria-label="Log-log comparison of N squared versus N over two times log N, from N equals 8 to 65536"></svg>
-          <div id="plotip" style="position:absolute; display:none; pointer-events:none; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-family:var(--mono); font-size:13px; color:var(--ink); box-shadow:3px 4px 0 rgba(87,80,63,0.10); white-space:nowrap; z-index:2;"></div>
-        </div>
-        <div class="w-note" id="plotnote">hover the plot — at N = 65,536 the direct line stands 8,192× above the butterfly line</div>
-      </div>
-      <p class="dim">On the log–log plot both curves are straight lines — but with different slopes: every doubling of N doubles the butterfly count and <i>quadruples</i> the direct count, so the gap itself doubles at every step. (And the direct tally counts only multiplications; a butterfly's add and subtract are cheaper still.)</p>
-    </section>
-
     <!-- ============================ 9. NEGACYCLIC ============================ -->
-    <section id="s9" class="reveal">
+    <section id="s9">
       <div class="sec-head"><div class="sec-num">09</div><h2>CKKS uses the negacyclic form</h2></div>
       <p>One loose end from chapter 1: the operation there was "multiply two lists, <b>get back a list of the same length N</b>." But plain multiplication lengthens the list:</p>
       <div class="math typeset">\[(2+x)(3+2x)=6+7x+2x^2\]</div>
@@ -1012,6 +1020,35 @@ x^N &= -1 && \text{negacyclic: wrap with a minus}
         <h4>The key substitution: pre-twist, then use the ordinary NTT</h4>
         <p>Let <span class="m">\(ω = ψ^{2}\)</span> and pre-twist coefficient r as <span class="m">\(b[r] = a[r]\,ψ^r\)</span>. An ordinary cyclic NTT of b then gives <span class="m">\(\sum_{r=0}^{N-1} b_r\omega^{rk} = \sum_{r=0}^{N-1} a_r\psi^{(2k+1)r}\)</span>. In other words, the twist moves evaluation from the even powers of ψ to exactly the odd powers—the roots of x^N+1. The inverse runs the cyclic inverse and multiplies coefficient r by <span class="m">\(ψ^{-r}\)</span>.</p>
       </div>
+      <h3>Derive the factors from the first split</h3>
+      <p>Choose a primitive 2N-th root ψ in the current prime field, so ψᴺ=−1, and set ω=ψ². For power-of-two N, checking ψᴺ=−1 proves that ψ has order 2N. The prime must satisfy \(2N\mid(q-1)\). OpenFHE compatibility additionally requires the <em>exact same</em> ψ as its tower parameters; another primitive root changes the output order.</p>
+      <div class="math typeset">\[
+F_k=\sum_{i=0}^{N-1}a_i\psi^{(2k+1)i}
+=\sum_{i=0}^{N-1}(a_i\psi^i)\omega^{ki}.
+\]</div>
+      <p>Now split input into a low half and a high half, d=N/2. This is the DIF split; the even/odd split above was DIT. The high-half factor contains a sign that depends only on k:</p>
+      <div class="math typeset">\[
+\begin{aligned}
+F_k&amp;=\sum_{j=0}^{d-1}\left[a_j+a_{j+d}\psi^{(2k+1)d}\right]\psi^{(2k+1)j},\\
+\psi^{(2k+1)d}&amp;=\psi^d(\psi^N)^k=(-1)^k\psi^d.
+\end{aligned}
+\]</div>
+      <p>Separate the even output indices k=2ℓ and odd indices k=2ℓ+1. Both smaller transforms use root ψ², but the odd branch needs an extra ψ²ʲ:</p>
+      <div class="math typeset">\[
+\begin{aligned}
+F_{2\ell}&amp;=\sum_{j=0}^{d-1}\underbrace{(a_j+\psi^d a_{j+d})}_{x_j}(\psi^2)^{(2\ell+1)j},\\
+F_{2\ell+1}&amp;=\sum_{j=0}^{d-1}\underbrace{(a_j-\psi^d a_{j+d})\psi^{2j}}_{y_j}(\psi^2)^{(2\ell+1)j}.
+\end{aligned}
+\]</div>
+      <p>The first split gives c=ψᴺᐟ² and w=ψ²ʲ. To derive <em>all</em> later folded factors without guessing a root for each branch, compare with the ordinary cyclic DIF network applied to the pre-twisted coefficients. At a current block of length 2d, let its cyclic values and folded values be related by \(b_j=\psi^j a_j\), where j is local to that block. The cyclic butterfly reads \(b_{j+d}=\psi^{j+d}a_{j+d}\):</p>
+      <div class="math typeset">\[
+\begin{aligned}
+b'_j&amp;=b_j+b_{j+d}=\psi^j(a_j+\psi^d a_{j+d}),\\
+b'_{j+d}&amp;=(b_j-b_{j+d})\omega_N^{jN/(2d)}
+=\psi^j(a_j-\psi^d a_{j+d})\omega_N^{jN/(2d)}.
+\end{aligned}
+\]</div>
+      <p>Both child blocks now have length d and local index j. Removing their common local twist ψʲ leaves the folded outputs \(x_j=a_j+\psi^d a_{j+d}\) and \(y_j=(a_j-\psi^d a_{j+d})\omega_N^{jN/(2d)}\). The same relation holds for the next split with d halved. Initially it is exactly the pre-twist; at length one j=0, so the remaining twist is 1. This proves every stage and the final result with no extra twist pass.</p>
       <div class="compare-grid">
         <div class="compare-card">
           <h4>What stays the same</h4>
@@ -1038,6 +1075,7 @@ w_{d,j} &= \psi^{\frac{N}{d}j} = \omega^{\frac{N}{2d}j} \\[0.5em]
 \end{aligned}
 \]</div>
       <p>The <b>group number does not select the twiddle</b>. At a fixed stage, every group repeats the same sequence: j starts at 0, so <span class="m">\(w = 1\)</span>, then advances by <span class="m">\(ψ^{N/d}\)</span> for each butterfly offset. Negacyclic therefore changes the factors, not the network's pairing pattern. The inverse uses reciprocal ψ factors, reverses the stage direction, and applies the final <span class="m">\(N^{-1}\)</span> scale.</p>
+      <div data-lesson-sixteen></div>
     </section>
 
     <!-- ============================ 10. IN CODE ============================ -->

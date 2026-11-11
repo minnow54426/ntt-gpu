@@ -198,7 +198,13 @@
     .sec-head { gap: 10px; }
     .sec-num { font-size: 30px; min-width: 38px; }
   }
+  .matrix-scroll { overflow-x:auto; max-width:100%; }
 </style>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<script defer src="vendor/katex/katex.min.js"></script>
+<script defer src="vendor/katex/contrib/auto-render.min.js"></script>
+<script defer src="math-rendering.js"></script>
+<script defer src="lesson-examples.js"></script>
 </head>
 <body>
 <div class="page">
@@ -262,7 +268,7 @@
     <section id="s2" class="reveal">
       <div class="sec-head"><div class="sec-num">02</div><h2>Six GPU terms</h2></div>
       <p>These six terms connect the GPU model to this repository.</p>
-      <table class="vocab">
+      <div class="matrix-scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="vocab">
         <tr><th>Word</th><th>Plain meaning</th><th>In this repo</th></tr>
         <tr><td>thread</td><td>One execution instance. It computes assigned pairs; it does not permanently own a coefficient.</td><td class="ours">we use T = 256 per block</td></tr>
         <tr><td>block</td><td>A team of threads sharing memory and block barriers.</td><td class="ours">one block owns one tile</td></tr>
@@ -270,7 +276,7 @@
         <tr><td>shared memory</td><td>Fast storage shared by the threads of one block.</td><td class="ours">256 values = 2 KB per limb</td></tr>
         <tr><td>global memory</td><td>Device-wide memory holding coefficients, moduli, and twiddle tables.</td><td class="ours">the whole polynomial, all limbs</td></tr>
         <tr><td>kernel</td><td>A function launched across a grid of threads.</td><td class="ours">six kernels in ntt_kernels.cu</td></tr>
-      </table>
+      </table></div>
       <p class="dim">A <b>barrier</b> (<code class="inline">__syncthreads()</code> in code) is the station's roll call: every cook in the block must arrive before anyone leaves. Chapter 7 is about the one way to misuse it.</p>
       <div class="widget">
         <div class="w-title">how the pieces nest · one picture</div>
@@ -325,7 +331,7 @@
         <div class="coef-label">thread (a cook) → inside a block (a station, with its private counter) → blocks tile the grid (x = tile, y = limb) → all inside one GPU around one warehouse</div>
         <details class="deep-dive">
           <summary>Optional: RTX 4090 and RTX 5090 capacity estimates</summary>
-        <table class="vocab wrap1" style="margin-top:18px;">
+        <div class="matrix-scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="vocab wrap1" style="margin-top:18px;">
           <tr><th>the picture, counted · for both rentable cards</th><th>RTX 4090</th><th>RTX 5090</th></tr>
           <tr><td>station groups (SMs)</td><td>128</td><td>170</td></tr>
           <tr><td>cooks in flight (resident threads)</td><td>196,608</td><td>261,120</td></tr>
@@ -335,7 +341,7 @@
           <tr><td>warehouse (VRAM)</td><td>24 GB GDDR6X</td><td>32 GB GDDR7</td></tr>
           <tr><td>pipe <b>into</b> the chip — VRAM bandwidth</td><td>≈ 1.0 TB/s</td><td>≈ 1.8 TB/s</td></tr>
           <tr><td>traffic <b>inside</b> the chip — shared, aggregate</td><td>≈ 40 TB/s</td><td>≈ 50 TB/s</td></tr>
-        </table>
+        </table></div>
         <div class="coef-label" style="text-align:left; line-height:1.8;">The design fact hiding in the last two rows: on-chip traffic is <b>40–50× the pipe into the chip</b> — the entire reason the communication ladder (chapter 5) exists. Aggregate shared figures are order-of-magnitude estimates (per-SM path × SMs × boost clock); the ratio is the point, not the decimals.</div>
         <pre class="code" style="box-shadow:none; margin:10px 0;"><span class="c">// the first rows are one multiplication chain — the table explains itself:</span>
 4090:   128 SMs × 1,536 threads/SM = <b>196,608 in flight</b> ÷ 256 (our T) = <b>768 of our blocks resident</b>
@@ -347,9 +353,12 @@
     </section>
 
     <!-- ============================ 3 ============================ -->
-    <section id="s3" class="reveal">
+    <section id="s3">
       <div class="sec-head"><div class="sec-num">03</div><h2>One stage has independent pairs</h2></div>
-      <p>Recall the NTT's shape: at every stage, the list is chopped into pairs, and each pair goes through one butterfly. At N = 8, one stage = four pairs. Click a stage and watch who pairs with whom:</p>
+      <p>Recall the NTT's shape: at every stage, the list is chopped into pairs, and each pair goes through one butterfly. At N = 16, one stage has eight disjoint pairs. Follow both the indices and the values:</p>
+      <p>Follow all four stages at N=16 below. Every stage has eight independent pairs; stage boundaries carry dependencies. The two worked groups show how the first two stages stay inside strided columns and the last two stay inside contiguous rows.</p>
+      <div data-lesson-sixteen></div>
+      <details><summary>Earlier 8-point pairing animation</summary>
       <div class="widget">
         <div class="w-title">one stage at N = 8 · click a stage</div>
         <div style="text-align:center; margin-bottom:14px;">
@@ -367,6 +376,7 @@
       <p>That "share nothing" is the entire secret. Because the pairs are <b>disjoint</b>, the four butterflies of a stage can run simultaneously, interleaved, in any order, on any cook — the final list is <b>identical every time</b>. A GPU stage is just: hand each pair to a cook, let them all fly at once, wait for the slowest, next stage.</p>
       <p>Disjointness also buys <b>locality</b>: a stage with distance d only ever pairs values inside one 2d-wide group, so a group of 2<sup>k</sup> values owns its k smallest stages outright — the fact chapter 4 turns into the two-pass split, taken once with strided groups and once with contiguous tiles.</p>
       <p class="dim">Hold onto that sentence — it is also why a plain CPU simulator, running the same stage bodies serially, can prove the whole schedule before any GPU is rented.</p>
+      </details>
     </section>
 
     <!-- ============================ 4 ============================ -->

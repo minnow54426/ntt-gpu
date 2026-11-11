@@ -270,7 +270,6 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
 <script defer src="{relative_url(current, 'vendor/katex/katex.min.js')}"></script>
 <script defer src="{relative_url(current, 'vendor/katex/contrib/auto-render.min.js')}"></script>
 <script defer src="{relative_url(current, 'math-rendering.js')}"></script>"""
-    # The GPU explainer has no math loader; its own formulas are SVG/Unicode.
     title = escape(page["title"])
     description = escape(page["summary"], quote=True)
     article_toc = (
@@ -478,6 +477,7 @@ def build():
         shutil.copytree(ROOT / "docs/site-assets", output / "assets")
         shutil.copytree(ROOT / "docs/vendor", output / "vendor")
         shutil.copy2(ROOT / "docs/math-rendering.js", output / "math-rendering.js")
+        shutil.copy2(ROOT / "docs/lesson-examples.js", output / "lesson-examples.js")
 
         def write_page(page, body, toc="", legacy_head=""):
             destination = output / page["url"]

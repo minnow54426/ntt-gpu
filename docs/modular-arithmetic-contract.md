@@ -10,28 +10,28 @@ arrays live. The implementation is in [mod_arith.hpp](../include/ntt/mod_arith.h
 
 ## 1. What callers must supply
 
-Canonical means an integer in `[0, q)`. None of the hot arithmetic functions
+Canonical means an integer in \([0,q)\). None of the hot arithmetic functions
 validates this range at runtime.
 
 | Operation | Required input | Output |
 |---|---|---|
-| `add_mod(a,b,q)` | Canonical a,b; `0 < q < 2^63` | Canonical `(a+b) mod q` |
-| `sub_mod(a,b,q)` | Canonical a,b; `0 < q < 2^63` | Canonical `(a-b) mod q` |
-| `mul_mod(a,b,q)` | Canonical a,b; `0 < q < 2^64` | Canonical `ab mod q` |
-| `pow_mod(a,e,q)` | Any uint64_t a,e; q>0 | Canonical `a^e mod q`; q=1 returns 0 |
-| `inv_mod(x,q)` | Prime q≥2; x not divisible by q | Canonical inverse via `x^(q-2)` |
+| `add_mod(a,b,q)` | Canonical a,b; \(0<q<2^{63}\) | Canonical \((a+b)\bmod q\) |
+| `sub_mod(a,b,q)` | Canonical a,b; \(0<q<2^{63}\) | Canonical \((a-b)\bmod q\) |
+| `mul_mod(a,b,q)` | Canonical a,b; \(0<q<2^{64}\) | Canonical \(ab\bmod q\) |
+| `pow_mod(a,e,q)` | Any uint64_t a,e; q>0 | Canonical \(a^e\bmod q\); q=1 returns 0 |
+| `inv_mod(x,q)` | Prime q≥2; x not divisible by q | Canonical inverse via \(x^{q-2}\) |
 
 Add/sub retain their documented conservative bound; this review does not
 expand the public contract. Multiplication's wider bound does **not** make a
 full transform with q≥2^63 part of the supported contract.
 
-For a transform, also require a power-of-two N≥2, prime q with `2N | q-1`,
+For a transform, also require a power-of-two N≥2, prime q with \(2N\mid(q-1)\),
 and the same primitive 2N-th root ψ as the comparison implementation. At the
-target N, `2N=131072` and q>N. Forward consumes canonical coefficients in
+target N, \(2N=131072\) and q>N. Forward consumes canonical coefficients in
 natural order; inverse consumes canonical evaluations in bit-reversed order.
 There is no Montgomery representation or lazy residue format in this code.
 
-The constructor checks size shape, divisibility and `ψ^N = q-1`, but **does not
+The constructor checks size shape, divisibility and \(\psi^N=q-1\), but **does not
 test primality or the advertised modulus-width limit**. Public array methods
 check length, not residue bounds. Trusted parameter selection and canonical
 input are caller obligations today, not rejection guarantees.
@@ -40,12 +40,12 @@ input are caller obligations today, not rejection guarantees.
 
 For canonical a,b:
 
-- Addition: `0 ≤ a+b ≤ 2q-2`. One subtraction is sufficient. The code forms
+- Addition: \(0\le a+b\le 2q-2\). One subtraction is sufficient. The code forms
   the sum in 128 bits; after subtraction it is below q and fits uint64_t.
-- Subtraction: if a≥b, use a-b. Otherwise `0 ≤ a+(q-b) < q`; the selected
+- Subtraction: if a≥b, use a-b. Otherwise \(0\le a+(q-b)<q\); the selected
   branch therefore cannot overflow uint64_t. Do not compute unsigned a-b
   first and assume wraparound implements reduction modulo q.
-- Multiplication: `0 ≤ ab ≤ (q-1)^2 < 2^128`. The cast happens **before**
+- Multiplication: \(0\le ab\le(q-1)^2<2^{128}\). The cast happens **before**
   multiplication, preserving the full product; remainder produces a value
   below q. Multiplying in uint64_t first would lose the high half.
 - At q<2^60, the product is below 2^120 and a sum below 2^61. Storage in
@@ -60,20 +60,27 @@ including quotient error, carries, temporary width, and final correction.
 
 ## 3. The invariant through every butterfly
 
-Forward uses `t=c*v mod q`, then `u'=u+t mod q` and
-`v'=(u-t)*w mod q`. Inverse uses `t=y*w_inv mod q`, then
-`u'=x+t mod q` and `v'=(x-t)*c_inv mod q`. Tables contain canonical powers.
+Forward and inverse use these canonical modular operations:
+
+\[
+\begin{aligned}
+\text{Forward: }&t=cv\bmod q,\quad u'=u+t\bmod q,\quad v'=(u-t)w\bmod q,\\
+\text{Inverse: }&t=yw^{-1}\bmod q,\quad u'=x+t\bmod q,\quad v'=(x-t)c^{-1}\bmod q.
+\end{aligned}
+\]
+
+Tables contain canonical powers.
 Every operation above returns canonical values, so induction over all 16
-stages preserves `[0,q)`. Inverse's final multiplication by N-inverse does too.
+stages preserves \([0,q)\). Inverse's final multiplication by N-inverse does too.
 Pointwise multiplication has the same invariant.
 
-There is **no stage where values are intentionally in `[0,2q)` or `[0,4q)`**.
+There is **no stage where values are intentionally in \([0,2q)\) or \([0,4q)\)**.
 Feeding lazy OpenFHE/internal buffers directly into this interface without
 an explicit representation contract would violate its assumptions.
 
 ### What arithmetic work is actually counted
 
-N=65536 has `32768 × 16 = 524288` butterflies per direction and per tower.
+N=65536 has \(32768\times16=524288\) butterflies per direction and per tower.
 The CPU reference uses three modular multiplications per butterfly: two
 for data and one to advance the twiddle. Shared device-stage helpers use
 two, reading precomputed twiddles instead. Thus the loop bodies perform
@@ -93,7 +100,7 @@ Two new gates run in the normal CPU CTest suite:
 |---|---|---|
 | `arithmetic_bigint_check` | 14,956 compiled results versus Python arbitrary-precision addition, subtraction, multiplication, power and modular inverse | Exact host primitive answers, not a copy of the same C++ reduction expression |
 | `arithmetic_transform_check` | N=65536 at generated 50-, 55-, 60-bit primes; six patterns in both coefficient/evaluation roundtrips | Canonical forward/inverse results and two-sided roundtrip identity |
-| Same transform gate | `x^(N-1) * x` must produce q-1 at index 0 and zero elsewhere | Closed-form negacyclic wrap sign, not merely roundtrip consistency |
+| Same transform gate | \(x^{N-1}\cdot x\) must produce q-1 at index 0 and zero elsewhere | Closed-form negacyclic wrap sign, not merely roundtrip consistency |
 
 Primitive inputs include 0, 1, 2, q/2, q-2, q-1, values around 2^32, and
 256 seeded random pairs per modulus. Moduli include small, even, composite,
@@ -132,8 +139,8 @@ Sources: [C++ probe and full-size tests](../tests/arithmetic_contract_tests.cpp)
 
 The OpenFHE gate includes zero, all q-1, ramp, random coefficients and random
 evaluation arrays. Same q **and root** are essential: another valid root may
-give a different evaluation permutation. D7 will trace the representation
-and tower boundary explicitly. CKKS approximate decryption is not a replacement
+give a different evaluation permutation. The [D7 contract](openfhe-representation-contract.md) freezes the representation
+and tower boundary. CKKS approximate decryption is not a replacement
 for these exact per-index comparisons.
 
 ## 6. Deferred adversarial checks and unsafe inputs
@@ -163,4 +170,5 @@ D6's review is complete; these are explicit later implementation gates:
 
 These gaps do not block the D6 source-review deliverable. They do block claims
 of a hardened production API or GPU/OpenFHE integration. P1 remains open;
-the next working-day deliverable is **D7: OpenFHE representation contract**.
+the current next deliverable is **D8: the Hybrid operation graph**, following
+the completed [D7 representation contract](openfhe-representation-contract.md).

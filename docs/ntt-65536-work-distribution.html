@@ -70,8 +70,11 @@
   .ntt-lesson .swatch { display:inline-block; width:11px; height:11px; margin-right:6px; }
   .ntt-lesson .work { font-size:12px; color:var(--muted); border-top:1px solid var(--line); padding-top:14px; }
   .ntt-lesson .derivation { white-space:pre-wrap; overflow-wrap:anywhere; padding:18px; background:var(--owned); font:13px/1.8 ui-monospace,monospace; }
+  .ntt-lesson .katex-display { overflow-x:auto; overflow-y:hidden; font-size:15px; padding-block:4px; }
+  .ntt-lesson .math.derivation { white-space:normal; font-family:inherit; margin-top:14px; }
   .ntt-lesson .twiddle-detail { font-size:13px; margin-bottom:18px; overflow-wrap:anywhere; }
   .ntt-lesson .sync-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; margin-top:20px; }
+  .ntt-lesson .sync-list>div { min-width:0; }
   .ntt-lesson .sync-list p { font-size:14px; color:var(--muted); }
   .ntt-lesson .closing { border-top:1px solid var(--line); margin-top:36px; padding-top:20px; font-size:14px; color:var(--muted); }
   @media(max-width:650px) {
@@ -85,6 +88,10 @@
     .ntt-lesson th,.ntt-lesson td { padding:7px 3px; }
   }
 </style>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<script defer src="vendor/katex/katex.min.js"></script>
+<script defer src="vendor/katex/contrib/auto-render.min.js"></script>
+<script defer src="math-rendering.js"></script>
 </head>
 <body style="margin:0;background:#f8f7f3">
 <div class="ntt-lesson" id="ntt65536-distribution">
@@ -137,30 +144,29 @@
 
   <section id="column-proof">
     <div class="section-title"><span class="section-number">04 · D2</span><h2>Why these inputs and twiddles?</h2></div>
-    <p>Our forward butterfly has <strong>two multipliers</strong>. Let ψ be the primitive 2N-th root modulo the current prime q. The ladder multiplier is <code>c = ψ^d</code>; the difference-leg multiplier is <code>w = ψ^E</code>. Both are powers from the global transform, not a smaller column NTT.</p>
-    <pre class="derivation">a = values[U]; b = values[V]
-values[U] = a + c × b                 (mod q)
-values[V] = (a − c × b) × w           (mod q)</pre>
+    <p>Our forward butterfly has <strong>two multipliers</strong>. Let ψ be the primitive 2N-th root modulo the current prime q. The ladder multiplier is \(c=\psi^d\); the difference-leg multiplier is \(w=\psi^E\). Both are powers from the global transform, not a smaller column NTT.</p>
+    <div class="math derivation">\[a=\mathrm{values}[U],\quad b=\mathrm{values}[V],\qquad x=a+cb,\quad y=(a-cb)w\pmod q.\]</div>
+    <h3>The folded twist remains inside every butterfly</h3>
+    <div class="matrix-scroll"><svg viewBox="0 0 820 190" style="min-width:650px;width:100%" role="img" aria-label="Upper input a enters sum and difference; lower input b is multiplied by c before both; only difference is multiplied by w">
+      <g fill="none" stroke="#416449" stroke-width="2"><path d="M65 45H360L520 130H630M65 145H155M245 145H360L520 45H735M360 45H735M360 145L520 130"/><rect x="155" y="122" width="90" height="44" rx="6"/><rect x="630" y="108" width="70" height="44" rx="6"/></g>
+      <g fill="#253e31" font-size="20"><text x="25" y="51">a</text><text x="25" y="151">b</text><text x="175" y="151">× c</text><text x="642" y="137">× w</text><text x="740" y="51">x</text><text x="740" y="137">y</text><text x="520" y="35">a + cb</text><text x="520" y="172">a − cb</text></g></svg></div>
+    <div class="math">\[c=\psi^d,\quad w=\psi^{(N/d)J},\qquad x=a+cb,\quad y=(a-cb)w\pmod q.\]</div>
+    <p>At N=65536, the first column stage has d=32768 and c=ψ³²⁷⁶⁸. At the last column stage d=256, c=ψ²⁵⁶. The row pass continues the same transform with d=128 down to 1. It does not reset ψ or N.</p>
+    <div class="matrix-scroll"><table><caption>How the last two row stages finish the transform</caption><thead><tr><th>Stage (zero-based)</th><th>d / offset J</th><th>Factors</th><th>Outputs</th></tr></thead><tbody>
+    <tr><td>14</td><td>2 / 0 or 1</td><td>c=ψ²; w=1 or ψ³²⁷⁶⁸</td><td>Two size-2 children per size-4 group</td></tr>
+    <tr><td>15</td><td>1 / 0 only</td><td>c=ψ; w=1</td><td>Upper=a+ψb; lower=a−ψb</td></tr>
+    </tbody></table></div>
+    <p>The last layer has no difference-leg multiply by a nontrivial w, but <strong>the lower input still carries ψ</strong>. Removing c would change the transform to the wrong ring. Final outputs are already in bit-reversed evaluation order. The <a href="butterfly-explained.html#s9">derivation and full numerical network</a> explain how the original coefficient twist is distributed through these stages.</p>
     <h3>1. Decode a thread into a local pair</h3>
     <p>The split width B is 256. Column r is <code>blockIdx.x</code>; p is the butterfly index. At N=65536, each active thread processes just one pair per stage, so <code>p = threadIdx.x</code>. More generally the stage helper loops over <code>p = threadIdx.x + k × blockDim.x</code>. Let δ be the local distance; the global distance is <code>d = B × δ</code>.</p>
-    <pre class="derivation">g = floor(p / δ)                     local butterfly group
-j = p mod δ                          offset within that group
-u_local = 2 × δ × g + j
-v_local = u_local + δ
-U = B × u_local + r
-V = B × v_local + r = U + d</pre>
+    <div class="math derivation">\[\begin{aligned}g&amp;=\lfloor p/\delta\rfloor,&amp;j&amp;=p\bmod\delta,\\u_{\rm local}&amp;=2\delta g+j,&amp;v_{\rm local}&amp;=u_{\rm local}+\delta,\\U&amp;=B u_{\rm local}+r,&amp;V&amp;=Bv_{\rm local}+r=U+d.\end{aligned}\]</div>
     <h3>2. Recover the CPU group and offset</h3>
     <p>Substitute the local pair into the global index:</p>
-    <pre class="derivation">U = B × (2δg + j) + r
-  = 2dg + (Bj + r)
-CPU group start = 2dg
-J = Bj + r                           CPU offset within the group</pre>
+    <div class="math derivation">\[\begin{aligned}U&amp;=B(2\delta g+j)+r\\&amp;=2dg+(Bj+r),\\\text{group start}&amp;=2dg,\qquad J=Bj+r.\end{aligned}\]</div>
     <p>Because <code>0 ≤ j &lt; δ</code> and <code>0 ≤ r &lt; B</code>, we have <code>0 ≤ J &lt; Bδ = d</code>. Thus U and V are exactly the CPU pair at offset J in group g. Conversely, every CPU offset has a unique decomposition <code>J = 256j + r</code>. Together with <code>p = gδ + j</code>, this gives one unique column/thread owner for every CPU butterfly.</p>
     <h3>3. Prove the exponent, not just the result</h3>
-    <p>The CPU starts w at 1 for each global group and multiplies it by <code>ψ^(N/d)</code> after each offset. At offset J it therefore uses <code>w = ψ^((N/d)J)</code>. Substitution gives:</p>
-    <pre class="derivation">c = ψ^d
-E = (N / d) × (256j + r)
-w = ψ^E</pre>
+    <p>The CPU starts w at 1 for each global group and multiplies it by \(\psi^{N/d}\) after each offset. At offset J it therefore uses \(w=\psi^{(N/d)J}\). Substitution gives:</p>
+    <div class="math derivation">\[c=\psi^d,\qquad E=\frac Nd(256j+r),\qquad w=\psi^E.\]</div>
     <p>This is precisely the stage helper: if <code>ℓ = log2(δ)</code>, then <code>δ &lt;&lt; 8 = d</code>, <code>N &gt;&gt; (8 + ℓ) = N/d</code>, and <code>(j &lt;&lt; 8) | r = 256j + r</code>. The OR equals addition because r occupies only the low eight bits. Also <code>0 ≤ E ≤ N − N/d &lt; N</code>, so the power-table access is in range.</p>
     <p class="note">A subtle point: thread 0 in column 3 has J = 3, not 0. Its w is generally not 1. Only J = 0 gives exponent 0. The ladder c and w are distinct: the negacyclic ladder remains even when w = 1.</p>
     <h3>4. Worked pairs at N=65536</h3>
@@ -181,15 +187,9 @@ ctest --test-dir build -R 'column_mapping_check|device_schedule_check' --output-
   <section id="inverse-proof">
     <div class="section-title"><span class="section-number">05 · D3</span><h2>Undo the forward butterfly</h2></div>
     <p>The inverse-column helper <code>dev_dit_col_stage</code> uses the <strong>same pair mapping</strong> as D2. Only the arithmetic and stage order change. It reads an inverse-power table: entry e is <code>(ψ⁻¹)^e</code>. The exponents d and E stay positive; we do not use negative table indices.</p>
-    <div class="sync-list"><div><h3>Forward · DIF</h3><pre class="derivation">c = ψ^d; w = ψ^E
-x = a + c × b
-y = (a − c × b) × w</pre></div><div><h3>Inverse · DIT (unscaled)</h3><pre class="derivation">t = y × w⁻¹
-a′ = x + t
-b′ = (x − t) × c⁻¹</pre></div></div>
+    <div class="sync-list"><div><h3>Forward · DIF</h3><div class="math derivation">\[\begin{aligned}c&amp;=\psi^d,\quad w=\psi^E,\\x&amp;=a+cb,\\y&amp;=(a-cb)w.\end{aligned}\]</div></div><div><h3>Inverse · DIT (unscaled)</h3><div class="math derivation">\[\begin{aligned}t&amp;=yw^{-1},\\a^{\prime}&amp;=x+t,\\b^{\prime}&amp;=(x-t)c^{-1}.\end{aligned}\]</div></div></div>
     <p>All operations are modulo the limb prime q. Substitute the forward outputs into the inverse:</p>
-    <pre class="derivation">t  = (a − cb) × w × w⁻¹ = a − cb
-a′ = (a + cb) + (a − cb) = 2a
-b′ = ((a + cb) − (a − cb)) × c⁻¹ = 2b</pre>
+    <div class="math derivation">\[\begin{aligned}t&amp;=(a-cb)ww^{-1}=a-cb,\\a^{\prime}&amp;=(a+cb)+(a-cb)=2a,\\b^{\prime}&amp;=((a+cb)-(a-cb))c^{-1}=2b.\end{aligned}\]</div>
     <p>So the inverse first untwiddles the difference leg by w⁻¹, then forms the sum/difference, then multiplies the lower result by c⁻¹. Swapping those multipliers or omitting either one is incorrect. To recover a and b from just one butterfly, divide both results by 2 modulo q.</p>
     <h3 style="margin-top:24px">Why scale only once?</h3>
     <p>Every coefficient traverses log₂N butterflies. Each reversed stage contributes a factor of 2. These factors commute with every stage because the operations are linear modulo q. Thus the entire unnormalized inverse of the forward transform gives <code>2^(log₂N) × input = N × input</code>.</p>
@@ -221,17 +221,10 @@ ctest --test-dir build -R 'column_mapping_check|inverse_column_check|device_sche
     <p>The column proof handles far stages. The remaining kernels—<code>forward_contiguous_tile_kernel</code> and <code>inverse_contiguous_tile_kernel</code>—assign one contiguous tile to each block. For our target sizes, tile length L is 256; for smaller transforms it is <code>min(256,N)</code>.</p>
     <h3 style="margin-top:24px">1. Map a row thread to the CPU pair</h3>
     <p>Let b be the row block, p the pair index, and d a near-stage distance (128 down to 1 for forward, 1 up to 128 for inverse). Each active thread has p = threadIdx.x for these tiles.</p>
-    <pre class="derivation">g = floor(p / d); j = p mod d
-u_local = 2dg + j; v_local = u_local + d
-U = Lb + u_local; V = U + d
-
-CPU group start = Lb + 2dg
-CPU offset J = j
-E = (N / d) × j</pre>
+    <div class="math derivation">\[\begin{aligned}g&amp;=\lfloor p/d\rfloor,\quad j=p\bmod d,\\u_{\rm local}&amp;=2dg+j,\quad v_{\rm local}=u_{\rm local}+d,\\U&amp;=Lb+u_{\rm local},\quad V=U+d,\\\text{group start}&amp;=Lb+2dg,\quad J=j,\quad E=(N/d)j.\end{aligned}\]</div>
     <p>Why is this a valid CPU group? Since d is a power of two and <code>2d ≤ L</code>, <strong>2d divides L</strong>. Therefore Lb + 2dg is a multiple of 2d, exactly where the CPU group loop begins. Also <code>0 ≤ j &lt; d</code> and the final local lower index is at most L−1. Every CPU group fits entirely inside an aligned tile.</p>
     <p>Notice what disappears: the row number b does <strong>not</strong> appear in J or E. Moving to another aligned row changes the group number, not the offset within that group. But N still appears: these are global-transform powers, not the twiddles of an independent 256-point NTT.</p>
-    <pre class="derivation">Forward: c = ψ^d;       w = ψ^((N/d)j)
-Inverse: c⁻¹ = (ψ⁻¹)^d; w⁻¹ = (ψ⁻¹)^((N/d)j)</pre>
+    <div class="math derivation">\[\begin{aligned}\text{Forward: }&amp;c=\psi^d,\quad w=\psi^{(N/d)j},\\\text{Inverse: }&amp;c^{-1}=(\psi^{-1})^d,\quad w^{-1}=(\psi^{-1})^{(N/d)j}.\end{aligned}\]</div>
     <h3 style="margin-top:24px">2. Trace row 3, thread 5</h3>
     <div class="matrix-scroll"><table><caption>Row indices and global twiddle exponents at N=65536</caption><thead><tr><th scope="col">d</th><th scope="col">g / j</th><th scope="col">U ↔ V</th><th scope="col">E at N=65536</th></tr></thead><tbody>
       <tr><td>128</td><td>0 / 5</td><td>773 ↔ 901</td><td>2560</td></tr>
@@ -241,12 +234,8 @@ Inverse: c⁻¹ = (ψ⁻¹)^d; w⁻¹ = (ψ⁻¹)^((N/d)j)</pre>
     <p>At N=65536, row 255/thread 127/distance 128 reaches the final coefficient: <code>U=65407, V=65535, J=127, E=65024</code>. Inverse uses the same pairs and reciprocal powers, visited in ascending d order.</p>
     <h3 style="margin-top:24px">3. Account for every stage exactly once</h3>
     <p>The CPU distances are precisely the powers of two from N/2 down to 1. At N≥512, they partition into two disjoint sets:</p>
-    <pre class="derivation">Far:  d = 256δ, δ = (N/256)/2 … 1
-      therefore d = N/2 … 256
-Near: d = 128 … 1
-
-Forward: Far descending → Near descending
-Inverse: Near ascending → Far ascending → N⁻¹ scale</pre>
+    <div class="math derivation">\[\begin{aligned}\text{Far: }&amp;d=32768,16384,\ldots,256,\\\text{Near: }&amp;d=128,64,\ldots,1.\end{aligned}\]</div>
+    <p>Forward runs far distances descending, then near distances descending. Inverse reverses both passes and scales by the inverse of 65536. For other supported N≥512, far distances begin at N/2.</p>
     <p>There is no missing distance between 128 and 256: no power of two lies between them. Neither set overlaps the other. The far count is <code>log₂N − 8</code>; the near count is 8. Each stage has exactly N/2 disjoint butterflies, so the full count is <code>(N/2) × log₂N</code> per direction. Scaling is not an additional butterfly stage.</p>
     <div class="matrix-scroll"><table><caption>N=65536 · forward and inverse share these stage counts</caption><thead><tr><th scope="col">N</th><th scope="col">Far + near stages</th><th scope="col">Total butterflies / direction</th></tr></thead><tbody>
       <tr><td>65536</td><td>8 + 8 = 16</td><td>524,288</td></tr>
