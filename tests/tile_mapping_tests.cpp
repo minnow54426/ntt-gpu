@@ -104,8 +104,11 @@ void check_stage_coverage(uint64_t n) {
   require(forward == cpu_forward, "forward stages omitted/duplicated/reordered");
   std::reverse(cpu_forward.begin(), cpu_forward.end());
   require(inverse == cpu_forward, "inverse stages omitted/duplicated/reordered");
+  // Reuse coverage storage instead of allocating/deallocating at each stage.
+  // This also avoids GCC 14's optimized vector-teardown diagnostic here.
+  std::vector<uint8_t> seen(n, 0);
   for (const uint64_t d : forward) {
-    std::vector<uint8_t> seen(n, 0);
+    std::fill(seen.begin(), seen.end(), uint8_t{0});
     const bool far = d >= kSplit;
     const uint64_t length = far ? n / kSplit : tile_length;
     const uint64_t blocks = far ? kSplit : n / tile_length;

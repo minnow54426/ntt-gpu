@@ -5,7 +5,7 @@
 `uint32_t` indexing/control paths where safe  
 **Ring dimension:** `65536`<br>
 **Estimate:** 95 planned working days + 15 risk-reserve days  
-**Last updated:** 2026-11-10 (Asia/Shanghai)
+**Last updated:** 2026-11-11 (Asia/Shanghai)
 
 Follow the live tracker, then open the phase you need from the section sidebar.
 The sequence is NTT → base conversion → Hybrid key switching → OpenFHE.
@@ -15,9 +15,9 @@ Update this tracker only when a deliverable passes its gate.
 
 | Field | Current value |
 |---|---|
-| Working day | **D7** |
+| Working day | **D8** |
 | Active phase | **P1 — contract and architecture freeze** |
-| Active task | Trace OpenFHE NTT/DCRT representation and freeze natural/bit-reversed, coefficient/evaluation contracts (D1–D6 complete) |
+| Active task | Trace OpenFHE Hybrid key switching and freeze the exact Q → QP → MAC → Q operation graph (D1–D7 complete) |
 | Next gate | P1 architecture review: frozen OpenFHE representation, buffer, ordering, and integration contracts |
 | Overall state | In progress |
 
@@ -126,9 +126,18 @@ with 50/55/60-bit primes. The multiplication-count comment is corrected;
 arithmetic algorithms are unchanged. Native GPU and invalid-input hardening
 remain explicit later gates, not evidence claimed by this review.
 
+D7 complete: the [OpenFHE representation contract](openfhe-representation-contract.md)
+traces pinned NativePoly/DCRTPoly format conversion, exact odd-root evaluation
+indices, minimum-root selection and its cache constraint, canonical residues,
+ordered tower packing/import, and active-prefix behavior. A new opt-in core-only
+gate checks full-size formulas and three-tower operations with 50/55/60-bit
+primes against OpenFHE 1.6.1. The OpenFHE-enabled Release suite passes 14 tests
+on this Linux CPU environment. No CUDA execution or Hybrid rounding graph is
+claimed. D8 is next; the P1 architecture gate remains open.
+
 P1 exit gate:
 
-- [ ] Representation and ordering transitions are explicit.
+- [x] NTT/DCRT representation and ordering transitions are explicit (D7); Hybrid transitions remain D8 work.
 - [ ] The exact OpenFHE rounding/reduction order is identified.
 - [ ] Buffer views record ring size, Q/P towers, level, representation,
   ordering, device, stream, and event ownership.
@@ -328,4 +337,4 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 | 2026-11-10 | D4 → D5 | Completed row-kernel pair/twiddle equivalence and exact stage coverage. Added exhaustive CPU execution of both row-stage helpers plus all-size stage-list and endpoint checks. Next: constructor/buffer/API dataflow. P1 exit gate remains open. | [Row proof](ntt-65536-work-distribution.html#tile-proof); `tile_mapping_check`; all 11 CTests passed |
 | 2026-11-10 | D5 → D6 | Completed constructor/allocation/transfer/API map and six static source-contract checks. Recorded constructor exception cleanup and device/stream ownership gaps. Next: modular arithmetic bounds and adversarial tests. P1 exit gate remains open. | [D5 map](cuda-buffer-dataflow.md); `tests/docs/test_cuda_dataflow.py`; [daily entry](journal/2026-11-10.md) |
 | 2026-11-10 | D6 → D7 | Completed arithmetic bounds, canonical-range proof and adversarial-test inventory; added independent bigint and full-size 50/55/60-bit CPU gates. Next: OpenFHE representation/tower contract. P1 remains open. | [D6 contract](modular-arithmetic-contract.md); `arithmetic_bigint_check`; `arithmetic_transform_check`; [daily entry](journal/2026-11-10.md) |
-
+| 2026-11-11 | D7 → D8 | Frozen the pinned OpenFHE NTT/DCRT array contract; full-size formula, format API, root, and three-tower checks pass. P1 remains open. | [D7 contract](openfhe-representation-contract.md); [daily entry](journal/2026-11-11.md); `openfhe_representation_contract` |

@@ -20,9 +20,10 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-The eight portable checks cover vector generation at N=64/1024/65536, unit
-tests, the independent Python oracle, the shared device schedule, the column
-index/twiddle proof, and the N=8 debug example. Small fixtures keep the
+The twelve portable checks cover vector generation at N=64/1024/65536, unit
+tests, the independent Python oracle, the shared device schedule, column and
+tile index/twiddle proofs in both directions, arithmetic exactness and
+full-size adversarial transforms, and the N=8 debug example. Small fixtures keep the
 quadratic oracle and schoolbook multiplication practical.
 
 With nvcc, three more gates compare CUDA with the same oracle and CPU
@@ -40,9 +41,14 @@ bash scripts/openfhe_setup.sh
 ```
 
 It compares N=65536 `NativePoly` coefficient/evaluation conversions with our
-reference, including bit-reversed evaluation order. Cases use 50- and 59-bit
-OpenFHE-selected primes, zero, maximum, ramp, random coefficients, and
-independent random inverse inputs.
+reference, including bit-reversed evaluation order. Its `FirstPrime(50, ...)`
+and `LastPrime(59, ...)` fixtures are 51- and 59-bit primes. Cases include zero,
+maximum, ramp, random coefficients, and independent random inverse inputs.
+
+A second gate, `openfhe_representation_contract`, checks exact evaluation
+indices, format-changing APIs, root selection, and three-tower DCRT packing at
+50/55/60-bit primes. Read the [D7 contract](docs/openfhe-representation-contract.md)
+for the integration boundary and remaining scope.
 
 To reuse an installation, configure with `-DNTT_ENABLE_OPENFHE_COMPAT=ON`
 and set `CMAKE_PREFIX_PATH` to its install prefix. OpenFHE is not required

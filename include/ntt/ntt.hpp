@@ -8,8 +8,9 @@
 //   psi  = primitive 2N-th root of unity mod q  (validated: psi^N == -1)
 //   omega = psi^2                                (primitive N-th root)
 //
-//   forward:  A_j = sum_i a_i * psi^((2j+1)*i)  mod q    (natural in/out)
-//   inverse:  the exact inverse of the above; inv(fwd(a)) == a
+//   forward:  A_j = sum_i a_i * psi^((2j+1)*i)  mod q    (natural mathematical j)
+//   storage:  output[k] = A_bit_reverse(k, log2(N)); natural coefficients in
+//   inverse:  bit-reversed evaluations in; natural coefficients out
 //
 // Evaluation at the odd powers psi^(2j+1) is where x^N + 1 splits into
 // linear factors, so pointwise products in this domain are products mod
@@ -29,8 +30,9 @@
 // indifferent to a fixed permutation of the value order, so the DIF's
 // output scramble is exactly the order the DIT inverse wants — the chain
 // forward -> multiply -> inverse contains no permutation anywhere. Every
-// twiddle is still an odd power of psi (psi^d on the add leg, psi^(n/d)
-// strides): the twist and the cyclic machinery, merged.
+// evaluation point is still an odd power of psi; the individual ladder
+// and stride twiddles need not be odd powers. The twist and cyclic
+// machinery are merged.
 // The CUDA port runs this same stage sequence, regrouped as a two-pass
 // split at 256 (see include/ntt/dev_core.hpp) — identical values out,
 // bit-reversed order included.
@@ -87,8 +89,8 @@ public:
   // at the odd wheel points psi^(2j+1) out — with j visited in BIT-
   // REVERSED order (the DIF convention; see header for why that kills the
   // bit-reversal passes). Stage d scales the v leg by the ladder constant
-  // psi^d — an odd power, exactly where x^n + 1 lives, so the twist rides
-  // inside the butterfly — and walks the difference leg by
+  // psi^d, folding the input twist into the butterfly, and walks the
+  // difference leg by
   // w = (psi^(n/d))^j = omega^(j·n/2d), the plain cyclic stride in
   // disguise. The first pair of each block has w = 1: free.
   void forward(std::vector<uint64_t> &values) const {
@@ -103,7 +105,7 @@ public:
         for (uint64_t pair_offset = 0; pair_offset < stage_pair_distance;
              ++pair_offset) {
           // One ladder butterfly: (u, v) -> (u + c·v, (u − c·v)·w).
-          // The +/- pair exists because psi^(n/2) == -1; this body is
+          // The +/- pair uses (psi^2)^(n/2) == psi^n == -1; this body is
           // what the CUDA backend tiles across threads.
           const uint64_t upper_index = group_start_index + pair_offset;
           const uint64_t lower_index = upper_index + stage_pair_distance;
@@ -183,8 +185,8 @@ private:
   // This transform evaluates at the odd wheel points psi^(2j+1) — the
   // roots of x^n + 1 (fold-with-minus world). Textbooks reach that by
   // twisting inputs by psi^i around a cyclic core; here the twist is
-  // folded into the butterflies as ladder constants (psi^d on the add
-  // leg — an odd power, exactly where x^n + 1 lives). Same butterflies,
+  // folded into the butterflies as ladder constants psi^d. These ladder
+  // powers jointly implement the odd evaluation points. Same butterflies,
   // no extra pass, no psi^i tables. That is everything "negacyclic" adds.
   uint64_t psi_;     // primitive 2n-th root: psi^n == -1 (halfway
                      // around the doubled wheel is minus); source of

@@ -86,20 +86,24 @@ set_tests_properties(device_schedule_check PROPERTIES
 if(NTT_ENABLE_OPENFHE_COMPAT)
   find_package(OpenFHE 1.6.1 EXACT CONFIG REQUIRED)
   add_executable(ntt_openfhe_compat tests/openfhe_compat_tests.cpp)
-  target_include_directories(ntt_openfhe_compat PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_include_directories(ntt_openfhe_compat SYSTEM PRIVATE
-    ${OpenFHE_INCLUDE}
-    ${OpenFHE_INCLUDE}/core)
-  target_compile_options(ntt_openfhe_compat PRIVATE -Wall -Wextra -Werror)
-  if(TARGET OPENFHEcore_static)
-    target_link_libraries(ntt_openfhe_compat PRIVATE OPENFHEcore_static)
-  elseif(TARGET OPENFHEcore)
-    target_link_libraries(ntt_openfhe_compat PRIVATE OPENFHEcore)
-  else()
-    message(FATAL_ERROR "OpenFHE package has no core library target")
-  endif()
+  add_executable(ntt_openfhe_representation tests/openfhe_representation_tests.cpp)
+  foreach(t ntt_openfhe_compat ntt_openfhe_representation)
+    target_include_directories(${t} PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_include_directories(${t} SYSTEM PRIVATE
+      ${OpenFHE_INCLUDE}
+      ${OpenFHE_INCLUDE}/core)
+    target_compile_options(${t} PRIVATE -Wall -Wextra -Werror)
+    if(TARGET OPENFHEcore_static)
+      target_link_libraries(${t} PRIVATE OPENFHEcore_static)
+    elseif(TARGET OPENFHEcore)
+      target_link_libraries(${t} PRIVATE OPENFHEcore)
+    else()
+      message(FATAL_ERROR "OpenFHE package has no core library target")
+    endif()
+  endforeach()
   add_test(NAME openfhe_exact_compat COMMAND ntt_openfhe_compat)
+  add_test(NAME openfhe_representation_contract COMMAND ntt_openfhe_representation)
 endif()
 
 # --- Layer 2b: the CUDA backend, auto-detected ---------------------------

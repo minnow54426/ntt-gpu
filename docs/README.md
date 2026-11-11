@@ -122,6 +122,13 @@ ctest --test-dir build -R 'arithmetic_' --output-on-failure
 They check compiled primitives against Python big integers and run full-size
 50/55/60-bit transform patterns. They are not native CUDA tests.
 
+### OpenFHE representation gate
+
+The optional OpenFHE build registers both `openfhe_exact_compat` and
+`openfhe_representation_contract`. The [D7 contract](openfhe-representation-contract.md)
+explains the pinned source, exact array convention, and test command. These are
+CPU tests against OpenFHE 1.6.1; GPU execution remains a separate gate.
+
 ## Publish with GitHub Pages
 
 ### Add the notebook to the personal website
