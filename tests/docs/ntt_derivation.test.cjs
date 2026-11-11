@@ -110,9 +110,9 @@ test('65536 boundary stages, local offsets, and group ownership clamp correctly'
 test('stage numbering changes the distance direction and labels the folded twist', () => {
   const page=explorer();page.set('n',16);page.set('stage',0);
   assert.equal(page.read().distance,1);
-  assert.match(page.field('context').textContent,/输入先按位逆序/);
+  assert.match(page.field('context').textContent,/input is bit-reversed first/);
   page.set('mode','repo');
   assert.equal(page.read().distance,8);
   assert.ok(page.field('result').textContent.includes(String.raw`c=\psi^d=\psi^{8}`));
-  assert.match(page.field('context').textContent,/自然输入/);
+  assert.match(page.field('context').textContent,/natural input/);
 });

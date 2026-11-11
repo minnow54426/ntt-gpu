@@ -262,8 +262,8 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
     home = relative_url(current, "index.html")
     source = page.get("source")
     source_link = (
-        f'<a href="{repository}/blob/{revision}/{quote(source)}">View source ↗</a>'
-        if source else f'<a href="{repository}">Repository ↗</a>'
+        f'<a href="{repository}/blob/{revision}/{quote(source)}">View source</a>'
+        if source else f'<a href="{repository}">Repository</a>'
     )
     math_head = "" if legacy_head else f"""
 <link rel="stylesheet" href="{relative_url(current, 'vendor/katex/katex.min.css')}">
@@ -297,11 +297,11 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
 <a class="site-skip" href="#site-main">Skip to content</a>
 <aside class="site-sidebar" id="site-sidebar">
   <a class="site-brand" href="{home}"><span class="site-mark" aria-hidden="true">N<span>×</span></span>
-    <span>ntt-gpu<small>THE ENGINEERING NOTEBOOK</small></span></a>
-  <div class="site-nav-label">DOCUMENTATION <span>INDEX</span></div>
+    <span>ntt-gpu<small>Engineering notebook</small></span></a>
+  <div class="site-nav-label">Documentation <span>Index</span></div>
   <nav class="site-navigation" aria-label="Documentation">{navigation(pages, current)}</nav>
   <div class="site-sidebar-bottom"><span class="site-status-dot"></span> Building in the open
-    <a href="{repository}">GitHub repository ↗</a></div>
+    <a href="{repository}">GitHub repository</a></div>
 </aside>
 <div class="site-workspace">
   <header class="site-topbar">
@@ -351,7 +351,7 @@ def entry_cards(entries, current, limit=None):
 <a class="site-entry-card" href="{relative_url(current, entry['url'])}">
   <div class="site-entry-meta"><time datetime="{entry['date']}">{formatted_date}</time><span>{escape(entry['phase'])}</span></div>
   <h3>{escape(entry['title'])}</h3><p>{escape(entry['summary'])}</p>
-  <span class="site-entry-link">Read the entry <span aria-hidden="true">↗</span></span>
+  <span class="site-entry-link">Read the entry</span>
 </a>""")
     return "".join(cards)
 
@@ -371,7 +371,7 @@ def page_directory(pages, entries, public_base_url=None):
             title = (page["date"] + " · " if page.get("date") else "") + page["title"]
             links.append(
                 f'<a class="site-directory-link" href="{escape(page["url"], quote=True)}">'
-                f'<strong>{escape(title)} <span aria-hidden="true">↗</span></strong>'
+                f'<strong>{escape(title)}</strong>'
                 f'<p>{escape(page["summary"])}</p>'
                 f'<code class="site-page-url" aria-label="Public URL">{escape(urljoin(public_base_url, page["url"]))}</code></a>'
             )
@@ -387,28 +387,28 @@ def home_content(pages, entries):
     latest = entries[0]["date"] if entries else "No published entries"
     return f"""
 <div class="site-home-hero">
-  <div><p class="site-eyebrow"><span class="site-status-dot"></span> AN OPEN ENGINEERING PROJECT</p>
-    <h1>GPU kernels<br>for <em>CKKS.</em></h1>
+  <div><p class="site-eyebrow"><span class="site-status-dot"></span> An open engineering notebook</p>
+    <h1>Notes on encrypted computation.</h1>
     <p class="site-lede">Learn the NTT, inspect the CUDA schedule, and follow the path to exact OpenFHE integration.</p>
-    <div class="site-hero-actions"><a class="site-primary-link" href="#all-pages">Browse all pages <span>↓</span></a><a class="site-secondary-link" href="journal.html">Follow our progress →</a></div>
+    <div class="site-hero-actions"><a class="site-primary-link" href="#all-pages">Browse all pages <span>↓</span></a><a class="site-secondary-link" href="journal.html">Follow our progress</a></div>
     <div class="site-specs"><span>RTX 5090</span><span>u64 / u32</span><span>N = 65,536</span></div>
   </div>
-  <div class="site-checkpoint"><div class="site-checkpoint-label">CURRENT CHECKPOINT <span>{escape(state['Working day'])}</span></div>
+  <div class="site-checkpoint"><div class="site-checkpoint-label">Working day <span>{escape(state['Working day'])}</span></div>
     <div class="site-checkpoint-symbol" aria-hidden="true">⌁</div>
     <h2>Current checkpoint</h2><p><strong>{escape(state['Active phase'])}</strong></p>
     <p>{escape(state['Active task'])}.</p>
-    <a href="openfhe-integration-plan.html">Explore the working-day plan <span>↗</span></a>
+    <a href="openfhe-integration-plan.html">Explore the working-day plan</a>
   </div>
 </div>
 <div class="site-evidence-strip">
-  <div><span class="site-evidence-label">VERIFIED BASELINE</span><strong><span class="site-status-dot"></span> CPU / OpenFHE baseline</strong><p>Exact array checks and CPU simulation.</p></div>
-  <div><span class="site-evidence-label">GPU EXECUTION</span><strong><span class="site-pending-dot"></span> Hardware gate pending</strong><p>CUDA source exists; RTX validation is next.</p></div>
-  <div><span class="site-evidence-label">CURRENT RECORD</span><strong>{escape(latest)}</strong><p>Latest published journal entry.</p></div>
+  <div><span class="site-evidence-label">Verified baseline</span><strong><span class="site-status-dot"></span> CPU / OpenFHE baseline</strong><p>Exact array checks and CPU simulation.</p></div>
+  <div><span class="site-evidence-label">GPU execution</span><strong><span class="site-pending-dot"></span> Hardware gate pending</strong><p>CUDA source exists; RTX validation is next.</p></div>
+  <div><span class="site-evidence-label">Current record</span><strong>{escape(latest)}</strong><p>Latest published journal entry.</p></div>
 </div>
 <div class="site-section-heading" id="all-pages"><h2>All pages</h2></div>
 <p class="site-directory-note">Choose a lesson, reference, plan, or dated journal entry.</p>
 {page_directory(pages, entries)}
-<div class="site-section-heading"><h2>Implementation sequence</h2><a href="openfhe-integration-plan.html">Tracked plan →</a></div>
+<div class="site-section-heading"><h2>Implementation sequence</h2><a href="openfhe-integration-plan.html">Tracked plan</a></div>
 <ol class="site-plan">
   <li><strong>NTT</strong><span>Exactness, GPU validation, tuning</span></li>
   <li><strong>Base conversion</strong><span>Q ↔ QP</span></li>
@@ -498,6 +498,7 @@ def build():
             if page["source"].endswith(".html"):
                 head = re.search(r"<head>([\s\S]*?)</head>", text)[1]
                 head = re.sub(r"<title>[\s\S]*?</title>|<meta[^>]*>", "", head)
+                head = head.replace('href="site-assets/', 'href="assets/')
                 body = re.search(r"<body[^>]*>([\s\S]*?)</body>", text)[1]
                 body = body.replace("<main>", '<div class="legacy-main">').replace("</main>", "</div>")
                 # HTML explainers have root-relative sibling assets already.

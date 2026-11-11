@@ -9,9 +9,6 @@
 <script defer src="vendor/katex/contrib/auto-render.min.js"></script>
 <script defer src="math-rendering.js"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 4 L28 28 M28 4 L4 28' stroke='%23C2410C' stroke-width='5' stroke-linecap='round'/></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,600&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
 <style>
   :root {
     --paper: #F7F1E5;
@@ -385,6 +382,7 @@
   .notes-values dd { font:18px/1.8 var(--mono); margin:4px 0 0; overflow-wrap:anywhere; }
 </style>
 <script defer src="lesson-examples.js"></script>
+<link rel="stylesheet" href="site-assets/lesson-theme.css">
 </head>
 <body>
 <div class="page">
@@ -438,10 +436,10 @@
     <h2 id="quick-title">The idea in four steps</h2>
     <p>Read this first. The chapters below explain why each step is valid.</p>
     <div class="quick-grid">
-      <div class="quick-step"><b>1 · START</b><span>A polynomial is stored as a list of coefficients.</span></div>
-      <div class="quick-step"><b>2 · TRANSFORM</b><span>The NTT evaluates that list at special modular points.</span></div>
-      <div class="quick-step"><b>3 · REUSE</b><span>A butterfly computes one shared sum-and-difference pair.</span></div>
-      <div class="quick-step"><b>4 · REPEAT</b><span>N/2 butterflies across log₂N stages finish the transform.</span></div>
+      <div class="quick-step"><b>1 · Start</b><span>A polynomial is stored as a list of coefficients.</span></div>
+      <div class="quick-step"><b>2 · Transform</b><span>The NTT evaluates that list at special modular points.</span></div>
+      <div class="quick-step"><b>3 · Reuse</b><span>A butterfly computes one shared sum-and-difference pair.</span></div>
+      <div class="quick-step"><b>4 · Repeat</b><span>N/2 butterflies across log₂N stages finish the transform.</span></div>
     </div>
     <p class="read-path">Shortest path: <a href="#s1">data</a> → <a href="#s3">NTT</a> → <a href="#s5">sum to butterfly</a> → <a href="#s6">butterfly</a> → <a href="#s7">network</a> → <a href="#s9">negacyclic</a>. The other chapters are optional detail.</p>
   </aside>
@@ -455,7 +453,7 @@
       <a href="#s3"><span class="n">03</span>What the NTT does</a>
       <a href="#s4"><span class="n">04</span>Cost &amp; savings</a>
       <a href="#s5"><span class="n">05</span>Sum → butterflies</a>
-      <a href="#handwritten-derivation"><span class="n">05+</span>手稿推导与旋转因子</a>
+      <a href="#handwritten-derivation"><span class="n">05+</span>Derivation and twiddle factors</a>
       <a href="#s6"><span class="n">06</span>One butterfly</a>
       <a href="#s7"><span class="n">07</span>Full N = 8 network</a>
       <a href="#s9"><span class="n">09</span>Negacyclic NTT</a>
@@ -695,13 +693,14 @@ X^{(s+1)}_U=X^{(s)}_U+t,\qquad X^{(s+1)}_V=X^{(s)}_U-t.
       <p><b>One multiply, one add, one subtract; two values in, two out.</b> That is the fast algorithm's only moving part. At N = 8 it simply nests one level deeper — chapter 7's machine, where we go next.</p>
     </section>
 
-    <section id="handwritten-derivation" class="notes-derivation" lang="zh-CN">
-      <div class="sec-head"><div class="sec-num">05+</div><h2>手稿推导：递归拆分与旋转因子</h2></div>
-      <p>这一节将手写笔记整理成完整推导：先拆分偶数项和奇数项，再展开第二层、四点连线与每个 stage 的旋转因子。最后对照本仓库的 negacyclic DIF 实现。</p>
-      <div class="callout teal"><h4>先统一符号</h4><p>手稿中的 φ 在普通 NTT 部分表示 <b>本原 N 次单位根</b>；这里统一写成 ω<sub>N</sub>，满足 ω<sub>N</sub><sup>N/2</sup> = −1。仓库使用的 ψ 是 <b>本原 2N 次单位根</b>，满足 ψ<sup>N</sup> = −1，且 ω<sub>N</sub> = ψ²。普通 NTT 要求 N 整除 q−1，对应 x<sup>N</sup>−1；negacyclic 要求 2N 整除 q−1，对应 x<sup>N</sup>+1。下文所有加减乘和等式均在模素数 q 下进行，N 是 2 的幂。</p></div>
+    <span id="手稿推导-递归拆分与旋转因子" aria-hidden="true"></span>
+    <section id="handwritten-derivation" class="notes-derivation" lang="en">
+      <div class="sec-head"><div class="sec-num">05+</div><h2 id="recursive-decomposition">Recursive decomposition and twiddle factors</h2></div>
+      <p>This derivation follows the handwritten notes from the even/odd split through a second recursion, a four-point network, and the twiddle exponent at every stage. It then connects those results to this repository's negacyclic DIF implementation.</p>
+      <div class="callout teal"><h4>Notation</h4><p>In the ordinary NTT portion of the notes, φ denotes a <b>primitive N-th root of unity</b>; here we write ω<sub>N</sub>, with ω<sub>N</sub><sup>N/2</sup> = −1. This repository uses ψ, a <b>primitive 2N-th root of unity</b>, with ψ<sup>N</sup> = −1 and ω<sub>N</sub> = ψ². The ordinary NTT requires N to divide q−1 and works modulo x<sup>N</sup>−1; the negacyclic form requires 2N to divide q−1 and works modulo x<sup>N</sup>+1. All arithmetic below is modulo a prime q, and N is a power of two.</p></div>
 
-      <h3>1. 为什么一个 N 点 NTT 能拆成两个 N/2 点 NTT？</h3>
-      <p>从定义出发，i 是输入系数下标，j 是输出下标。把 i 分成 2r 和 2r+1：</p>
+      <h3>1. Split one N-point NTT into two half-length NTTs</h3>
+      <p>Start with the definition: i indexes the input coefficients and j indexes the outputs. Split i into 2r and 2r+1:</p>
       <div class="math typeset">\[
 \begin{aligned}
 b_j&=\sum_{i=0}^{N-1}a_i\omega_N^{ij}\\
@@ -711,7 +710,7 @@ b_j&=\sum_{i=0}^{N-1}a_i\omega_N^{ij}\\
  +\omega_N^j\underbrace{\sum_{r=0}^{N/2-1}a_{2r+1}(\omega_N^2)^{rj}}_{B_j}.
 \end{aligned}
 \]</div>
-      <p>A 是偶数位置系数的 N/2 点 NTT，B 是奇数位置系数的 N/2 点 NTT；两者使用的根均为 ω<sub>N</sub>² = ω<sub>N/2</sub>。它们对 j 的周期都是 N/2，因此只需计算 0 ≤ j &lt; N/2。</p>
+      <p>A is the N/2-point NTT of the even-index coefficients; B is the N/2-point NTT of the odd-index coefficients. Both use the root ω<sub>N</sub>² = ω<sub>N/2</sub>. Both are periodic in j with period N/2, so only 0 ≤ j &lt; N/2。</p>
       <div class="math typeset">\[
 \begin{aligned}
 A_{j+N/2}&=A_j,\qquad B_{j+N/2}=B_j,\\
@@ -720,10 +719,10 @@ b_j&=A_j+\omega_N^jB_j,\\
 b_{j+N/2}&=A_j-\omega_N^jB_j.
 \end{aligned}
 \]</div>
-      <p>这就是一对蝶形输出：<b>先算一次 t = ω<sub>N</sub><sup>j</sup>B<sub>j</sub>，再输出 A<sub>j</sub>+t 和 A<sub>j</sub>−t</b>。输出下标相差 N/2，但共用同一个乘法结果。</p>
+      <p>This produces one butterfly pair: <b>compute t = ω<sub>N</sub><sup>j</sup>B<sub>j</sub> once, then output A<sub>j</sub>+t and A<sub>j</sub>−t</b>. The output indices differ by N/2 and share one multiplication.</p>
 
-      <h3>2. 再拆一层：ω²、ω⁴ 从哪里来？</h3>
-      <p>继续拆 A 的输入序列。它的偶数、奇数位置在原数组中分别是 a<sub>4r</sub> 和 a<sub>4r+2</sub>，所以：</p>
+      <h3>2. Recurse: where do ω² and ω⁴ come from?</h3>
+      <p>Split A's input sequence again. Its even and odd positions correspond to a<sub>4r</sub> and a<sub>4r+2</sub> in the original array:</p>
       <div class="math typeset">\[
 \begin{aligned}
 A_j&=\sum_{r=0}^{N/4-1}a_{4r}\omega_N^{4rj}
@@ -734,10 +733,10 @@ D_j=\sum_{r=0}^{N/4-1}a_{4r+2}(\omega_N^4)^{rj},\\
 A_{j+N/4}&=C_j-\omega_N^{2j}D_j,\qquad 0\le j&lt;N/4.
 \end{aligned}
 \]</div>
-      <p>负号来自 (ω<sub>N</sub>²)<sup>N/4</sup> = −1。B 同样拆成 a<sub>4r+1</sub> 与 a<sub>4r+3</sub> 两组。递归每深入一层，长度减半、根平方：<b>ω<sub>N</sub> → ω<sub>N</sub>² → ω<sub>N</sub>⁴ → …</b>；直到长度为 2。自底向上合并时，顺序正好相反。</p>
+      <p>The minus sign follows from (ω<sub>N</sub>²)<sup>N/4</sup> = −1. Likewise, B splits into a<sub>4r+1</sub> and a<sub>4r+3</sub>. Each recursion halves the length and squares the root: <b>ω<sub>N</sub> → ω<sub>N</sub>² → ω<sub>N</sub>⁴ → …</b>, down to length 2. Bottom-up combination visits these lengths in the opposite order.</p>
 
-      <h3>3. N = 4：从完整展开式画出蝶形连线</h3>
-      <p>令 ω = ω<sub>4</sub>，则 ω² = −1、ω³ = −ω。四个输出全部展开，再按共用的中间量重组：</p>
+      <h3>3. N=4: expand the sums and draw the network</h3>
+      <p>Let ω = ω<sub>4</sub>, so ω²=−1 and ω³=−ω. Expand all four outputs and regroup the shared intermediate values:</p>
       <div class="math typeset">\[
 \begin{aligned}
 b_0&=a_0+a_1+a_2+a_3=(a_0+a_2)+(a_1+a_3),\\
@@ -746,12 +745,12 @@ b_2&=a_0+a_1\omega^2+a_2\omega^4+a_3\omega^6=(a_0+a_2)-(a_1+a_3),\\
 b_3&=a_0+a_1\omega^3+a_2\omega^6+a_3\omega^9=(a_0-a_2)-\omega(a_1-a_3).
 \end{aligned}
 \]</div>
-      <p>第一层计算 P = a₀+a₂、Q = a₀−a₂、R = a₁+a₃、S = a₁−a₃。第二层将 P、R 合并为 b₀、b₂，将 Q、S 合并为 b₁、b₃；只有后一对需要乘 ω。</p>
+      <p>The first level computes P=a₀+a₂, Q=a₀−a₂, R=a₁+a₃ and S=a₁−a₃. The second combines P and R into b₀ and b₂, and Q and S into b₁ and b₃. Only the latter pair needs a multiplication by ω.</p>
       <figure class="notes-figure">
-        <div class="notes-diagram-scroll" role="region" aria-label="四点 NTT 蝶形连线，可横向滚动" tabindex="0">
+        <div class="notes-diagram-scroll" role="region" aria-label="Scrollable four-point butterfly network" tabindex="0">
           <svg viewBox="0 0 900 410" role="img" aria-labelledby="notes-four-title notes-four-desc">
-            <title id="notes-four-title">四点 NTT：两次分解，四个蝶形</title>
-            <desc id="notes-four-desc">a0 与 a2 产生 P 和 Q，a1 与 a3 产生 R 和 S。P 与 R 产生 b0 和 b2，Q 与乘以 omega 的 S 产生 b1 和 b3。图中输出从上到下按 b0、b2、b1、b3 分组。</desc>
+            <title id="notes-four-title">Four-point NTT: two levels and four butterflies</title>
+            <desc id="notes-four-desc">Inputs a0 and a2 produce P and Q; a1 and a3 produce R and S. P and R produce b0 and b2; Q and omega times S produce b1 and b3. Outputs are drawn in the order b0, b2, b1, b3.</desc>
             <g fill="none" stroke-width="2.5">
               <path d="M75 75 H140 L290 75 H330 M75 235 H140 L290 75 M75 75 H140 L290 235 H330 M75 235 H140 L290 235" stroke="#14655A"/>
               <path d="M75 155 H140 L290 155 H330 M75 315 H140 L290 155 M75 155 H140 L290 315 H330 M75 315 H140 L290 315" stroke="#0369A1"/>
@@ -762,20 +761,20 @@ b_3&=a_0+a_1\omega^3+a_2\omega^6+a_3\omega^9=(a_0-a_2)-\omega(a_1-a_3).
               <text x="22" y="81">a₀</text><text x="22" y="161">a₁</text><text x="22" y="241">a₂</text><text x="22" y="321">a₃</text>
               <text x="336" y="81">P = a₀+a₂</text><text x="336" y="161">R = a₁+a₃</text><text x="336" y="241">Q = a₀−a₂</text><text x="336" y="321">S = a₁−a₃</text>
               <text x="738" y="81">b₀ = P+R</text><text x="738" y="161">b₂ = P−R</text><text x="738" y="241">b₁ = Q+ωS</text><text x="738" y="321">b₃ = Q−ωS</text>
-              <text x="330" y="36">第一次合并：乘子 1</text><text x="590" y="36">第二次合并：乘子 1 或 ω</text>
+              <text x="330" y="36">Level 1: factor 1</text><text x="590" y="36">Level 2: factor 1 or ω</text>
               <text x="135" y="108">+</text><text x="135" y="268">−</text><text x="135" y="188">+</text><text x="135" y="348">−</text>
             </g>
             <rect x="495" y="293" width="60" height="44" rx="6" fill="#F5DBCC" stroke="#C2410C" stroke-width="2"/>
             <text x="525" y="321" text-anchor="middle" font-family="sans-serif" font-size="18" fill="#9A3412">× ω</text>
-            <text x="30" y="390" font-family="sans-serif" font-size="16" fill="#596b53">同一对中间量产生两个输出；四个蝶形组成整个四点变换。</text>
+            <text x="30" y="390" font-family="sans-serif" font-size="16" fill="#596b53">Each pair shares its intermediate values; four butterflies complete the transform.</text>
           </svg>
         </div>
-        <figcaption>小屏幕可左右滑动。为把共用中间量的输出放在一起，图上按 b₀、b₂、b₁、b₃ 排列；数学输出仍由下标 j 定义。</figcaption>
+        <figcaption>Scroll horizontally on small screens. The drawing groups outputs as b₀, b₂, b₁, b₃ to show shared intermediates; the mathematical output index is still j.</figcaption>
       </figure>
-      <p>图的上下排列不等于所有实现的内存顺序。标准迭代 DIT 通常将输入先按位逆序重排，再得到自然顺序输出；仓库正向 DIF 则接收自然顺序输入，输出位逆序的求值数组。可结合后面的 <a href="#s7">N=8 网络</a> 与 <a href="openfhe-representation-contract.md">D7 表示契约</a>阅读。</p>
+      <p>The drawing's vertical order does not prescribe memory order. Standard iterative DIT usually starts with bit-reversed inputs and produces natural-order outputs. This repository's forward DIF takes natural-order inputs and produces bit-reversed evaluations. See the <a href="#s7">N=8 network</a> and the <a href="openfhe-representation-contract.md">D7 representation contract</a> for the exact ordering.</p>
 
-      <h3>4. 第 s 层的旋转因子：先写清楚长度</h3>
-      <p>这里采用手稿末尾的<b>自底向上 DIT 合并</b>编号，s 从 0 开始。第 s 层把两个 2<sup>s</sup> 点结果合成一个 M = 2<sup>s+1</sup> 点结果。j 是当前蝶形组内的偏移，而不是整个输出数组的任意下标。</p>
+      <h3>4. Derive the stage twiddle from its length</h3>
+      <p>Use the notes' <b>bottom-up DIT combination</b>, with s starting at zero. Stage s combines two 2<sup>s</sup>-point results into one M=2<sup>s+1</sup>-point result. Here j is the offset within the current butterfly group.</p>
       <div class="math typeset">\[
 \begin{aligned}
 M&=2^{s+1},\qquad 0\le s&lt;\log_2N,\qquad 0\le j&lt;M/2,\\
@@ -784,47 +783,47 @@ w_{s,j}&=\omega_M^j=\left(\omega_N^{N/2^{s+1}}\right)^j
 =\boxed{\omega_N^{jN/2^{s+1}}}.
 \end{aligned}
 \]</div>
-      <p>所以，确定单个蝶形的乘子只需三件事：<b>所在层 s → 本层长度 M → 组内位置 j</b>。同层不同组使用相同的 j→乘子规则；组号决定数组位置，不改变乘子指数。</p>
-      <div class="notes-table-scroll matrix-scroll" role="region" aria-label="各阶段长度与旋转因子" tabindex="0"><table class="notes-table"><thead><tr><th>N</th><th>s</th><th>M</th><th>ω<sub>N</sub> 的指数</th></tr></thead><tbody>
-        <tr><td>8</td><td>0</td><td>2</td><td>j=0：0，即乘子 1</td></tr>
-        <tr><td>8</td><td>1</td><td>4</td><td>2j：0、2</td></tr>
-        <tr><td>8</td><td>2</td><td>8</td><td>j：0、1、2、3</td></tr>
-        <tr><td>65536</td><td>0</td><td>2</td><td>32768j，但 j 只能为 0</td></tr>
-        <tr><td>65536</td><td>1</td><td>4</td><td>16384j：0、16384</td></tr>
-        <tr><td>65536</td><td>15</td><td>65536</td><td>j：0…32767</td></tr>
+      <p>A butterfly's factor follows from three quantities: <b>stage s → group length M → local offset j</b>. Groups in the same stage share the j-to-factor rule. The group number changes the array positions, not the exponent.</p>
+      <div class="notes-table-scroll matrix-scroll" role="region" aria-label="Stage lengths and twiddle exponents" tabindex="0"><table class="notes-table"><thead><tr><th>N</th><th>s</th><th>M</th><th>ω<sub>N</sub> exponent</th></tr></thead><tbody>
+        <tr><td>8</td><td>0</td><td>2</td><td>j=0: exponent 0, factor 1</td></tr>
+        <tr><td>8</td><td>1</td><td>4</td><td>2j: 0, 2</td></tr>
+        <tr><td>8</td><td>2</td><td>8</td><td>j: 0, 1, 2, 3</td></tr>
+        <tr><td>65536</td><td>0</td><td>2</td><td>32768j, with j restricted to 0</td></tr>
+        <tr><td>65536</td><td>1</td><td>4</td><td>16384j: 0, 16384</td></tr>
+        <tr><td>65536</td><td>15</td><td>65536</td><td>j: 0…32767</td></tr>
       </tbody></table></div>
 
       <div class="widget" id="handwritten-twiddle">
-        <div class="w-title">交互：给定 stage 和 j，计算旋转因子的指数</div>
+        <div class="w-title">Explore the twiddle exponent by stage and offset</div>
         <div class="notes-controls">
-          <label>约定<select data-note-mode><option value="dit">手稿：cyclic DIT</option><option value="repo">仓库：negacyclic DIF</option></select></label>
-          <label>长度 N<select data-note-n><option value="4">4（教学例子）</option><option value="8">8</option><option value="16">16</option><option value="65536">65536（项目目标）</option></select></label>
-          <label><span data-note-stage-label>stage s（从 0 开始）</span><input data-note-stage type="number" min="0" max="1" value="1" step="1"></label>
-          <label>组内偏移 j<input data-note-j type="number" min="0" max="1" value="1" step="1"></label>
-          <label>组号 g<input data-note-group type="number" min="0" max="0" value="0" step="1"></label>
+          <label>Convention<select data-note-mode><option value="dit">Notes: cyclic DIT</option><option value="repo">Repository: negacyclic DIF</option></select></label>
+          <label>Length N<select data-note-n><option value="4">4 (teaching example)</option><option value="8">8</option><option value="16">16</option><option value="65536">65536 (project target)</option></select></label>
+          <label><span data-note-stage-label>stage s (zero-based)</span><input data-note-stage type="number" min="0" max="1" value="1" step="1"></label>
+          <label>Local offset j<input data-note-j type="number" min="0" max="1" value="1" step="1"></label>
+          <label>Group g<input data-note-group type="number" min="0" max="0" value="0" step="1"></label>
         </div>
         <div class="notes-result" data-note-result aria-live="polite"></div>
-        <dl class="notes-values"><div><dt>ω<sub>N</sub> 指数 E</dt><dd data-note-omega></dd></div><div><dt>ψ 指数（仓库 w）</dt><dd data-note-psi></dd></div><div><dt>upper / lower</dt><dd><span data-note-upper></span> / <span data-note-lower></span></dd></div><div><dt>配对距离 d</dt><dd data-note-distance></dd></div></dl>
+        <dl class="notes-values"><div><dt>ω<sub>N</sub> exponent E</dt><dd data-note-omega></dd></div><div><dt>ψ exponent for repository w</dt><dd data-note-psi></dd></div><div><dt>upper / lower</dt><dd><span data-note-upper></span> / <span data-note-lower></span></dd></div><div><dt>Pair distance d</dt><dd data-note-distance></dd></div></dl>
         <p class="w-note" data-note-context></p>
       </div>
 
-      <h3>5. 手稿里的 8；4,12；2,10,6,14 是什么顺序？</h3>
-      <p>若按 N=16、四位位逆序理解，这些数正好是 rev₄(1)…rev₄(15)。例如 0001 → 1000，得到 8；0011 → 1100，得到 12。</p>
-      <div class="notes-table-scroll matrix-scroll" role="region" aria-label="四位位逆序根表的指数" tabindex="0"><table class="notes-table"><thead><tr><th>表下标 k</th><th>rev₄(k)</th></tr></thead><tbody>
-        <tr><td>1</td><td>8</td></tr><tr><td>2、3</td><td>4、12</td></tr><tr><td>4…7</td><td>2、10、6、14</td></tr><tr><td>8…15</td><td>1、9、5、13、3、11、7、15</td></tr>
+      <h3>5. Read the sequence 8; 4,12; 2,10,6,14</h3>
+      <p>For N=16 and four-bit reversal, these entries are rev₄(1)…rev₄(15). For example, reversing 0001 gives 1000=8; reversing 0011 gives 1100=12.</p>
+      <div class="notes-table-scroll matrix-scroll" role="region" aria-label="Exponents in a four-bit reversed root table" tabindex="0"><table class="notes-table"><thead><tr><th>Table index k</th><th>rev₄(k)</th></tr></thead><tbody>
+        <tr><td>1</td><td>8</td></tr><tr><td>2, 3</td><td>4, 12</td></tr><tr><td>4…7</td><td>2, 10, 6, 14</td></tr><tr><td>8…15</td><td>1, 9, 5, 13, 3, 11, 7, 15</td></tr>
       </tbody></table></div>
-      <p>如果某种根表定义为 T[k] = r<sup>rev₄(k)</sup>，上表就给出了其指数。但这些数字本身并未指定 r 的周期、正逆方向或蝶形调度，<b>不能直接当成上面 cyclic DIT 的通用乘子列表</b>。特别是仓库的自然幂表与 OpenFHE 的位逆序根表不能混用；详见 <a href="openfhe-representation-contract.md#5-roots-prime-widths-and-the-transform-cache">D7 的根与根表约定</a>。</p>
+      <p>If a root table is defined as T[k]=r<sup>rev₄(k)</sup>, the table above lists its exponents. These numbers alone do not define the order of r, the transform direction, or the butterfly schedule. They <b>are not a universal cyclic DIT twiddle list</b>. In particular, this repository's natural power table and OpenFHE's bit-reversed root table are distinct. See <a href="openfhe-representation-contract.md#5-roots-prime-widths-and-the-transform-cache">D7's root and cache contract</a>。</p>
 
-      <h3>6. 如何对应到仓库的 negacyclic 正向循环？</h3>
-      <p>仓库正向是 DIF：阶段 t 从 0 开始，距离 d = N/2<sup>t+1</sup>，由大到小。令当前组长 M=2d、组内偏移为 J，则：</p>
+      <h3>6. Connect the derivation to the forward negacyclic loop</h3>
+      <p>The repository's forward transform is DIF. Stage t starts at zero, and distance d=N/2<sup>t+1</sup> decreases. For group length M=2d and local offset J:</p>
       <div class="math typeset">\[
 \begin{aligned}
 E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
 (u,v)&\longmapsto\bigl(u+cv,\;(u-cv)w\bigr)\pmod q.
 \end{aligned}
 \]</div>
-      <p>旋转因子的换根规则仍是“全局根的 N/M 次幂”，但阶段方向反过来，且多了折叠 negacyclic twist 的 c。对于 N=65536，正向第一层 d=32768：w=ω<sub>N</sub><sup>J</sup>=ψ<sup>2J</sup>；最后一层 d=1，J 只能为 0，所以 w=1。不能把手稿的 DIT stage 0 直接当成仓库正向 DIF 的第一层。</p>
-      <p>逆变换使用 w 的倒数和 c 的倒数，按相反阶段顺序执行，最后乘 N⁻¹。每个系数的逻辑下标、输出位逆序以及实际 CUDA 分组，可以继续查看 <a href="ntt-65536-work-distribution.html">正向/逆向工作分配页面</a>。</p>
+      <p>The change-of-root rule still raises the global root to N/M, but stages run in the opposite direction and include c to fold the negacyclic twist. At N=65536 the first forward stage has d=32768 and w=ω<sub>N</sub><sup>J</sup>=ψ<sup>2J</sup>. In the final stage d=1, J must be 0 and w=1. DIT stage 0 is not the first stage of the repository's forward DIF.</p>
+      <p>The inverse uses reciprocal w and c, reverses the stage order, and finally multiplies by N⁻¹. For the exact coefficient indices, bit-reversed output order, and CUDA groups, see the <a href="ntt-65536-work-distribution.html">forward and inverse work distribution</a>。</p>
     </section>
     <script id="handwritten-twiddle-script">
 (() => {
@@ -846,7 +845,7 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
     for (const [name,value,max] of [['stage',state.stage,levels-1],['j',state.j,distance-1],['group',state.group,state.n/length-1]]) {
       field(name).value = String(value); field(name).max = String(max);
     }
-    field('stage-label').textContent = 'stage ' + (state.mode === 'dit' ? 's' : 't') + '（从 0 开始）';
+    field('stage-label').textContent = 'stage ' + (state.mode === 'dit' ? 's' : 't') + ' (zero-based)';
     field('omega').textContent = String(exponent);
     field('psi').textContent = state.mode === 'repo' ? String(2*exponent) : '—';
     field('upper').textContent = String(upper); field('lower').textContent = String(upper+distance);
@@ -857,8 +856,8 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
       delimiters:[{left:'\\[',right:'\\]',display:true}], throwOnError:true
     });
     field('context').textContent = state.mode === 'dit'
-      ? '这里是 cyclic DIT 的工作数组索引：输入先按位逆序重排，阶段距离由小到大。不同组共用相同的 j→乘子规则；中间值不再固定对应某一个原始系数。'
-      : '这里是仓库 negacyclic DIF 的全局蝶形索引：自然输入，阶段距离由大到小，最终输出位逆序。c 与 w 是不同乘子；CUDA 两遍分组还需按列/行映射。';
+      ? 'Cyclic DIT work-array indices: input is bit-reversed first and stage distances increase. Every group shares the same local-offset rule; intermediate values no longer correspond to individual original coefficients.'
+      : 'Repository negacyclic DIF global indices: natural input, decreasing distances, and bit-reversed evaluation output. The factors c and w differ; the two CUDA passes map these pairs to columns and rows.';
   }
   field('n').addEventListener('change', () => {
     const value = Number(field('n').value);
