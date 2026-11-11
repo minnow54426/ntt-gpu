@@ -4,7 +4,7 @@
   "public_base_url": "https://minnow54426.github.io/systems/ntt-gpu/",
   "pages": [
     {"source": "README.md", "url": "project.html", "title": "Project & setup", "group": "Start here", "summary": "Build, test, and understand the correctness-first CKKS GPU project."},
-    {"source": "docs/butterfly-explained.html", "url": "butterfly-explained.html", "title": "NTT & butterflies", "group": "Learn", "summary": "From the direct NTT sum to butterflies, twiddles, and the negacyclic transform."},
+    {"source": "docs/butterfly-explained.html", "url": "butterfly-explained.html", "title": "NTT & butterflies", "group": "Learn", "summary": "Direct sums, recursive butterflies, handwritten derivations, and an interactive stage/twiddle calculator."},
     {"source": "docs/gpu-ntt-explained.html", "url": "gpu-ntt-explained.html", "title": "From CPU to CUDA", "group": "Learn", "summary": "Threads, blocks, shared memory, and this repository's two-pass GPU schedule."},
     {"source": "docs/ntt-65536-work-distribution.html", "url": "ntt-65536-work-distribution.html", "title": "65536: work distribution", "group": "Learn", "summary": "Explore the 65536-point forward/inverse polynomial, two-pass blocks, threads, and global access patterns."},
     {"source": "docs/cuda-buffer-dataflow.md", "url": "cuda-buffer-dataflow.html", "title": "CUDA buffers & dataflow", "group": "Learn", "summary": "D5: constructor lifecycle, buffer ownership, host/device copies, fused operations, and integration gaps."},

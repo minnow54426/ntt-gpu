@@ -68,15 +68,17 @@ locally. Put long reference material in `<details markdown="1">` with a clear
 ```sh
 .venv/bin/python -m unittest discover -s tests/docs -v
 .venv/bin/python scripts/build_docs.py --check
-node tests/docs/work_distribution.test.cjs
+node --test tests/docs/*.test.cjs
 ```
 
 The build validates catalog coverage, journal metadata, and local links,
 assets, and heading fragments. The site supports project subpaths.
-The Node test runs the work-distribution page's actual inline script using a
-small DOM stub and checks N=65536 in both directions, stage controls, boundary selections,
-and complete per-stage index coverage. It requires Node.js and no packages;
-it does not replace browser inspection or CUDA execution.
+The Node checks run the pages' actual inline scripts. The work-distribution
+checks cover N=65536 in both directions, stage controls, boundary selections,
+and complete per-stage index coverage. The handwritten-derivation checks compare
+DIT and negacyclic DIF butterfly results with independent direct NTT sums and
+check full-size twiddle/index boundaries. Node.js 22+ is required; no packages
+are needed. These checks do not replace browser inspection or CUDA execution.
 
 The separate C++ column proof executes the production stage helper on CPU:
 
