@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Fetch the exact OpenFHE release used by this project, install its core
-# library under build/, then configure/build/run the compatibility gate.
+# Fetch the exact OpenFHE release used by this project, install its core/PKE
+# libraries under build/, then configure/build/run the compatibility gate.
 # Everything downloaded or generated stays under ignored build/ paths.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -39,7 +39,7 @@ cmake -S "${src_dir}" -B "${openfhe_build}" \
   -DWITH_NATIVEOPT=OFF
 # OpenFHE's install manifest includes core, PKE, and BinFHE archives even when
 # this first compatibility executable links only core. Build the complete
-# library set now: later CKKS/Hybrid integration needs PKE in any case.
+# library set now: the D8 Hybrid graph gate links PKE and its dependencies.
 cmake --build "${openfhe_build}" --target allmodules -j
 cmake --install "${openfhe_build}"
 

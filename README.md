@@ -5,7 +5,7 @@ switching, and OpenFHE integration. The target workload is N=65,536 on RTX 5090,
 with RTX 4090 as the compatibility control.
 
 **Current state:** the CPU reference, Python oracle, portable GPU-schedule
-simulator, and OpenFHE transform gate are implemented. CUDA source is ready;
+simulator, and OpenFHE transform/representation/Hybrid graph gates are implemented. CUDA source is ready;
 execution on a real GPU remains the next hardware gate. CPU simulation does
 not validate GPU barriers or launch behavior.
 
@@ -49,6 +49,12 @@ A second gate, `openfhe_representation_contract`, checks exact evaluation
 indices, format-changing APIs, root selection, and three-tower DCRT packing at
 50/55/60-bit primes. Read the [D7 contract](docs/openfhe-representation-contract.md)
 for the integration boundary and remaining scope.
+
+A third gate, `openfhe_hybrid_graph`, traces the exact Hybrid digit extension,
+key MAC, ModDown, and ciphertext wrapper graph at N=65536. It checks full and
+reduced levels with deterministic diagnostic keys and actual generated keys,
+using independent unreduced-CRT formulas. It requires the PKE library and the
+64-bit, non-reduced-noise build; see the [D8 graph](docs/openfhe-hybrid-operation-graph.md).
 
 To reuse an installation, configure with `-DNTT_ENABLE_OPENFHE_COMPAT=ON`
 and set `CMAKE_PREFIX_PATH` to its install prefix. OpenFHE is not required

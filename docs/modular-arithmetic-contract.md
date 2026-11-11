@@ -170,5 +170,5 @@ D6's review is complete; these are explicit later implementation gates:
 
 These gaps do not block the D6 source-review deliverable. They do block claims
 of a hardened production API or GPU/OpenFHE integration. P1 remains open;
-the current next deliverable is **D8: the Hybrid operation graph**, following
-the completed [D7 representation contract](openfhe-representation-contract.md).
+the [D8 Hybrid graph](openfhe-hybrid-operation-graph.md) is complete.
+The next deliverable is **D9: device buffer, stream, and cache contracts**.

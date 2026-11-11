@@ -3,7 +3,7 @@
 This freezes the NTT/DCRT boundary for **OpenFHE 1.6.1**, commit
 `b59e1f291965f14fbee5172cd83a20f5b856204f`, at **N=65536**. This contract uses the **64-bit NativeInteger backend**. It covers
 coefficient/evaluation format, exact array order, per-tower parameters, and
-packing into the current CUDA interface. The Hybrid operation graph is D8 work.
+packing into the current CUDA interface. The [D8 Hybrid operation graph](openfhe-hybrid-operation-graph.md) builds on this boundary.
 
 The executable evidence is [openfhe_representation_tests.cpp](../tests/openfhe_representation_tests.cpp).
 It uses the real OpenFHE core library on CPU. No native CUDA result is claimed.
@@ -184,7 +184,7 @@ Both the wrap term and large-input coefficient residues are checked.
 remaining ordered prefix without scaling or transforming values. It is not
 CKKS rescaling, ModUp, or ModDown. D7 checks this prefix behavior, including
 that dropping a copied object's last tower does not change the original's
-parameter list. D8 must trace the actual Hybrid basis and rounding operations.
+parameter list. The [D8 graph](openfhe-hybrid-operation-graph.md) records the actual Hybrid basis and reduction operations.
 
 ## 8. Adapter checklist and remaining scope
 
@@ -199,7 +199,9 @@ Before handing an object to the backend:
 
 This freezes the power-of-two NTT and DCRT array boundary. It does not freeze
 Hybrid digit order, Q/P concatenation, rounding, key layout, device ownership,
-stream/event lifetime, or CPU fallback. Those remain D8–D10 deliverables.
+stream/event lifetime, or CPU fallback. The [D8 graph](openfhe-hybrid-operation-graph.md)
+now specifies Hybrid digit order, Q/P layout, and the pinned CKKS reduction
+sequence; device ownership and the integration API remain D9–D10 deliverables.
 The P1 architecture exit gate remains open.
 
 ## 9. Run the checks

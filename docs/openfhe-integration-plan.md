@@ -15,9 +15,9 @@ Update this tracker only when a deliverable passes its gate.
 
 | Field | Current value |
 |---|---|
-| Working day | **D8** |
+| Working day | **D9** |
 | Active phase | **P1 — contract and architecture freeze** |
-| Active task | Trace OpenFHE Hybrid key switching and freeze the exact Q → QP → MAC → Q operation graph (D1–D7 complete) |
+| Active task | Design device buffer views, stream/cache ownership, and the backend integration seam (D1–D8 complete) |
 | Next gate | P1 architecture review: frozen OpenFHE representation, buffer, ordering, and integration contracts |
 | Overall state | In progress |
 
@@ -133,12 +133,23 @@ ordered tower packing/import, and active-prefix behavior. A new opt-in core-only
 gate checks full-size formulas and three-tower operations with 50/55/60-bit
 primes against OpenFHE 1.6.1. The OpenFHE-enabled Release suite passes 14 tests
 on this Linux CPU environment. No CUDA execution or Hybrid rounding graph is
-claimed. D8 is next; the P1 architecture gate remains open.
+claimed by that D7 result. D8 is documented below; the P1 architecture gate remains open.
+
+D8 complete: the [Hybrid operation graph](openfhe-hybrid-operation-graph.md)
+traces digit splitting, partial partitions, coefficient/evaluation transitions,
+noncanonical approximate CRT, full-key P offsets at reduced levels, B/A MAC
+ordering, exact CKKS ModDown, wrapper updates, and delayed QP operations.
+`openfhe_hybrid_graph` checks 18 full-size cases and 117,571,584 residue
+comparisons against independent unreduced-CRT and scalar formulas, including
+real generated keys and negative alternatives. The opt-in Release suite now
+has 15 CPU tests. Rotation automorphisms and higher-degree relinearization are
+source-traced but remain later end-to-end gates; production matrix coverage,
+GPU execution and performance are not claimed. D9 is next.
 
 P1 exit gate:
 
-- [x] NTT/DCRT representation and ordering transitions are explicit (D7); Hybrid transitions remain D8 work.
-- [ ] The exact OpenFHE rounding/reduction order is identified.
+- [x] NTT/DCRT (D7) and Hybrid (D8) representation, ordering, and active-tower transitions are explicit.
+- [x] The exact pinned CKKS approximate-CRT and reduction order is identified (D8); broader production fixtures remain P4/P6 work.
 - [ ] Buffer views record ring size, Q/P towers, level, representation,
   ordering, device, stream, and event ownership.
 - [ ] The first integration seam and CPU fallback behavior are frozen.

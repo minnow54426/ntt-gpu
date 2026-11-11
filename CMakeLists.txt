@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # for clangd
 
 option(NTT_ENABLE_OPENFHE_COMPAT
-       "Build exact transform compatibility tests against OpenFHE 1.6.1" OFF)
+       "Build exact NTT, representation, and Hybrid graph tests against OpenFHE 1.6.1" OFF)
 
 add_executable(ntt_cli src/cli.cpp)
 add_executable(ntt_tests tests/unit_tests.cpp)
@@ -104,6 +104,23 @@ if(NTT_ENABLE_OPENFHE_COMPAT)
   endforeach()
   add_test(NAME openfhe_exact_compat COMMAND ntt_openfhe_compat)
   add_test(NAME openfhe_representation_contract COMMAND ntt_openfhe_representation)
+  if(OpenFHE_REDUCEDNOISE OR NOT OpenFHE_NATIVE_SIZE STREQUAL "64")
+    message(FATAL_ERROR "Hybrid fixtures require NativeInteger 64 and WITH_REDUCED_NOISE=OFF")
+  endif()
+  add_executable(ntt_openfhe_hybrid tests/openfhe_hybrid_tests.cpp)
+  target_include_directories(ntt_openfhe_hybrid PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_include_directories(ntt_openfhe_hybrid SYSTEM PRIVATE
+    ${OpenFHE_INCLUDE} ${OpenFHE_INCLUDE}/core ${OpenFHE_INCLUDE}/pke ${OpenFHE_INCLUDE}/binfhe)
+  target_compile_options(ntt_openfhe_hybrid PRIVATE -Wall -Wextra -Werror)
+  if(TARGET OPENFHEpke_static)
+    target_link_libraries(ntt_openfhe_hybrid PRIVATE OPENFHEpke_static)
+  elseif(TARGET OPENFHEpke)
+    target_link_libraries(ntt_openfhe_hybrid PRIVATE OPENFHEpke)
+  else()
+    message(FATAL_ERROR "Hybrid graph checks require the OpenFHE PKE library")
+  endif()
+  add_test(NAME openfhe_hybrid_graph COMMAND ntt_openfhe_hybrid)
+
 endif()
 
 # --- Layer 2b: the CUDA backend, auto-detected ---------------------------
