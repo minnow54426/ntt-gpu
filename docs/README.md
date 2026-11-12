@@ -140,6 +140,10 @@ interfaces compiled by the test. The optional `openfhe_hybrid_graph` also checks
 the proposed active QP metadata and key offsets against actual OpenFHE objects.
 Neither gate implements a CUDA resource manager or OpenFHE device adapter.
 
+D10's [ADR](architecture-decision.md) accepts the design and its limits.
+The [backlog](implementation-backlog.md) records dependencies and runtime
+acceptance criteria; update it alongside the roadmap and journal as work passes.
+
 ## Publish with GitHub Pages
 
 ### Add the notebook to the personal website

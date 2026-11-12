@@ -302,9 +302,10 @@ choices are additional. [D9 specifies the proposed lifetimes](device-backend-con
 an implementation and allocation measurements are still needed before claiming
 a peak-memory bound.
 
-D8 freezes this source graph and the exercised array boundary. P1 stays open
-for D10's acceptance of the [D9 device/buffer/stream/cache proposal](device-backend-contract.md)
-and architecture decision.
+D8 freezes this source graph and the exercised array boundary.
+[D10's ADR](architecture-decision.md) accepts it together with the
+[D9 device/buffer/stream/cache design](device-backend-contract.md), closing P1's
+architecture gate while leaving runtime implementation and native validation open.
 P4/P6 must broaden base-conversion and cryptographic fixtures across the
 production parameter/level/key matrix. This is not a GPU implementation,
 performance result, or complete CKKS encryption/decryption integration gate.

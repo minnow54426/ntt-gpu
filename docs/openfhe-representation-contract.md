@@ -162,7 +162,8 @@ OpenFHE's separate tower allocations are not one contiguous host buffer.
 Copy values tower by tower into the flat buffer; do not reinterpret-cast the
 DCRT object or assume its NativeInteger objects have the GPU's scalar ABI.
 The [D5 dataflow map](cuda-buffer-dataflow.md) describes the current host-vector
-API and the ownership/stream work still required for D9.
+API and the ownership/stream design subsequently specified in
+[D9](device-backend-contract.md) and accepted by [D10](architecture-decision.md).
 
 ## 7. Pointwise products and active levels
 
@@ -201,8 +202,9 @@ This freezes the power-of-two NTT and DCRT array boundary. It does not freeze
 Hybrid digit order, Q/P concatenation, rounding, key layout, device ownership,
 stream/event lifetime, or CPU fallback. The [D8 graph](openfhe-hybrid-operation-graph.md)
 now specifies Hybrid digit order, Q/P layout, and the pinned CKKS reduction
-sequence; device ownership and the integration API remain D9–D10 deliverables.
-The P1 architecture exit gate remains open.
+sequence. [D9's device ownership/API design](device-backend-contract.md) is now
+accepted by [D10's ADR](architecture-decision.md), closing P1's architecture gate.
+Native runtime implementation and its exactness/failure tests remain later work.
 
 ## 9. Run the checks
 

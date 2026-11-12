@@ -62,6 +62,11 @@ fallback policy. The [D9 backend proposal](docs/device-backend-contract.md)
 includes compile-checked abstract interfaces; it does not implement a CUDA
 runtime backend or OpenFHE adapter.
 
+D10 accepts the behavioral design in [ADR 0001](docs/architecture-decision.md)
+and tracks the remaining native GPU/runtime work in the
+[implementation backlog](docs/implementation-backlog.md). P1 is complete;
+the next task is D11's GPU environment record, not a claimed CUDA result.
+
 To reuse an installation, configure with `-DNTT_ENABLE_OPENFHE_COMPAT=ON`
 and set `CMAKE_PREFIX_PATH` to its install prefix. OpenFHE is not required
 for the standalone build.

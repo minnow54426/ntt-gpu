@@ -169,6 +169,8 @@ D6's review is complete; these are explicit later implementation gates:
   against the independent bigint gate before allowing an optimized dispatch.
 
 These gaps do not block the D6 source-review deliverable. They do block claims
-of a hardened production API or GPU/OpenFHE integration. P1 remains open;
-the [D8 Hybrid graph](openfhe-hybrid-operation-graph.md) is complete.
-The next deliverable is **D9: device buffer, stream, and cache contracts**.
+of a hardened production API or GPU/OpenFHE integration. The
+[D8 Hybrid graph](openfhe-hybrid-operation-graph.md) and
+[D9 buffer/stream/cache contract](device-backend-contract.md) are complete.
+[D10's ADR](architecture-decision.md) closes P1's design gate; native hardening
+and implementation are tracked in the [backlog](implementation-backlog.md).

@@ -29,9 +29,11 @@ with interfaces in [backend_api.hpp](../include/ntt/backend_api.hpp) and tests i
 no CUDA or OpenFHE dependency into the standalone build. The current CUDA
 wrapper and its algorithms are unchanged.
 
-**D9 completes the proposal. D10 must accept the architecture and backlog.**
-P1 remains in progress; a metadata check cannot prove a physical allocation,
-an event wait, or native GPU correctness.
+**D10 accepted this design in [ADR 0001](architecture-decision.md); P1 is complete.**
+The article records the D9 proposal and its implementation limits. The ADR adds
+fixed initial budgets, admission rules and partial-submission cleanup, with an
+[implementation backlog](implementation-backlog.md). A metadata check cannot
+prove a physical allocation, an event wait, or native GPU correctness.
 
 ## 2. Carry the complete polynomial identity
 
@@ -235,7 +237,8 @@ The abstract API exposes `cache_stats()`, `set_cache_budget(bytes)`, and
 with pinned bytes counted once per entry; operand/scratch pools are separate.
 Budget is reserved before allocation. Lowering the budget evicts eligible entries
 first and fails if live pins prevent the requested bound. Trimming returns only
-bytes actually freed. D10 must select the initial budget and admission policy.
+bytes actually freed. [ADR 0001](architecture-decision.md#5-choose-initial-cache-and-admission-limits)
+selects the initial budget and admission policy; their runtime implementation is pending.
 
 Hoisted digits are explicit immutable results, not an implicit global cache.
 Their provenance includes the complete parameter snapshot, source allocation
@@ -269,8 +272,8 @@ The sizes follow 8NT bytes per T-tower polynomial. They are logical payloads,
 not a measured or proven peak allocation bound. Streaming digits can release
 scratch earlier; preserving a hoist for several rotations keeps all digits
 alive. Allocator alignment, twiddle tables, host staging, concurrent streams,
-conversion scratch and out-of-place copies add memory. D10 must choose the
-initial budget/backpressure policy; P2/P3 must measure actual live bytes.
+conversion scratch and out-of-place copies add memory. D10 accepts explicit
+budgets and fail-fast admission in ADR 0001; P2/P3 must measure actual live bytes.
 
 ## 8. Integrate OpenFHE through a transactional adapter
 
@@ -328,7 +331,7 @@ against actual Hybrid outputs and full-context key towers. It retains D8's
 .venv/bin/ctest --test-dir build/openfhe-compat/ntt-build --output-on-failure -j2
 ```
 
-D10's acceptance artifact should decide and record:
+D10's [accepted ADR](architecture-decision.md) records these decisions:
 
 - the immutable, out-of-place initial API and its device-to-device copy cost;
 - the DCRT format adapter as the first seam and its preflight-only fallback;

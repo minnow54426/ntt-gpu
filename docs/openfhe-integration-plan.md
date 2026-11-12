@@ -15,11 +15,11 @@ Update this tracker only when a deliverable passes its gate.
 
 | Field | Current value |
 |---|---|
-| Working day | **D10** |
-| Active phase | **P1 — contract and architecture freeze** |
-| Active task | Review and accept the architecture decision record and implementation backlog (D1–D9 complete) |
-| Next gate | P1 architecture review: frozen OpenFHE representation, buffer, ordering, and integration contracts |
-| Overall state | In progress |
+| Working day | **D11** |
+| Active phase | **P2 — first RTX GPU baseline (ready to start)** |
+| Active task | Provision and record the named GPU environment; P1 and D1–D10 are complete |
+| Next gate | P2: native CUDA/OpenFHE exactness and named-hardware baseline (D11–D15) |
+| Overall state | In progress; P2 awaits GPU provisioning |
 
 Hardware: RTX 5090 primary, RTX 4090 control. Use larger-memory hardware only
 when measurements justify it; see the [GPU comparison](gpu-selection-survey.md).
@@ -29,7 +29,7 @@ Status vocabulary: `DONE`, `IN PROGRESS`, `NOT STARTED`, `BLOCKED`.
 | Phase | Working days | Status | Exit artifact |
 |---|---:|---|---|
 | P0 — pre-plan correctness baseline | Before D1 | DONE | CPU oracle, schedule simulator, CUDA source, exact OpenFHE NTT gate |
-| P1 — contracts and architecture | D1–D10 | IN PROGRESS | Architecture decision record and frozen operation graph |
+| P1 — contracts and architecture | D1–D10 | DONE | [Accepted ADR](architecture-decision.md), frozen operation graph and [implementation backlog](implementation-backlog.md) |
 | P2 — first RTX GPU baseline | D11–D15 | NOT STARTED | Exact CUDA results and named-hardware baseline |
 | P3 — production GPU NTT | D16–D40 | NOT STARTED | Tuned, device-resident NTT dispatch |
 | P4 — exact base-conversion model | D41–D49 | NOT STARTED | OpenFHE-exact CPU Q↔QP oracle and fixtures |
@@ -66,6 +66,9 @@ Every production kernel must pass, in order:
 - [ ] Execution of CUDA gates on real hardware; this belongs to P2.
 
 ## P1 — contract and architecture freeze (D1–D10)
+
+**Status: DONE.** [ADR 0001](architecture-decision.md) accepts the contracts
+and implementation backlog; native runtime gates remain in later phases.
 
 | Day | Work | Required output |
 |---:|---|---|
@@ -133,7 +136,7 @@ ordered tower packing/import, and active-prefix behavior. A new opt-in core-only
 gate checks full-size formulas and three-tower operations with 50/55/60-bit
 primes against OpenFHE 1.6.1. The OpenFHE-enabled Release suite passes 14 tests
 on this Linux CPU environment. No CUDA execution or Hybrid rounding graph is
-claimed by that D7 result. D8 is documented below; the P1 architecture gate remains open.
+claimed by that D7 result. D8 and D10's later architecture acceptance are documented below.
 
 D8 complete: the [Hybrid operation graph](openfhe-hybrid-operation-graph.md)
 traces digit splitting, partial partitions, coefficient/evaluation transitions,
@@ -154,7 +157,17 @@ The portable metadata prototype is checked by `backend_contract_check` and a
 bridge to actual D8 OpenFHE output/key parameters. The opt-in Release suite
 has 16 CPU tests. Abstract interfaces compile without a CUDA dependency;
 CUDA resource management, event execution, caches and the adapter are not
-implemented. D10 must accept the proposal and implementation backlog.
+implemented. D10's acceptance is recorded below.
+
+D10 complete: [ADR 0001](architecture-decision.md) accepts the D7–D9 behavioral
+contracts and the [dependency-ordered implementation backlog](implementation-backlog.md).
+It freezes the explicit DCRT adapter, validated no-op and preflight-only fallback,
+immutable outputs, registry/lease ownership, partial-submission quarantine,
+separate configurable memory budgets and fail-fast admission. The review accepts
+P1's architecture; it does not promote the abstract API to a runtime backend.
+The existing CUDA constructor gap, native build, exactness, profiling and all
+later implementation gates remain open backlog items. D11 is next; P2 has not
+started because a native GPU environment has not been provisioned here.
 
 P1 exit gate:
 
@@ -163,17 +176,26 @@ P1 exit gate:
 - [x] Buffer views record ring size, Q/P towers, level, representation,
   ordering, device, stream, and event ownership (D9 proposal and host checks;
   runtime implementation pending).
-- [ ] The first integration seam and CPU fallback behavior are frozen.
+- [x] The first integration seam and CPU fallback behavior are frozen by
+  [ADR 0001](architecture-decision.md#3-accept-the-first-openfhe-seam-and-fallback-policy).
+- [x] Architecture review accepted and implementation work has dependencies,
+  observable acceptance criteria and explicit remaining runtime gates.
 
 ## P2 — first real GPU baseline (D11–D15)
 
 | Day | Work | Required output |
 |---:|---|---|
 | D11 | Provision the selected GPU and CUDA toolkit | Reproducible environment record |
-| D12 | Build native architecture and run smoke tests | Successful native CUDA build |
+| D12 | Build native architecture, resolve baseline safety/build blockers and run smoke tests | Native build, constructor/failure cleanup and validated smoke tests (B02) |
 | D13 | Run exact gates over all `N` and modulus widths | Correctness report |
 | D14 | Profile with CUDA events and Nsight | Kernel, L2, DRAM, occupancy, and register data |
 | D15 | Analyze and publish baseline | Raw samples, summary table, first bottleneck decision |
+
+Follow [backlog B01–B04](implementation-backlog.md#2-p2-establish-the-native-baseline).
+Constructor RAII, device ownership and input-validation blockers must be fixed
+and fault-tested before the native baseline is accepted. The setup helper's
+default CPU/46-bit checks and benchmark verdict do not substitute for the
+OpenFHE-enabled native matrix or validated timing collection.
 
 Minimum cases: zero, one, `q-1`, alternating bounds, deterministic random,
 forward, inverse, round-trip, evaluation-domain inverse, and polynomial
@@ -314,11 +336,17 @@ P7 exit gate:
 Dispatch policy:
 
 ```text
-supported parameters + GPU enabled -> CUDA backend
-GPU unavailable                    -> existing OpenFHE CPU path
-unsupported parameter combination -> explicit documented CPU fallback
-CUDA runtime failure               -> visible error, never silent corruption
+invalid input or inconsistent format    -> error
+valid same-format request               -> validated no-op
+available + supported + verified        -> CUDA backend
+unavailable/unsupported/unverified      -> CPU only if allowed before submission
+busy/budget/allocation failure          -> visible resource error
+submission attempted, then any failure  -> visible error; no automatic CPU retry
 ```
+
+The opt-in adapter defaults to `RequireDevice`. See
+[ADR 0001](architecture-decision.md) for the accepted transaction, ownership,
+cache-budget and admission rules. Production integration remains a P8 gate.
 
 P8 exit gate:
 
@@ -360,3 +388,6 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 | 2026-11-10 | D5 → D6 | Completed constructor/allocation/transfer/API map and six static source-contract checks. Recorded constructor exception cleanup and device/stream ownership gaps. Next: modular arithmetic bounds and adversarial tests. P1 exit gate remains open. | [D5 map](cuda-buffer-dataflow.md); `tests/docs/test_cuda_dataflow.py`; [daily entry](journal/2026-11-10.md) |
 | 2026-11-10 | D6 → D7 | Completed arithmetic bounds, canonical-range proof and adversarial-test inventory; added independent bigint and full-size 50/55/60-bit CPU gates. Next: OpenFHE representation/tower contract. P1 remains open. | [D6 contract](modular-arithmetic-contract.md); `arithmetic_bigint_check`; `arithmetic_transform_check`; [daily entry](journal/2026-11-10.md) |
 | 2026-11-11 | D7 → D8 | Frozen the pinned OpenFHE NTT/DCRT array contract; full-size formula, format API, root, and three-tower checks pass. P1 remains open. | [D7 contract](openfhe-representation-contract.md); [daily entry](journal/2026-11-11.md); `openfhe_representation_contract` |
+| 2026-11-11 | D8 → D9 | Completed the pinned Hybrid graph and full-size intermediate-array gate; P1 remained open for ownership and architecture. | [D8 graph](openfhe-hybrid-operation-graph.md); [daily entry](journal/2026-11-11.md#d8-freeze-the-pinned-hybrid-operation-graph) |
+| 2026-11-12 | D9 → D10 | Completed checked metadata and the backend API proposal; runtime implementation remained pending. | [D9 contract](device-backend-contract.md); 78 host checks and 16 CPU/OpenFHE CTests |
+| 2026-11-12 | D10 → D11 | Accepted ADR 0001 and the implementation backlog; P1 is DONE. P2 awaits native GPU provisioning. | [ADR](architecture-decision.md); [backlog](implementation-backlog.md); [daily review](journal/2026-11-12.md#d10-accept-architecture-and-close-p1) |
