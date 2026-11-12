@@ -185,6 +185,8 @@ record, not one faster microbenchmark.
 
 ### B09 — base conversion
 
+Upstream entry points: [`ApproxSwitchCRTBasis`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L938-L982) and [`ApproxModDown`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1020-L1055).
+
 Broaden D8's model into independent Q→QP and QP→Q CPU fixtures across the intended
 levels, tower counts and boundary coefficients. Freeze exact constants, integer
 representatives, reduction order, and separate digit-extension/ModDown plan kinds.
@@ -196,6 +198,8 @@ Canonical CRT substitution must remain a detectable negative case. Record native
 sanitizer and performance evidence before the P5 production gate.
 
 ### B10 — Hybrid runtime, keys and hoists
+
+Trace [`EvalKeySwitchPrecomputeCore`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L300-L366) → [`EvalFastKeySwitchCoreExt`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L389-L421) → [`EvalFastKeySwitchCore`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L368-L387). The full wrappers are [`RelinearizeInPlace`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemebase/base-leveledshe.cpp#L315-L329) and [`EvalFastRotationExt`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp#L595-L649).
 
 Broaden the production parameter, digit, level and key-family fixtures before
 GPU composition. Snapshot immutable A/B evaluation-key material with versioned
@@ -212,6 +216,8 @@ Record key upload reuse, peak live memory and full-operation timing.
 ## 5. P8: integrate and release
 
 ### B11 — transactional adapter
+
+Upstream boundaries: [`SetFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/ilelement.h#L474-L478), [`DCRTPoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1956-L1969), [`NativePoly::SetValues`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L226-L243) and [`DCRT move assignment`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly.h#L131-L138). These CPU APIs motivate the proposed adapter; they are not GPU adapter implementations.
 
 Implement the explicit opt-in SetFormat-equivalent DCRT seam before integrating
 broader operations. Validate every tower and outer format, use per-element

@@ -55,6 +55,13 @@ Register new documents in `docs/site.json` with source, URL, title, group, and
 summary. Use relative links to documents and code; the builder converts them
 to HTML routes or revision-pinned GitHub links.
 
+When explaining an upstream OpenFHE behavior, link the function name at the
+claim to its actual implementation in the pinned commit, with GitHub `#Lx-Ly`
+line anchors. Verify the range against that revision. Label short literal
+excerpts with the source file/lines and retain the upstream license; distinguish
+upstream implementation from our proposed APIs. Keep general project links
+for navigation rather than using them as evidence for a specific algorithm.
+
 Use `##` headings for main sections and `###` for subsections. Main headings
 populate the section sidebar automatically, including headings in HTML lessons.
 Existing anchors are preserved. Tables scroll inside the article.

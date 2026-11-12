@@ -97,11 +97,12 @@ its caches, or the transactional OpenFHE host adapter.
 
 ## 4. Prepared native exactness matrix
 
-`cuda_openfhe_exact` compares the CUDA wrapper with the independent CPU reference
-and actual OpenFHE NativePoly transforms/products at N=65536. Its prepared cases
+[The CUDA/OpenFHE test source](../tests/cuda_openfhe_tests.cpp) is registered as
+`cuda_openfhe_exact`. It compares the CUDA wrapper with the independent CPU reference
+and actual OpenFHE [`NativePoly transforms`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474)/products at N=65536. Its prepared cases
 include:
 
-- deliberately unsorted 55/50/60-bit primes with actual OpenFHE minimum roots;
+- deliberately unsorted 55/50/60-bit primes selected by [`LastPrime`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/nbtheory-impl.h#L357-L380) and [`RootOfUnity`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/nbtheory-impl.h#L190-L239);
 - the exact D8 Q/P moduli and roots, with Q and QlP bases at L=5,4,3,1;
 - zero, one, q−1, alternating bounds, x¹⁷, xᴺ⁻¹ and deterministic dense residues;
 - forward, inverse from independent evaluation arrays, round trip, pointwise

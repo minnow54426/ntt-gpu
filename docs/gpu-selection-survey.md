@@ -118,7 +118,7 @@ power policy, median, p95, and peak memory.
 | Arithmetic | u32/u64 add/subtract, high/low products, Shoup, Barrett, reference remainder; registers and spills |
 | Memory / NTT | Coalesced copy, strided gather, L2/DRAM cases, forward/inverse at N=65536, realistic tower counts |
 | Hybrid | ModUp, ModDown, decomposition, key MAC, relinearization, rotation; one request and batches |
-| Correctness | Exact pinned-OpenFHE arrays at every intermediate boundary |
+| Correctness | Exact pinned-OpenFHE arrays at every intermediate boundary: [`NTT`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474) and [`Hybrid core`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L295-L298) |
 
 See the [benchmark plan](benchmark-tuning-plan.md) for counters and result
 records. Keep kernel-only and transfer-inclusive timing separate.

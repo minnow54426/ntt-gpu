@@ -235,7 +235,7 @@
       <div class="quick-step"><b>3 · COMPUTE</b><span>Run several stages locally, with a barrier between stages.</span></div>
       <div class="quick-step"><b>4 · REGROUP</b><span>Use a far-pair pass and a near-pair pass to cover the full NTT.</span></div>
     </div>
-    <div class="status-note"><b>Current status:</b> correctness-first baseline. Results must match the OpenFHE-compatible CPU reference exactly. The strided pass is not yet coalesced, so “four logical movements” does not mean four efficient VRAM transactions.</div>
+    <div class="status-note"><b>Current status:</b> correctness-first baseline. Results must match the <a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474">OpenFHE-compatible</a> CPU reference exactly. The strided pass is not yet coalesced, so “four logical movements” does not mean four efficient VRAM transactions.</div>
   </aside>
 
   <div class="layout">

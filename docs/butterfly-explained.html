@@ -771,7 +771,7 @@ b_3&=a_0+a_1\omega^3+a_2\omega^6+a_3\omega^9=(a_0-a_2)-\omega(a_1-a_3).
         </div>
         <figcaption>Scroll horizontally on small screens. The drawing groups outputs as b₀, b₂, b₁, b₃ to show shared intermediates; the mathematical output index is still j.</figcaption>
       </figure>
-      <p>The drawing's vertical order does not prescribe memory order. Standard iterative DIT usually starts with bit-reversed inputs and produces natural-order outputs. This repository's forward DIF takes natural-order inputs and produces bit-reversed evaluations. See the <a href="#s7">N=8 network</a> and the <a href="openfhe-representation-contract.md">D7 representation contract</a> for the exact ordering.</p>
+      <p>The drawing's vertical order does not prescribe memory order. Standard iterative DIT usually starts with bit-reversed inputs and produces natural-order outputs. This repository's forward DIF takes natural-order inputs and produces bit-reversed evaluations. See the <a href="#s7">N=8 network</a> and the <a href="openfhe-representation-contract.md">D7 representation contract</a> for the exact ordering. Compare OpenFHE’s <a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474">format-to-NTT dispatch</a> in the actual implementation.</p>
 
       <h3>4. Derive the stage twiddle from its length</h3>
       <p>Use the notes' <b>bottom-up DIT combination</b>, with s starting at zero. Stage s combines two 2<sup>s</sup>-point results into one M=2<sup>s+1</sup>-point result. Here j is the offset within the current butterfly group.</p>
@@ -1020,7 +1020,7 @@ x^N &= -1 && \text{negacyclic: wrap with a minus}
         <p>Let <span class="m">\(ω = ψ^{2}\)</span> and pre-twist coefficient r as <span class="m">\(b[r] = a[r]\,ψ^r\)</span>. An ordinary cyclic NTT of b then gives <span class="m">\(\sum_{r=0}^{N-1} b_r\omega^{rk} = \sum_{r=0}^{N-1} a_r\psi^{(2k+1)r}\)</span>. In other words, the twist moves evaluation from the even powers of ψ to exactly the odd powers—the roots of x^N+1. The inverse runs the cyclic inverse and multiplies coefficient r by <span class="m">\(ψ^{-r}\)</span>.</p>
       </div>
       <h3>Derive the factors from the first split</h3>
-      <p>Choose a primitive 2N-th root ψ in the current prime field, so ψᴺ=−1, and set ω=ψ². For power-of-two N, checking ψᴺ=−1 proves that ψ has order 2N. The prime must satisfy \(2N\mid(q-1)\). OpenFHE compatibility additionally requires the <em>exact same</em> ψ as its tower parameters; another primitive root changes the output order.</p>
+      <p>Choose a primitive 2N-th root ψ in the current prime field, so ψᴺ=−1, and set ω=ψ². For power-of-two N, checking ψᴺ=−1 proves that ψ has order 2N. The prime must satisfy \(2N\mid(q-1)\). OpenFHE compatibility additionally requires the <em>exact same</em> ψ as its tower parameters (see <a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/nbtheory-impl.h#L190-L239"><code>RootOfUnity</code></a>); another primitive root changes the output order.</p>
       <div class="math typeset">\[
 F_k=\sum_{i=0}^{N-1}a_i\psi^{(2k+1)i}
 =\sum_{i=0}^{N-1}(a_i\psi^i)\omega^{ki}.

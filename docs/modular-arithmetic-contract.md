@@ -75,7 +75,7 @@ stages preserves \([0,q)\). Inverse's final multiplication by N-inverse does too
 Pointwise multiplication has the same invariant.
 
 There is **no stage where values are intentionally in \([0,2q)\) or \([0,4q)\)**.
-Feeding lazy OpenFHE/internal buffers directly into this interface without
+The upstream [`native forward NTT`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L337-L507) uses lazy intermediate arithmetic. Feeding lazy OpenFHE/internal buffers directly into this interface without
 an explicit representation contract would violate its assumptions.
 
 ### What arithmetic work is actually counted

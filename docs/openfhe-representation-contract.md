@@ -8,6 +8,11 @@ packing into the current CUDA interface. The [D8 Hybrid operation graph](openfhe
 The executable evidence is [openfhe_representation_tests.cpp](../tests/openfhe_representation_tests.cpp).
 It uses the real OpenFHE core library on CPU. No native CUDA result is claimed.
 
+Code excerpts © 2022 OpenFHE, reproduced under the [BSD 2-Clause license](site-assets/licenses/OpenFHE-BSD-2-Clause.txt). Click a code symbol or an excerpt’s file/line link to open the corresponding GitHub source.
+
+The public [NativePoly/DCRTPoly aliases][aliases] resolve to `PolyImpl` and
+`DCRTPolyImpl`; those are the class names you will see in the implementation.
+
 ## 1. The boundary in one table
 
 | Property | Required contract |
@@ -29,10 +34,30 @@ Encoding/decoding uses another embedding and is outside this NTT contract.
 
 OpenFHE's [Format enum][format] names `COEFFICIENT` and `EVALUATION`.
 The label alone does not express index ordering. For the power-of-two ring,
-[NativePoly::SwitchFormat][poly-switch] calls
-`ForwardTransformToBitReverseInPlace` or `InverseTransformFromBitReverseInPlace`.
+[`NativePoly::SwitchFormat`][poly-switch] calls
+[`ForwardTransformToBitReverseInPlace`][forward-ntt] or [`InverseTransformFromBitReverseInPlace`][inverse-ntt].
 The NTT's evaluation array is therefore bit-reversed even though its public
 format is simply `EVALUATION`.
+
+<details markdown="1">
+<summary>Read the format-to-transform dispatch</summary>
+
+[OpenFHE · `poly-impl.h:467–473`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L467-L473)
+
+```cpp
+if (m_format != Format::COEFFICIENT) {
+    m_format = Format::COEFFICIENT;
+    ChineseRemainderTransformFTT<VecType>().InverseTransformFromBitReverseInPlace(ru, co, &(*m_values));
+    return;
+}
+m_format = Format::EVALUATION;
+ChineseRemainderTransformFTT<VecType>().ForwardTransformToBitReverseInPlace(ru, co, &(*m_values));
+```
+
+The two branches call different transform entry points; changing the format is an operation on the array.
+
+</details>
+
 
 Our reference and CUDA entry points do not store an OpenFHE format flag.
 The caller must know the current domain before invoking `forward()` or
@@ -68,21 +93,39 @@ begin `1, 65537, 32769, 98305, 16385, ...`. In particular, slot 0 contains
 
 These closed forms distinguish order and scaling errors that a shared
 forward/inverse round trip could conceal. The D7 gate checks all N outputs,
-not just the first few slots.
+not just the first few slots. The upstream [inverse normalization loop][normalization] shows where the remaining N-inverse factors are applied.
 
 ## 4. Changing format versus changing its label
 
-The shared [SetFormat implementation][set-format] calls `SwitchFormat` only
+The shared [SetFormat implementation][set-format] calls [`SwitchFormat`][poly-switch] only
 when the requested format differs from the current one.
+
+<details markdown="1">
+<summary>Read SetFormat’s conditional conversion</summary>
+
+[OpenFHE · `ilelement.h:474–478`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/ilelement.h#L474-L478)
+
+```cpp
+inline void SetFormat(const Format format, uint32_t thread_limit = 0) {
+    if (this->GetFormat() != format) {
+        this->SwitchFormat(thread_limit);
+    }
+}
+```
+
+The condition is why a same-format request preserves values. Compare the label-only [`DCRTPoly::OverrideFormat`][dcrt-override] before importing GPU arrays.
+
+</details>
+
 
 | API | Effect |
 |---|---|
-| `SetFormat(current_format)` | No conversion; values remain unchanged |
-| `SetFormat(other_format)` | Runs the forward or inverse transform |
-| `SwitchFormat()` | Always toggles format and transforms values |
-| `NativePoly::SetValues(values, format)` | Assigns the values and label; does not transform them |
-| `NativePoly::OverrideFormat(format)` | Changes only the label |
-| `DCRTPoly::OverrideFormat(format)` | Changes only the outer label; does not retag or transform its NativePoly children |
+| [`SetFormat(current_format)`][set-format] | No conversion; values remain unchanged |
+| [`SetFormat(other_format)`][set-format] | Runs the forward or inverse transform |
+| [`SwitchFormat()`][poly-switch] | Always toggles format and transforms values |
+| [`NativePoly::SetValues(values, format)`][set-values] | Assigns the values and label; does not transform them |
+| [`NativePoly::OverrideFormat(format)`][poly-override] | Changes only the label |
+| [`DCRTPoly::OverrideFormat(format)`][dcrt-override] | Changes only the outer label; does not retag or transform its NativePoly children |
 
 The last two methods are not substitutes for conversion. A DCRT object with
 outer `EVALUATION` and coefficient-format children is inconsistent. Keep the
@@ -102,10 +145,10 @@ when comparing or importing an OpenFHE context. Read each tower's root.
 
 The pinned [RootOfUnity implementation][root] chooses the smallest primitive
 root by enumerating primitive powers. The D7 fixtures use this function with
-`LastPrime(bits, 2N)` for exact **50-, 55-, and 60-bit** primes. The test
+[`LastPrime(bits, 2N)`][last-prime] for exact **50-, 55-, and 60-bit** primes. The test
 independently enumerates odd root powers and checks the minimum.
 
-`FirstPrime(bits, m)` searches above \(2^{\mathrm{bits}}\); its argument is not a guarantee
+[`FirstPrime(bits, m)`][first-prime] searches above \(2^{\mathrm{bits}}\); its argument is not a guarantee
 of a prime with exactly that many bits. `LastPrime` searches below that bound
 and checks the resulting bit length. This is why the D7 matrix uses LastPrime.
 
@@ -115,6 +158,26 @@ Use a consistent root for each modulus/ring-size pair. The gate tests the
 normal OpenFHE-generated root choice. Arbitrary custom-root contexts sharing
 a modulus are not covered by this result. Do not call a global cache reset
 inside an integration adapter to work around this constraint.
+
+<details markdown="1">
+<summary>Read the FTT cache-hit condition</summary>
+
+[OpenFHE · `transformnat-impl.h:720–726`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L720-L726)
+
+```cpp
+const uint32_t ringDim = (cycloOrder >> 1);
+{
+    std::shared_lock<std::shared_mutex> rlk(TablesMutex());
+    auto it = m_tablesByModulus.find(modulus);
+    if (it != m_tablesByModulus.end() && it->second->rootReverse.GetLength() == ringDim)
+        return it->second;
+}
+```
+
+The hit checks the modulus and table length. No root comparison appears in this condition, which motivates retaining exact imported roots.
+
+</details>
+
 
 OpenFHE's bit-reversed power tables and preconditioned multiplication constants
 are internal implementation data. They are not interchangeable with this
@@ -154,7 +217,7 @@ a BigInteger polynomial containing \(Q-1\) and \(2^{64}+17\), imports it as a DC
 and checks all residues and coefficient-domain CRT reconstruction. No
 interpolation is needed to run the per-tower NTT itself.
 
-`CRTInterpolate()` requires coefficient format and returns a BigInteger Poly
+[`CRTInterpolate()`][interpolate] requires coefficient format and returns a BigInteger Poly
 with the placeholder root 1. That root is not a valid primitive 2N-th root;
 do not use the interpolated object's placeholder to configure an NTT backend.
 
@@ -181,7 +244,7 @@ three-tower DCRT polynomial by x and checks the independent coefficient rule:
 
 Both the wrap term and large-input coefficient residues are checked.
 
-`DropLastElement()` removes the last tower and its parameter. It retains the
+[`DropLastElement()`][drop] removes the last tower and its parameter. It retains the
 remaining ordered prefix without scaling or transforming values. It is not
 CKKS rescaling, ModUp, or ModDown. D7 checks this prefix behavior, including
 that dropping a copied object's last tower does not change the original's
@@ -235,17 +298,35 @@ The linked entry points lead to the statements used above.
 - [Format enum][format] and [SetFormat][set-format].
 - [NativePoly SwitchFormat][poly-switch] and [SetValues][set-values].
 - [FTT dispatch and cached tables][tables].
-- [RootOfUnity and prime selection][root].
+- [RootOfUnity][root], [FirstPrime][first-prime], and [LastPrime][last-prime].
 - [DCRT format conversion][dcrt-switch] and [tower parameters][params].
 - [DCRT interpolation][interpolate] and [dropping a tower][drop].
 
 [format]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/utils/inttypes.h#L65
-[set-format]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/ilelement.h#L474
-[poly-switch]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454
-[set-values]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L226
-[tables]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L658
-[root]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/nbtheory-impl.h#L190
-[dcrt-switch]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1956
-[params]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/ildcrtparams.h#L135
-[interpolate]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L817
-[drop]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L709
+[set-format]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/ilelement.h#L474-L478
+[poly-switch]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474
+[set-values]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L226-L243
+[tables]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L718-L730
+[root]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/nbtheory-impl.h#L190-L239
+[dcrt-switch]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1956-L1969
+[params]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/ildcrtparams.h#L135-L149
+[interpolate]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L817-L847
+[drop]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L709-L719
+
+[aliases]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/lat-backend.h#L59-L60
+
+[poly-override]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly.h#L296-L298
+
+[dcrt-override]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly.h#L875-L877
+
+[towers]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly.h#L879-L889
+
+[forward-ntt]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L337-L507
+
+[inverse-ntt]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L542-L637
+
+[normalization]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L609-L637
+
+[first-prime]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/nbtheory-impl.h#L336-L354
+
+[last-prime]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/nbtheory-impl.h#L357-L380

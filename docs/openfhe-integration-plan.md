@@ -45,7 +45,9 @@ Given the same parameters, input arrays, ciphertext components, and evaluation
 keys, the GPU path must produce the same per-tower arrays as the pinned OpenFHE
 implementation. Approximate CKKS decryption agreement is a secondary test, not
 the compatibility criterion. Key generation randomness is outside this rule;
-the fixed generated key is part of the test input.
+the fixed generated key is part of the test input. The concrete upstream path is
+[`NativePoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474) for transforms and
+[`KeySwitchCore`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L295-L298) → [`EvalFastKeySwitchCoreExt`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L389-L421) → [`ApproxModDown`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1020-L1055) for Hybrid contributions.
 
 Every production kernel must pass, in order:
 

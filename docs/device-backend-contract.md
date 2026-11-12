@@ -60,7 +60,7 @@ FTT-cache constraint; support for conflicting custom-root contexts is not implie
 Each `PolynomialLayout` adds the active Q count L, an explicit ordered list of
 `TowerRef {Q or P, index}`, domain, order, and residue encoding. M is the full
 Q count; K is the P count. The full parameter snapshot remains attached at
-reduced levels.
+reduced levels. Upstream [`ILDCRTParams`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/ildcrtparams.h#L135-L149) constructs towers in the supplied modulus/root order; [`GetAllElements()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly.h#L879-L889) exposes their individual polynomials.
 
 | Field | Initial supported contract |
 |---|---|
@@ -107,7 +107,7 @@ A reduced QP basis is a particularly important boundary:
 | Active QP, L=4 | q₀ q₁ q₂ q₃ p₀ p₁ p₂ | 0 1 2 3 5 6 7 |
 
 Shortening the full allocation to seven towers produces q₀…q₄,p₀,p₁, which is
-wrong. The validator rejects that attempted L=4 view. Materialize active QP in
+wrong. The validator rejects that attempted L=4 view. The upstream [`EvalFastKeySwitchCoreExt`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L398-L418) uses the full-key offset for exactly this case. Materialize active QP in
 a fresh contiguous allocation using the explicit tower map. A Q prefix alone
 can use a zero-copy prefix view; the full key's P suffix can also be viewed
 without copying. For initial Hybrid execution, gathering the active key into
@@ -209,6 +209,7 @@ ring size alone, or OpenFHE key tags alone are insufficient.
 | Digit conversion plans | Full parameter context including α, L, digit index, ordered source/complement bases, conversion-rule revision |
 | Evaluation-key material | Device/session, full context, immutable material ID/generation, key tag, key kind and index, packing revision |
 
+The upstream [`GetTables`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L718-L730) is the concrete cache behavior reviewed here.
 The NTT plan bundles forward/inverse powers and normalization constants. Its
 current table convention is natural ψ powers including the N endpoint. It
 cannot reuse an OpenFHE bit-reversed FTT table as if the two layouts were equal.
@@ -217,12 +218,13 @@ the operand's domain still controls which operation is valid.
 
 For digit d, the conversion-plan validator derives its contiguous Q partition
 using the full α, then verifies the exact ordered active-Q/P complement. Its
-rule revision includes D8's uncentered, **unreduced approximate CRT sum**. A
+rule revision includes D8's uncentered, **unreduced approximate CRT sum**, implemented by upstream [`ApproxSwitchCRTBasis`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L938-L982). A
 canonical-CRT plan is a different operation. ModDown needs a distinct plan kind
-for its P→active-Q conversion and P-inverse scale; the prototype's
+for its P→active-Q conversion and P-inverse scale (see [`ApproxModDown`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1020-L1055)); the prototype's
 `ConversionPlanKey` covers digit extension only.
 
-Evaluation keys are deep immutable A/B snapshots; secret keys are not uploaded.
+The proposed cache stores deep immutable A/B snapshots; secret keys are not uploaded.
+The actual OpenFHE input arrays come from [`GetAVector()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/include/key/evalkeyrelin.h#L129-L151) and [`GetBVector()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/include/key/evalkeyrelin.h#L159-L181); [`GetKeyTag()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/include/cryptoobject.h#L130-L132) returns a tag, not a digest of those arrays.
 A material ID/generation is assigned to that snapshot. Mutating the original
 OpenFHE key requires a new snapshot and identity. A rotation index or
 relinearization component is part of the identity; equal tags do not establish
@@ -281,8 +283,8 @@ budgets and fail-fast admission in ADR 0001; P2/P3 must measure actual live byte
 ## 8. Integrate OpenFHE through a transactional adapter
 
 The proposed first seam is an **explicit opt-in DCRT format-conversion adapter**
-with SetFormat-equivalent behavior. It does not replace OpenFHE's global
-`SwitchFormat` or patch every NativePoly call. This small boundary tests exact
+with [`SetFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/ilelement.h#L474-L478)-equivalent behavior. It does not replace OpenFHE's global
+[`DCRTPoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1956-L1969) or patch every NativePoly call. This small boundary tests exact
 tower packing, transform ordering, ownership and failure handling before Hybrid
 GPU integration adds conversion and key-material lifetimes.
 
@@ -291,10 +293,11 @@ The host operation is synchronous even if its internal backend is asynchronous:
 1. Snapshot the DCRT context and validate all tower metadata, labels and values.
    If the requested format already matches, return without conversion.
 2. During preflight, select the device route or an explicitly permitted CPU route.
-3. Pack each tower using `ConvertToInt()` into canonical tower-major storage.
+3. Pack each tower using [`ConvertToInt()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/ubintnat.h#L1420-L1424) into canonical tower-major storage.
    Do not reinterpret OpenFHE native integer objects as a flat `uint64_t*`.
 4. Upload, transform, download and wait. Import into a private candidate object,
    set each tower's actual format and the DCRT format, and verify metadata.
+   Compare upstream [`NativePoly::SetValues`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L226-L243) and the label-only [`DCRTPoly::OverrideFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly.h#L875-L877); neither should accidentally transform an already-computed result.
 5. Replace the caller's object only after the entire candidate succeeds.
 
 The caller must serialize access to the same host object during the operation.

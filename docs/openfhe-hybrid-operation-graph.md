@@ -11,20 +11,40 @@ The executable evidence is [openfhe_hybrid_tests.cpp](../tests/openfhe_hybrid_te
 It calls the actual OpenFHE PKE library and compares complete arrays with an
 independent unreduced-CRT formula and scalar arithmetic. These are CPU results.
 
+Code excerpts © 2022 OpenFHE, reproduced under the [BSD 2-Clause license](site-assets/licenses/OpenFHE-BSD-2-Clause.txt). Click a code symbol or an excerpt’s file/line link to open the corresponding GitHub source.
+
+
 ## 1. Read the complete path
 
-The ordinary path starts at `KeySwitchCore(c,key)`. Its output is two
+The ordinary path starts at [`KeySwitchCore(c,key)`][core]. Its output is two
 **contributions** in the active Q basis, ordered **B first, A second**.
-The ciphertext wrapper decides how to combine them with existing components.
+The [`KeySwitchInPlace`][in-place] wrapper decides how to combine them with existing components.
+
+<details markdown="1">
+<summary>Read the core’s actual call chain</summary>
+
+[OpenFHE · `keyswitch-hybrid.cpp:295–298`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L295-L298)
+
+```cpp
+std::vector<DCRTPoly> KeySwitchHYBRID::KeySwitchCore(const DCRTPoly& a, const EvalKey<DCRTPoly> evalKey) const {
+    return EvalFastKeySwitchCore(EvalKeySwitchPrecomputeCore(a, evalKey->GetCryptoParameters()), evalKey,
+                                 a.GetParams());
+}
+```
+
+Precomputation produces the digits; the fast core performs their MAC and final reduction.
+
+</details>
+
 
 <ol class="site-plan">
-<li><strong>Split the active Q towers</strong><span>Contiguous groups of up to α towers form the digits. Keep their original evaluation arrays.</span></li>
-<li><strong>Convert each digit to coefficients</strong><span>Inverse NTT only the towers in that digit.</span></li>
-<li><strong>Extend to its complement</strong><span>Approximate CRT produces coefficients in every other active Q tower and every P tower.</span></li>
-<li><strong>Return the complement to evaluations</strong><span>Forward NTT those new towers, then stitch them around the saved original digit towers.</span></li>
-<li><strong>Multiply and accumulate in QlP</strong><span>All digits contribute to two evaluation arrays, using the B and A key vectors.</span></li>
-<li><strong>Reduce each accumulated result</strong><span>Inverse NTT its P towers, approximate-switch P to active Q, forward NTT the correction, subtract, and multiply by the inverse of P.</span></li>
-<li><strong>Update the ciphertext</strong><span>Add the first contribution to c0; add or replace c1 according to the caller.</span></li>
+<li><strong><a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L300-L366">Split the active Q towers</a></strong><span>Contiguous groups of up to α towers form the digits. Keep their original evaluation arrays.</span></li>
+<li><strong><a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L300-L366">Convert each digit to coefficients</a></strong><span>Inverse NTT only the towers in that digit.</span></li>
+<li><strong><a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L938-L982">Extend to its complement</a></strong><span>Approximate CRT produces coefficients in every other active Q tower and every P tower.</span></li>
+<li><strong><a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L300-L366">Return the complement to evaluations</a></strong><span>Forward NTT those new towers, then stitch them around the saved original digit towers.</span></li>
+<li><strong><a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L389-L421">Multiply and accumulate in QlP</a></strong><span>All digits contribute to two evaluation arrays, using the B and A key vectors.</span></li>
+<li><strong><a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1020-L1055">Reduce each accumulated result</a></strong><span>Inverse NTT its P towers, approximate-switch P to active Q, forward NTT the correction, subtract, and multiply by the inverse of P.</span></li>
+<li><strong><a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L203-L215">Update the ciphertext</a></strong><span>Add the first contribution to c0; add or replace c1 according to the caller.</span></li>
 </ol>
 
 The implementation has no general coefficient-domain round trip of all QlP
@@ -47,7 +67,7 @@ P=\prod_{j=0}^{K-1}p_j,\qquad
 The source also caps the active digit count at the configured partition count.
 For valid active prefixes this does not alter the formula above. **α belongs
 to the full context; do not recompute it from L.** The last active digit may
-be shorter than α, including when only part of the first digit remains.
+be shorter than α, including when only part of the first digit remains. See [`PrecomputeCRTTables`][partitions] (full-context digit width) and [`EvalKeySwitchPrecomputeCore`][digits] (active digit count).
 
 | Object | Tower order | Representation |
 |---|---|---|
@@ -83,7 +103,7 @@ S=x+\kappa B,\qquad 0\le x<B,\qquad
 [S]_m\ne[x]_m.
 \]
 
-`ApproxSwitchCRTBasis` implements this sum using the precomputed hat inverses,
+[`ApproxSwitchCRTBasis`][basis] implements this sum using the precomputed hat inverses,
 hat residues, and modular multiplication/accumulation. Our test independently
 forms the full unreduced sum with arbitrary-precision `BigInteger` arithmetic;
 it does not read those conversion tables to compute its expected answer.
@@ -92,6 +112,27 @@ The digit is converted to coefficient format **before** this operation. Its
 complement is then transformed using each destination tower's own root. The
 digit's original evaluation towers are copied directly into their slots.
 Applying the CRT formula to evaluation coordinates would change the result.
+
+<details markdown="1">
+<summary>Read the digit’s coefficient → complement → evaluation sequence</summary>
+
+[OpenFHE · `keyswitch-hybrid.cpp:346–353`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L346-L353)
+
+```cpp
+partsCt.SetFormat(Format::COEFFICIENT, threads);
+auto partsCtCompl = partsCt.ApproxSwitchCRTBasis(cryptoParams->GetParamsPartQ(part),
+                                                 cryptoParams->GetParamsComplPartQ(sizeQl - 1, part),
+                                                 cryptoParams->GetPartQlHatInvModq(part, sizePartQl - 1),
+                                                 cryptoParams->GetPartQlHatInvModqPrecon(part, sizePartQl - 1),
+                                                 cryptoParams->GetPartQlHatModp(sizeQl - 1, part),
+                                                 cryptoParams->GetmodComplPartqBarrettMu(sizeQl - 1, part));
+partsCtCompl.SetFormat(Format::EVALUATION, threads);
+```
+
+The first format conversion is on the digit; the second is only on its newly constructed complement.
+
+</details>
+
 
 This contract uses **WITH_REDUCED_NOISE=OFF**. The centered-conversion branch
 selected by that build option is different and is outside this fixture matrix.
@@ -119,8 +160,31 @@ For the fixture **M=5, α=3, K=3**, reducing to L=4 gives:
 
 Index 4 in the active digit is p₀, while index 4 in the key is q₄.
 Using the same flat index for both silently reads the wrong key tower when
-unchecked multiplication is used. The diagnostic key gives every digit,
+unchecked multiplication is used. See [`EvalFastKeySwitchCoreExt`][key-offset] for the exact `i + delta` selection. The diagnostic key gives every digit,
 tower, and evaluation position a distinct deterministic value to expose this.
+
+<details markdown="1">
+<summary>Read reduced-level key addressing and B/A accumulation</summary>
+
+[OpenFHE · `keyswitch-hybrid.cpp:409–418`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L409-L418)
+
+```cpp
+for (uint32_t i = 0; i < sizeQlP; ++i) {
+    const auto idx = (i >= sizeQl) ? i + delta : i;
+    auto& r0 = result[0].GetAllElements()[i];
+    auto& r1 = result[1].GetAllElements()[i];
+    for (uint32_t j = 0; j < limit; ++j) {
+        const auto& cji = (*digits)[j].GetElementAtIndex(i);
+        r0.MultAccEqNoCheck(cji, bv[j].GetElementAtIndex(idx));
+        r1.MultAccEqNoCheck(cji, av[j].GetElementAtIndex(idx));
+    }
+}
+```
+
+Here `delta` is M−L. The first result uses B and the second uses A, with the same corrected key index.
+
+</details>
+
 
 <div data-hybrid-explorer>
 <label for="hybrid-level"><strong>Explore the active level</strong></label>
@@ -142,12 +206,12 @@ Z_{0,m,k}=\left[\sum_d D_{d,m,k}B_{d,\operatorname{keyIndex}(m),k}\right]_m,
 Z_{1,m,k}=\left[\sum_d D_{d,m,k}A_{d,\operatorname{keyIndex}(m),k}\right]_m.
 \]
 
-`EvalFastKeySwitchCoreExt` returns these two QlP arrays. The multiplication is
+[`EvalFastKeySwitchCoreExt`][mac] returns these two QlP arrays. The multiplication is
 pointwise; there is no NTT inside the MAC loop. All products and sums remain
 canonical residues. The evaluation key already supplies the gadget scaling:
 in private-to-private generation, its old-secret term is P times the old
 secret on that digit's Q towers, and zero on its other towers. Do not add an
-extra global twist or a guessed CRT/gadget multiplier to the digits.
+extra global twist or a guessed CRT/gadget multiplier to the digits. The [`KeySwitchGenInternal`][key-gen] private-to-private branch shows the `PModq[i] * soi` term only within that digit’s Q interval.
 
 For each accumulated array Z, extract and inverse-transform its P towers:
 
@@ -169,6 +233,28 @@ There is no floating-point rounding operation in these steps. Calling this
 “division by P” does not authorize replacing its approximate representative
 with a canonical or centered CRT representative, or with a generic rounding rule.
 
+Follow [`ApproxModDown`][mod-down] for P-tower INTT and basis conversion. Its final Q loop is:
+
+<details markdown="1">
+<summary>Read the final Q correction and P-inverse scale</summary>
+
+[OpenFHE · `dcrtpoly-impl.h:1047–1053`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1047-L1053)
+
+```cpp
+for (uint32_t i = 0; i < sizeQ; ++i) {
+    // Multiply everything by t mod Q (BGVrns only)
+    if (t > 0)
+        partP.m_vectors[i] *= t;
+    partP.m_vectors[i].SetFormat(Format::EVALUATION);
+    ans.m_vectors[i] = (m_vectors[i] - partP.m_vectors[i]) * PInvModq[i];
+}
+```
+
+For this CKKS path t=0, so the BGV-only multiplication is skipped. The correction is forward-transformed before subtraction and multiplication by P-inverse.
+
+</details>
+
+
 **Accumulate before ModDown.** Moving ModDown inside the digit sum changes
 carry/correction terms. A simple scalar illustration with q=97 and P=17 is
 \(\operatorname{Down}(16)=0\), \(\operatorname{Down}(1)=0\), but
@@ -180,13 +266,13 @@ wrong per-digit reduction order produces different arrays.
 
 | Entry point | Result and caller obligation |
 |---|---|
-| `EvalKeySwitchPrecomputeCore` | β active digit arrays in QlP; reusable for hoisted operations with compatible parameters |
-| `EvalFastKeySwitchCoreExt` | Two QlP MAC arrays; reduction is deferred |
-| `EvalFastKeySwitchCore` | Extended MAC followed by ModDown of both arrays |
-| `KeySwitchCore` | Precompute followed by the fast core; two Q contributions |
-| `KeySwitchInPlace` with two components | Add B contribution to c₀; **replace** c₁ with the A contribution |
-| `KeySwitchInPlace` with three components | Add B to c₀ and A to c₁; discard c₂ |
-| Relinearization | Switch each component from index 2 using the corresponding evaluation key, accumulate into c₀/c₁, then resize to two |
+| [`EvalKeySwitchPrecomputeCore`][digits] | β active digit arrays in QlP; reusable for hoisted operations with compatible parameters |
+| [`EvalFastKeySwitchCoreExt`][mac] | Two QlP MAC arrays; reduction is deferred |
+| [`EvalFastKeySwitchCore`][fast-core] | Extended MAC followed by ModDown of both arrays |
+| [`KeySwitchCore`][core] | Precompute followed by the fast core; two Q contributions |
+| [`KeySwitchInPlace`][in-place] with two components | Add B contribution to c₀; **replace** c₁ with the A contribution |
+| [`KeySwitchInPlace`][in-place] with three components | Add B to c₀ and A to c₁; discard c₂ |
+| [`RelinearizeInPlace`][relinearize] | Switch each component from index 2 using the corresponding evaluation key, accumulate into c₀/c₁, then resize to two |
 
 For the in-place wrapper:
 
@@ -201,14 +287,14 @@ full key families remain a later integration test.
 
 ### Delayed QP operations are distinct from digit extension
 
-`KeySwitchExt(ciphertext,addFirst)` multiplies the retained Q evaluations by P
+[`KeySwitchExt(ciphertext,addFirst)`][ext] multiplies the retained Q evaluations by P
 and appends **zero P towers**. It does not approximate-lift the original
 ciphertext into P. If `addFirst=false`, its entire first component is zero.
-`KeySwitchDown` reduces both accumulated QP components; `KeySwitchDownFirstElement`
+[`KeySwitchDown`][down] reduces both accumulated QP components; [`KeySwitchDownFirstElement`][down-first]
 reduces only the first. The test checks both addFirst settings and delayed
 addition of a QP MAC result before reduction.
 
-The pinned CKKS `EvalFastRotationExt` has another ordering requirement: it
+The pinned CKKS [`EvalFastRotationExt`][rotation] has another ordering requirement: it
 computes the extended MAC, optionally adds P times c₀ on the Q towers, then
 applies the automorphism to **both QP components**. Reduction is deferred.
 The automorphism map and full rotation API are source-traced here; their exact
@@ -279,7 +365,8 @@ still has no OpenFHE dependency. The setup script already builds all modules.
 
 ## 8. Work counts and the next boundary
 
-For one core call, counting transforms per tower rather than per launch:
+For one core call, counting transforms per tower rather than per launch, derived from
+[digit precomputation][digits] and the two [ApproxModDown calls][fast-core]:
 
 \[
 \begin{aligned}
@@ -312,14 +399,40 @@ performance result, or complete CKKS encryption/decryption integration gate.
 
 ## Pinned source references
 
-- [Hybrid key generation and ordinary/delayed core][hybrid].
+- [Hybrid key generation][key-gen] and [ordinary/delayed core][hybrid].
 - [ApproxSwitchCRTBasis and ApproxModDown][basis].
-- [Partition construction and level-specific conversion tables][params].
+- [Full-context partition construction][params].
 - [Relinearization and ciphertext component accumulation][relinearize].
 - [CKKS extended fast rotation ordering][rotation].
 
-[hybrid]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L205
-[basis]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L938
-[params]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemerns/rns-cryptoparameters.cpp#L98
-[relinearize]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemebase/base-leveledshe.cpp#L313
-[rotation]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp#L595
+[hybrid]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L203-L420
+[basis]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L938-L982
+[params]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemerns/rns-cryptoparameters.cpp#L88-L134
+[relinearize]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemebase/base-leveledshe.cpp#L315-L329
+[rotation]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp#L595-L649
+
+[core]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L295-L298
+
+[digits]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L300-L366
+
+[fast-core]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L368-L387
+
+[mac]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L389-L421
+
+[key-offset]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L398-L418
+
+[key-gen]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L58-L135
+
+[in-place]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L203-L215
+
+[ext]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L217-L244
+
+[down]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L246-L274
+
+[down-first]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L276-L293
+
+[mod-down]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1020-L1055
+
+[partitions]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemerns/rns-cryptoparameters.cpp#L88-L134
+
+[complement]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemerns/rns-cryptoparameters.cpp#L281-L313

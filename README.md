@@ -38,15 +38,15 @@ to step through the N=8 example.
 ### Exact OpenFHE compatibility
 
 The optional gate pins OpenFHE 1.6.1 at
-`b59e1f291965f14fbee5172cd83a20f5b856204f`:
+[`b59e1f291965f14fbee5172cd83a20f5b856204f`](https://github.com/openfheorg/openfhe-development/tree/b59e1f291965f14fbee5172cd83a20f5b856204f):
 
 ```sh
 bash scripts/openfhe_setup.sh
 ```
 
-It compares N=65536 `NativePoly` coefficient/evaluation conversions with our
-reference, including bit-reversed evaluation order. Its `FirstPrime(50, ...)`
-and `LastPrime(59, ...)` fixtures are 51- and 59-bit primes. Cases include zero,
+It compares N=65536 [`NativePoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474) coefficient/evaluation conversions with our
+reference, including bit-reversed evaluation order. Its [`FirstPrime(50, ...)`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/nbtheory-impl.h#L336-L354)
+and [`LastPrime(59, ...)`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/nbtheory-impl.h#L357-L380) fixtures are 51- and 59-bit primes. Cases include zero,
 maximum, ramp, random coefficients, and independent random inverse inputs.
 
 A second gate, `openfhe_representation_contract`, checks exact evaluation

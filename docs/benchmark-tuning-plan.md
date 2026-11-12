@@ -40,7 +40,9 @@ The minimum matrix is:
 | Transfer policy | device-resident, pinned end-to-end, pageable end-to-end |
 | GPU | RTX 5090 primary; RTX 4090 control |
 
-Take tower and Hybrid digit counts from the pinned OpenFHE parameter sets.
+Take tower and Hybrid digit counts from the pinned OpenFHE parameter sets:
+[`PrecomputeCRTTables`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemerns/rns-cryptoparameters.cpp#L88-L134) defines the full-context partitions,
+and [`EvalKeySwitchPrecomputeCore`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L300-L366) derives the active-level count.
 Three-limb synthetic fixtures alone are insufficient.
 
 ## 3. GPU and kernel parameters to tune

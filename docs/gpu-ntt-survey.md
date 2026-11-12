@@ -46,7 +46,7 @@ Primary code: [`ntt_kernels.cu`](../src/cuda/ntt_kernels.cu), [`dev_core.hpp`](.
 
 - The exact mathematical contract: natural-order input, bit-reversed evaluation output, exact inverse, and exact equality to the CPU oracle.
 - The shared simulator/device stage definitions where practical. Optimized arithmetic can sit behind a second policy while the reference policy remains unchanged.
-- Limb-major RNS storage as the baseline. It maps naturally to one modulus per independent transform, pointwise CKKS arithmetic, and OpenFHE's DCRT-tower model.
+- Limb-major RNS storage as the baseline. It maps naturally to one modulus per independent transform, pointwise CKKS arithmetic, and OpenFHE's [`DCRT-tower model`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly.h#L879-L889).
 - Precomputation at context construction rather than in a hot operation.
 - Named-hardware benchmark provenance and automatic correctness gates.
 

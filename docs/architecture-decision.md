@@ -61,7 +61,7 @@ The first adapter accepts only the pinned context's canonical minimum roots and
 rejects known conflicting registrations before using the shared FTT cache.
 The process must not populate that upstream cache with conflicting custom roots;
 its entries do not retain enough root identity to detect such external usage
-after the fact. Broader custom-root support requires a new reviewed contract
+after the fact (see [`GetTables`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L718-L730)). Broader custom-root support requires a new reviewed contract
 and fixtures.
 
 Out-of-place results may require an additional device-to-device copy when using
@@ -71,10 +71,10 @@ are excluded from the initial API.
 
 ## 3. Accept the first OpenFHE seam and fallback policy
 
-The first adapter is an explicit opt-in DCRT operation with SetFormat-equivalent
-behavior. It packs towers through `ConvertToInt()`, performs a backend transform,
+The first adapter is an explicit opt-in DCRT operation with [`SetFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/ilelement.h#L474-L478)-equivalent
+behavior. It packs towers through [`ConvertToInt()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/ubintnat.h#L1420-L1424), performs a backend transform,
 imports a private candidate, and commits the candidate only after complete
-success. It does not globally replace `SwitchFormat` or patch NativePoly storage.
+success. It does not globally replace [`DCRTPoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1956-L1969) or patch NativePoly storage.
 The first adapter transaction is synchronous to its caller.
 
 Validate the DCRT label, each tower's label, dimension, ordered q/ψ pairs,
