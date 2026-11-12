@@ -42,8 +42,10 @@ class CudaDataflowSourceTests(unittest.TestCase):
         self.assertEqual(len(allocations), 6)
         frees = re.findall(r"cudaFree\((device_\w+)\)", SOURCE)
         self.assertEqual(sorted(frees), sorted(expected))
-        self.assertIn("value_count = impl.limb_count * transform_length", SOURCE)
-        self.assertIn("twiddle_count = impl.limb_count * (transform_length + 1)", SOURCE)
+        self.assertIn("value_count = shape.values", SOURCE)
+        self.assertIn("twiddle_count = shape.twiddles", SOURCE)
+        self.assertIn("std::unique_ptr<Impl> impl_", HEADER)
+        self.assertIn("impl_(std::make_unique<Impl>())", SOURCE)
 
     def test_constructor_uploads_only_constants_before_public_methods(self):
         constructor = SOURCE[SOURCE.index("  Impl &impl = *impl_;"):SOURCE.index("CudaNttTransform::~")]
@@ -61,11 +63,12 @@ class CudaDataflowSourceTests(unittest.TestCase):
             body = method(name)
             self.assertEqual(body.count("cudaMemcpyHostToDevice"), uploads, name)
             self.assertEqual(body.count("cudaMemcpyDeviceToHost"), 1, name)
-            checked_operands = re.findall(r"(\w+)\.size\(\)\s*!=\s*value_count", body)
+            checked_operands = re.findall(r"detail::validate_values\([^;]*,\s*(\w+)\)", body)
             self.assertEqual(checked_operands,
                              ["values"] if uploads == 1 else
                              ["left_values", "right_values"], name)
             self.assertNotIn("cudaMalloc", body)
+            self.assertLess(body.index("DeviceGuard guard"), body.index("cudaMemcpy("))
         body = method("multiply")
         operations = re.findall(
             r"launch_forward_transform\(\*impl_, impl_->(device_operand_[ab])\)|"

@@ -27,7 +27,9 @@ with interfaces in [backend_api.hpp](../include/ntt/backend_api.hpp) and tests i
 [backend_contract_tests.cpp](../tests/backend_contract_tests.cpp). The
 `ntt::proposal` namespace makes its status explicit. These headers introduce
 no CUDA or OpenFHE dependency into the standalone build. The current CUDA
-wrapper and its algorithms are unchanged.
+wrapper and its algorithms were unchanged by D9. Later
+[offline preparation](offline-gpu-preparation.md) adds baseline ownership and
+preflight fixes without implementing this proposed resident backend.
 
 **D10 accepted this design in [ADR 0001](architecture-decision.md); P1 is complete.**
 The article records the D9 proposal and its implementation limits. The ADR adds
@@ -190,9 +192,10 @@ backend state until safe release. An unrecoverable context failure needs a
 quarantine/teardown policy rather than immediate pool reuse.
 
 D5 identified a raw-`Impl*` constructor-failure leak in the existing wrapper.
-This proposal specifies the replacement discipline; **it does not fix or test
-that CUDA failure path**. Fault injection and real runtime teardown tests belong
-in the accepted implementation backlog.
+This proposal specifies the replacement discipline. Subsequent
+[offline preparation](offline-gpu-preparation.md) fixes baseline ownership with
+`unique_ptr` and device guards; native allocation-failure injection and teardown
+tests remain in the accepted implementation backlog.
 
 ## 6. Cache semantic identities, then pin leases
 

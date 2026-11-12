@@ -7,6 +7,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # for clangd
 
 option(NTT_ENABLE_OPENFHE_COMPAT
        "Build exact NTT, representation, and Hybrid graph tests against OpenFHE 1.6.1" OFF)
+option(NTT_ENABLE_CUDA "Detect and build CUDA targets" ON)
+option(NTT_REQUIRE_CUDA "Fail configuration instead of accepting a CPU-only build" OFF)
 
 add_executable(ntt_cli src/cli.cpp)
 add_executable(ntt_tests tests/unit_tests.cpp)
@@ -18,14 +20,18 @@ add_executable(ntt_column_mapping_tests tests/column_mapping_tests.cpp)
 add_executable(ntt_tile_mapping_tests tests/tile_mapping_tests.cpp)
 add_executable(ntt_arithmetic_contract_tests tests/arithmetic_contract_tests.cpp)
 add_executable(ntt_backend_contract_tests tests/backend_contract_tests.cpp)
-foreach(t ntt_cli ntt_tests ntt_debug_example ntt_device_sim ntt_column_mapping_tests ntt_tile_mapping_tests ntt_arithmetic_contract_tests ntt_backend_contract_tests)
+add_executable(ntt_cuda_validation_tests tests/cuda_validation_tests.cpp)
+foreach(t ntt_cli ntt_tests ntt_debug_example ntt_device_sim ntt_column_mapping_tests ntt_tile_mapping_tests ntt_arithmetic_contract_tests ntt_backend_contract_tests ntt_cuda_validation_tests)
   target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_compile_options(${t} PRIVATE -Wall -Wextra -Werror)
 endforeach()
 
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME gpu_session_reporting COMMAND Python3::Interpreter -m unittest discover
+  -s ${CMAKE_CURRENT_SOURCE_DIR}/tests/tooling -v)
 add_test(NAME backend_contract_check COMMAND ntt_backend_contract_tests)
+add_test(NAME cuda_host_validation COMMAND ntt_cuda_validation_tests)
 
 add_test(NAME arithmetic_bigint_check
          COMMAND Python3::Interpreter
@@ -130,6 +136,10 @@ endif()
 # a machine with a toolkit gets ntt_cuda_cli and the GPU gates for free.
 # AutoDL images often keep nvcc only in /usr/local/cuda/bin — seed the
 # compiler from there before probing.
+if(NTT_REQUIRE_CUDA AND NOT NTT_ENABLE_CUDA)
+  message(FATAL_ERROR "NTT_REQUIRE_CUDA needs NTT_ENABLE_CUDA=ON")
+endif()
+if(NTT_ENABLE_CUDA)
 find_program(NTT_NVCC_HINT nvcc PATHS /usr/local/cuda/bin NO_DEFAULT_PATH)
 if(NOT CMAKE_CUDA_COMPILER AND NTT_NVCC_HINT)
   set(CMAKE_CUDA_COMPILER
@@ -138,27 +148,52 @@ if(NOT CMAKE_CUDA_COMPILER AND NTT_NVCC_HINT)
 endif()
 include(CheckLanguage)
 check_language(CUDA)
+if(NTT_REQUIRE_CUDA AND NOT CMAKE_CUDA_COMPILER)
+  message(FATAL_ERROR "CUDA required, but no CUDA compiler was found")
+endif()
 if(CMAKE_CUDA_COMPILER)
-  enable_language(CUDA)
-  set(CMAKE_CUDA_STANDARD 20)
-  set(CMAKE_CUDA_STANDARD_REQUIRED ON)
   # Default arch set: 89 (RTX 4090) plus 120 (RTX 5090, needs CUDA 12.8);
   # a plain value also embeds compute_89 PTX, which a 5090 driver JITs —
   # so either default runs on both rentable cards. Override with
   # -DCMAKE_CUDA_ARCHITECTURES=native (CMake >= 3.24) on a single known box.
+  set(NTT_SELECT_DEFAULT_CUDA_ARCH OFF)
   if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-    if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
-      set(CMAKE_CUDA_ARCHITECTURES 89 120)
-    else()
-      set(CMAKE_CUDA_ARCHITECTURES 89)
-    endif()
+    # Compiler version is known only after enable_language. Seed a supported
+    # explicit architecture so compiler-only configuration needs no GPU.
+    set(CMAKE_CUDA_ARCHITECTURES 89)
+    set(NTT_SELECT_DEFAULT_CUDA_ARCH ON)
   endif()
-  add_executable(ntt_cuda_cli src/cuda_cli.cpp src/cuda/ntt_kernels.cu)
-  target_include_directories(ntt_cuda_cli
-                             PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  enable_language(CUDA)
+  if(NTT_SELECT_DEFAULT_CUDA_ARCH AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+    set(CMAKE_CUDA_ARCHITECTURES "89;120" CACHE STRING "Default RTX targets" FORCE)
+  endif()
+  set(CMAKE_CUDA_STANDARD 20)
+  set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+  add_library(ntt_cuda_backend STATIC src/cuda/ntt_kernels.cu)
+  target_include_directories(ntt_cuda_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  add_executable(ntt_cuda_cli src/cuda_cli.cpp)
+  target_link_libraries(ntt_cuda_cli PRIVATE ntt_cuda_backend)
+  add_executable(ntt_cuda_host_contract_tests tests/cuda_validation_tests.cpp)
+  target_compile_definitions(ntt_cuda_host_contract_tests PRIVATE NTT_TEST_CUDA_CONSTRUCTION=1)
+  target_link_libraries(ntt_cuda_host_contract_tests PRIVATE ntt_cuda_backend)
+  add_test(NAME cuda_constructor_preflight COMMAND ntt_cuda_host_contract_tests)
+  if(NTT_ENABLE_OPENFHE_COMPAT)
+    add_executable(ntt_cuda_openfhe_tests tests/cuda_openfhe_tests.cpp)
+    target_include_directories(ntt_cuda_openfhe_tests SYSTEM PRIVATE
+      ${OpenFHE_INCLUDE} ${OpenFHE_INCLUDE}/core)
+    target_compile_options(ntt_cuda_openfhe_tests PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(ntt_cuda_openfhe_tests PRIVATE ntt_cuda_backend)
+    if(TARGET OPENFHEcore_static)
+      target_link_libraries(ntt_cuda_openfhe_tests PRIVATE OPENFHEcore_static)
+    else()
+      target_link_libraries(ntt_cuda_openfhe_tests PRIVATE OPENFHEcore)
+    endif()
+    add_test(NAME cuda_openfhe_exact COMMAND ntt_cuda_openfhe_tests)
+    set_tests_properties(cuda_openfhe_exact PROPERTIES LABELS "gpu")
+  endif()
   # Warnings on the host pass only: nvcc device-side --Werror would break
   # the build on its own unrolling notes.
-  target_compile_options(ntt_cuda_cli PRIVATE
+  target_compile_options(ntt_cuda_backend PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra,-Werror>)
 
@@ -195,4 +230,6 @@ if(CMAKE_CUDA_COMPILER)
            COMMAND $<TARGET_FILE:ntt_cuda_cli> verify ${VEC} ${VEC64K})
   set_tests_properties(cuda_verify PROPERTIES
     FIXTURES_REQUIRED "VECTORS;VECTORS_N64K")
+  set_tests_properties(cuda_oracle_crosscheck cuda_matches_ref cuda_verify PROPERTIES LABELS "gpu")
+endif()
 endif()

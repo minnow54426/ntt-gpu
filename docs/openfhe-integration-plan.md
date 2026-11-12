@@ -16,10 +16,10 @@ Update this tracker only when a deliverable passes its gate.
 | Field | Current value |
 |---|---|
 | Working day | **D11** |
-| Active phase | **P2 — first RTX GPU baseline (ready to start)** |
-| Active task | Provision and record the named GPU environment; P1 and D1–D10 are complete |
+| Active phase | **P2 — first RTX GPU baseline (offline preparation complete)** |
+| Active task | Validate and record the real GPU environment; D11 hardware gate remains open |
 | Next gate | P2: native CUDA/OpenFHE exactness and named-hardware baseline (D11–D15) |
-| Overall state | In progress; P2 awaits GPU provisioning |
+| Overall state | In progress; offline preparation complete, hardware verification pending |
 
 Hardware: RTX 5090 primary, RTX 4090 control. Use larger-memory hardware only
 when measurements justify it; see the [GPU comparison](gpu-selection-survey.md).
@@ -30,7 +30,7 @@ Status vocabulary: `DONE`, `IN PROGRESS`, `NOT STARTED`, `BLOCKED`.
 |---|---:|---|---|
 | P0 — pre-plan correctness baseline | Before D1 | DONE | CPU oracle, schedule simulator, CUDA source, exact OpenFHE NTT gate |
 | P1 — contracts and architecture | D1–D10 | DONE | [Accepted ADR](architecture-decision.md), frozen operation graph and [implementation backlog](implementation-backlog.md) |
-| P2 — first RTX GPU baseline | D11–D15 | NOT STARTED | Exact CUDA results and named-hardware baseline |
+| P2 — first RTX GPU baseline | D11–D15 | IN PROGRESS | Offline compilation/preflight ready; native exact CUDA results and named-hardware baseline pending |
 | P3 — production GPU NTT | D16–D40 | NOT STARTED | Tuned, device-resident NTT dispatch |
 | P4 — exact base-conversion model | D41–D49 | NOT STARTED | OpenFHE-exact CPU Q↔QP oracle and fixtures |
 | P5 — GPU base conversion | D50–D61 | NOT STARTED | Exact and tuned ModUp/ModDown kernels |
@@ -115,10 +115,10 @@ D5 complete: [CUDA buffers and dataflow](cuda-buffer-dataflow.md) maps the
 constructor, all six device allocations, normal destruction, per-method
 copies, launch composition, representation ownership and missing integration
 contracts. Static source checks pin this map and byte-count arithmetic; they
-are not CUDA-runtime tests. Constructor exception cleanup is an open gap:
-the raw `Impl*` can leak host state and partially allocated device buffers.
-RAII/failure-path verification and device/stream ownership must be addressed
-before the production API is accepted; no cleanup fix is claimed here.
+are not CUDA-runtime tests. D5 identified a raw-Impl constructor exception gap.
+Later [offline preparation](offline-gpu-preparation.md) changes it to unique
+ownership, adds device guards and checks host inputs, and compiles the wrapper.
+Native failure-path verification and the production resident runtime remain open.
 
 D6 complete: [Arithmetic bounds and tests](modular-arithmetic-contract.md)
 records canonical-range induction, integer-width bounds, parameter preconditions,
@@ -183,6 +183,11 @@ P1 exit gate:
 
 ## P2 — first real GPU baseline (D11–D15)
 
+[Offline preparation is complete](offline-gpu-preparation.md): stock nvcc builds
+sm_89/sm_120 binaries, 19 host/OpenFHE CTests pass with GPU tests excluded, and
+the native fixture/collection path is prepared. This starts P2 preparation but
+does not complete D11's actual GPU environment record or any later native gate.
+
 | Day | Work | Required output |
 |---:|---|---|
 | D11 | Provision the selected GPU and CUDA toolkit | Reproducible environment record |
@@ -193,9 +198,10 @@ P1 exit gate:
 
 Follow [backlog B01–B04](implementation-backlog.md#2-p2-establish-the-native-baseline).
 Constructor RAII, device ownership and input-validation blockers must be fixed
-and fault-tested before the native baseline is accepted. The setup helper's
-default CPU/46-bit checks and benchmark verdict do not substitute for the
-OpenFHE-enabled native matrix or validated timing collection.
+and fault-tested before the native baseline is accepted. The updated collector
+requires CUDA/OpenFHE coverage and propagates stage failures. Its 46-bit
+transfer-inclusive benchmark still does not replace 50–60-bit performance,
+CUDA-event timing or Nsight collection.
 
 Minimum cases: zero, one, `q-1`, alternating bounds, deterministic random,
 forward, inverse, round-trip, evaluation-domain inverse, and polynomial
@@ -391,3 +397,4 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 | 2026-11-11 | D8 → D9 | Completed the pinned Hybrid graph and full-size intermediate-array gate; P1 remained open for ownership and architecture. | [D8 graph](openfhe-hybrid-operation-graph.md); [daily entry](journal/2026-11-11.md#d8-freeze-the-pinned-hybrid-operation-graph) |
 | 2026-11-12 | D9 → D10 | Completed checked metadata and the backend API proposal; runtime implementation remained pending. | [D9 contract](device-backend-contract.md); 78 host checks and 16 CPU/OpenFHE CTests |
 | 2026-11-12 | D10 → D11 | Accepted ADR 0001 and the implementation backlog; P1 is DONE. P2 awaits native GPU provisioning. | [ADR](architecture-decision.md); [backlog](implementation-backlog.md); [daily review](journal/2026-11-12.md#d10-accept-architecture-and-close-p1) |
+| 2026-11-12 | D11 preparation | Completed stock CUDA sm_89/sm_120 compilation, baseline ownership/preflight fixes, native fixture compilation and tested failure-aware session collection. P2 preparation is in progress; D11 hardware acceptance and native gates remain open. | [Preparation guide](offline-gpu-preparation.md); 19 host/OpenFHE CTests; [daily entry](journal/2026-11-12.md#offline-preparation-before-gpu-rental) |

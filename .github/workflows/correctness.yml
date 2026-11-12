@@ -1,0 +1,39 @@
+name: Correctness and CUDA compilation
+on:
+  push:
+    branches: [main]
+    paths: ['include/**', 'src/**', 'tests/**', 'scripts/**', 'CMakeLists.txt', '.github/workflows/correctness.yml']
+  pull_request:
+    paths: ['include/**', 'src/**', 'tests/**', 'scripts/**', 'CMakeLists.txt', '.github/workflows/correctness.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build CPU targets
+        run: |
+          cmake -S . -B build/cpu -DCMAKE_BUILD_TYPE=Release -DNTT_ENABLE_CUDA=OFF
+          cmake --build build/cpu -j2
+      - name: Run CPU and session-reporting gates
+        run: ctest --test-dir build/cpu --output-on-failure
+  cuda-compile:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned compiler-only toolkit
+        run: python scripts/install_cuda_toolkit.py
+      - name: Compile both GPU architectures without a driver
+        run: |
+          cmake -S . -B build/cuda-compile -DCMAKE_BUILD_TYPE=Release \
+            -DNTT_REQUIRE_CUDA=ON \
+            -DCMAKE_CUDA_COMPILER="$GITHUB_WORKSPACE/build/toolchains/cuda-13.0.2/bin/nvcc" \
+            '-DCMAKE_CUDA_ARCHITECTURES=89;120'
+          cmake --build build/cuda-compile -j2
+      - name: Run host checks only; native GPU gates remain unrun
+        run: ctest --test-dir build/cuda-compile -LE gpu --output-on-failure

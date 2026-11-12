@@ -36,16 +36,19 @@ cmake -S "${src_dir}" -B "${openfhe_build}" \
   -DBUILD_BENCHMARKS=OFF \
   -DBUILD_EXTRAS=OFF \
   -DWITH_OPENMP=OFF \
+  -DNATIVE_SIZE=64 \
+  -DWITH_REDUCED_NOISE=OFF \
   -DWITH_NATIVEOPT=OFF
 # OpenFHE's install manifest includes core, PKE, and BinFHE archives even when
 # this first compatibility executable links only core. Build the complete
 # library set now: the D8 Hybrid graph gate links PKE and its dependencies.
-cmake --build "${openfhe_build}" --target allmodules -j
+cmake --build "${openfhe_build}" --target allmodules -j"${NTT_BUILD_JOBS:-2}"
 cmake --install "${openfhe_build}"
 
 cmake -S "${repo_root}" -B "${ntt_build}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DNTT_ENABLE_OPENFHE_COMPAT=ON \
+  -DNTT_ENABLE_CUDA=OFF \
   -DCMAKE_PREFIX_PATH="${install_dir}"
-cmake --build "${ntt_build}" -j
+cmake --build "${ntt_build}" -j"${NTT_BUILD_JOBS:-2}"
 ctest --test-dir "${ntt_build}" --output-on-failure

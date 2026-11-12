@@ -5,6 +5,9 @@ API. Read it alongside the [public interface](../include/ntt/cuda_ntt.hpp),
 [implementation and launchers](../src/cuda/ntt_kernels.cu), and
 [kernel schedule](ntt-65536-work-distribution.html).
 
+Updated after [offline GPU preparation](offline-gpu-preparation.md): ownership,
+validation and device guards now compile with nvcc; real GPU behavior is pending.
+
 ## The big picture: N=65536, three towers
 
 One `CudaNttTransform` represents one fixed ring size and a fixed list of RNS
@@ -29,12 +32,14 @@ does **not** preserve a transfer-free pipeline.
 
 ## Constructor: what happens, in order
 
-1. Allocate `Impl` with `new Impl{}`; all six CUDA pointers start as null.
-2. Reject empty moduli or a moduli/root count mismatch. Store N and limb count K.
+1. Create `Impl` with `make_unique`; all six CUDA pointers start as null and the
+   owning-device sentinel is −1. Constructor exceptions destroy this partial state.
+2. Validate N in [2,65536], matching nonempty tower lists, prime q<2⁶³,
+   canonical primitive roots and checked buffer extents. Store N and limb count K.
 3. Set tile length `min(256,N)` and column length `N/256`.
 4. For every limb, construct a `NegacyclicNtt` CPU reference and build powers
    of ψ and ψ-inverse for exponents **0 through N inclusive**. Compute N-inverse.
-5. Allocate the six persistent CUDA buffers listed below. Host allocations
+5. Capture the current CUDA device, then allocate the six persistent buffers. Host allocations
    have already occurred; parameter checks precede **device** allocation.
 6. Upload both power tables, the moduli, and inverse lengths: four H2D copies.
 7. Record row-grid count `max(1,N/256)` and elementwise-grid count
@@ -42,8 +47,8 @@ does **not** preserve a transfer-free pipeline.
 
 The CPU constructor checks power-of-two N≥2, `(q−1) % (2N) == 0`,
 `ψ^N mod q == q−1`, and q>N. It assumes prime q; it does not itself run a
-primality test. The parameter generator is a separate source of checked
-primes. See [parameter generation](../include/ntt/param_gen.hpp).
+primality test. The wrapper now adds that prime/range/extent validation in
+[cuda_validation.hpp](../include/ntt/cuda_validation.hpp) before any CUDA call.
 
 After construction, temporary host power-table/inverse-length vectors are
 released. `Impl` retains the moduli vector and per-limb CPU references, not a
@@ -64,14 +69,17 @@ Every stored element is `uint64_t`.
 | `device_moduli` | 3 / 24 B | q for each limb | Constructor uploads; arithmetic kernels read |
 | `device_inverse_transform_lengths` | 3 / 24 B | N-inverse modulo each q | Constructor uploads; final scale kernel reads |
 
-`CudaNttTransform` owns `Impl*`; `Impl` owns the CUDA pointers. They are private:
+`CudaNttTransform` owns `unique_ptr<Impl>`; `Impl` owns the CUDA pointers. They are private:
 callers cannot retain a borrowed device-buffer view. Copy construction and
 copy assignment are deleted. No move operations are declared; this class is
 not currently movable either. Do not use one instance concurrently: public
 operations share and overwrite A/B and there is no locking or per-call scratch.
 
-On normal destruction, `~CudaNttTransform()` deletes `Impl`, whose destructor
-calls `cudaFree` on each pointer. Free errors are deliberately ignored. Do not
+On normal destruction or constructor unwinding, `unique_ptr` destroys `Impl`.
+Its destructor selects the owning device, calls `cudaFree` on each pointer and
+restores the previous device. Host-preflight failure skips CUDA entirely.
+Device-selection/free errors cannot be reported by this nonthrowing destructor;
+a failed device selection skips freeing rather than using a different device. Do not
 infer safe concurrent destruction or synchronization with unrelated GPU work.
 
 ### Exact byte counts (requested allocations, not measured device usage)
@@ -111,8 +119,9 @@ K*N entries and recover the limb by integer division by N.
 | `multiply(left,right)` | Natural coefficients → natural negacyclic product | Left is passed by value; returns its result buffer | H2D A+B, 2 forwards + pointwise + inverse, D2H A: 3 copies, 8 launches |
 
 Inputs must contain K*N residues in their corresponding `[0,q[k])` ranges.
-Methods check lengths, but do not scan residue ranges or store a runtime
-coefficient/evaluation tag. The caller is responsible for representation and
+Methods now check lengths and scan canonical residue ranges before upload, then
+select the owning device. They do not store a runtime coefficient/evaluation tag.
+The caller is responsible for representation and
 parameter compatibility. A vector from another modulus set with the same
 length is not rejected merely for having different provenance.
 
@@ -183,25 +192,22 @@ timing.
 
 ## Open ownership and integration issues
 
-- **Constructor exception cleanup:** `impl_` is a raw pointer initialized with
-  `new Impl{}`. If the constructor subsequently throws, the enclosing object's
-  destructor is not run and nothing in the constructor deletes that pointer.
-  Invalid parameters can leak host state; allocation/upload failure can also
-  leak previously allocated CUDA buffers. This is a source-inspected cleanup
-  gap, not a fault-injection result. Introduce RAII in a dedicated implementation
-  change and verify allocation/upload failure paths before production use.
-- No device identifier is captured in the object and no device guard is used
-  around operations/destruction. Multi-device ownership is not specified.
+- **Constructor cleanup:** the original raw-Impl ownership gap is repaired with
+  `unique_ptr`. Partial device state now reaches the cleanup destructor during
+  unwinding. Real allocation/upload failure injection remains required; host
+  rejection tests do not prove CUDA cleanup under a failed runtime/context.
+- The wrapper captures its owning device and guards operations/destruction.
+  Native wrong-device, restore-failure and cleanup-error tests are still open.
 - No stream/event lifetime contract, buffer view, representation/level tag,
   evaluation-key cache, or OpenFHE Q/P base-switch integration exists in this
   interface. Reusable allocations are not the final integration API.
-- Native CUDA compilation and launch/barrier behavior are still unverified
-  here. CPU schedule tests do not compile or run this CUDA wrapper.
+- The wrapper compiles and links for sm_89/sm_120 with stock CUDA 13.0.
+  Launch/barrier, arithmetic and driver behavior remain unverified on hardware.
 
 [D9's backend proposal](device-backend-contract.md), accepted by
 [D10's ADR](architecture-decision.md), specifies these ownership/API decisions;
-the production device API and
-RAII implementation still require explicit failure/lifetime tests. The
+the production device API and baseline RAII changes still require explicit
+native failure/lifetime tests. The
 [D6 arithmetic review](modular-arithmetic-contract.md) examines arithmetic
 bounds, parameter assumptions, and adversarial exactness.
 

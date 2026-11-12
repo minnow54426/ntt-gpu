@@ -130,6 +130,8 @@ own session; user-supplied structs are not authority. Constructor unwinding uses
 RAII, each runtime call uses the owning device guard, and `close()` drains and
 reports errors. Destructors do not throw. The [D5 raw-Impl cleanup gap](cuda-buffer-dataflow.md#open-ownership-and-integration-issues)
 is a release blocker tracked as B02, not a fix delivered by this ADR.
+Subsequent [offline preparation](offline-gpu-preparation.md) repairs baseline
+ownership in source and compiles it; B02's native fault verification stays open.
 
 Do not automatically call `cudaDeviceReset` to recover a session in a shared
 process: it can invalidate allocations owned by other users of the device.
@@ -224,7 +226,9 @@ Review validation reruns the 16-test CPU/OpenFHE Release suite, documentation
 unit tests, interactive mathematics, route/fragment checks, and desktop/mobile
 browser checks. Exact observed results are appended to the
 [daily journal](journal/2026-11-12.md#d10-accept-architecture-and-close-p1).
-No CUDA compiler or GPU is available in this review environment.
+At D10 acceptance, no CUDA compiler or GPU was available in the review environment.
+A compiler-only toolkit was installed during later
+[offline preparation](offline-gpu-preparation.md); real GPU evidence is still pending.
 
 Any later change to residue encoding, root conventions, public aliasing,
 submission/fallback boundaries, ownership, or resource-accounting semantics

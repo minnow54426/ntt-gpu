@@ -144,6 +144,11 @@ D10's [ADR](architecture-decision.md) accepts the design and its limits.
 The [backlog](implementation-backlog.md) records dependencies and runtime
 acceptance criteria; update it alongside the roadmap and journal as work passes.
 
+The [offline preparation guide](offline-gpu-preparation.md) covers compiler-only
+CUDA builds, host checks and native session collection. GPU tests use the `gpu`
+label: `ctest --test-dir build/cuda-offline13 -LE gpu --output-on-failure`
+excludes them. Such a passing host suite is not a GPU correctness result.
+
 ## Publish with GitHub Pages
 
 ### Add the notebook to the personal website

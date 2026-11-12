@@ -3,8 +3,10 @@
 **Accepted by [ADR 0001](architecture-decision.md) · 2026-11-12 · N=65536**
 
 P1's contracts are complete. The next working day is **D11**: provision and
-record the native GPU environment. Every item below is **NOT STARTED**. Design
-acceptance and portable CPU checks do not satisfy their CUDA/runtime gates.
+record the native GPU environment. B01–B04 now have
+[completed offline preparation](offline-gpu-preparation.md); their native
+acceptance gates remain open. B05–B12 are **NOT STARTED**. Design acceptance,
+compiler-only builds and portable CPU checks do not satisfy CUDA/runtime gates.
 
 The [95-working-day roadmap](openfhe-integration-plan.md) retains its phase
 boundaries. Each item lists a deliverable, dependencies and acceptance criteria.
@@ -60,6 +62,9 @@ compiler and driver queries. A CPU machine, toolkit version string alone, or PTX
 fallback without a native build does not complete B01/B02. This task does not
 provision or rent hardware as part of D10.
 
+Offline status: the compiler/toolchain record and collection scripts are ready.
+Actual GPU/driver discovery and native device execution are still pending.
+
 ### B02 — native build and baseline safety
 
 Work in [cuda_ntt.hpp](../include/ntt/cuda_ntt.hpp) and
@@ -69,6 +74,11 @@ validate checked extents and supported canonical inputs before enqueue.
 Resolve compiler/architecture blockers exposed by the first native build.
 Keep the baseline arithmetic and transform convention intact.
 
+Offline status: unique ownership, device guards and checked host preflight are
+implemented; sm_89/sm_120 compilation and driverless invalid-constructor checks
+pass. Native allocation/upload fault injection and context-error cleanup remain
+required before B02 is complete.
+
 **Acceptance:** native build and smoke run; injected failures at each allocation
 and constant upload unwind all prior allocations; invalid inputs submit no work;
 normal/destructor cleanup uses the owning device and does not throw. Update the
@@ -76,6 +86,9 @@ normal/destructor cleanup uses the owning device and does not throw. Update the
 match the actual fix. Static source checks alone cannot complete this item.
 
 ### B03 — exact CUDA matrix
+
+Offline status: `cuda_openfhe_exact` is compiled and registered with real
+50/55/60-bit OpenFHE and D8 level/basis fixtures. All native cases remain unrun.
 
 Extend the native harness to import the exact OpenFHE fixture moduli, roots,
 input arrays and expected arrays. At N=65536 cover 50/55/60-bit primes, active
@@ -101,11 +114,12 @@ warm-up, median/p5/p95, workload metadata and `ptxas` resource reports. Profile
 the strided column pass's sectors/requested byte, L2/DRAM traffic, bank conflicts,
 occupancy, registers/spills and launch gaps.
 
-Make the collection path fail visibly on a failed benchmark/profiler command.
-The current [AutoDL helper](../scripts/autodl_setup.sh) runs a default build
-without the optional OpenFHE gates and does not preserve benchmark failure as
-its final verdict. Harden that reporting before using it as release evidence;
-retain failing logs and never publish an all-green summary from partial work.
+The [session collector](../scripts/gpu_session.py), called by the
+[AutoDL helper](../scripts/autodl_setup.sh), now requires CUDA/OpenFHE coverage,
+retains logs and propagates failed stages, including benchmarks. Eleven host
+control-flow tests exercise those failure classifications. Actual timings,
+CUDA events, raw samples and profiler collection are still pending; its basic
+46-bit wall-clock benchmark does not complete B04.
 
 **Acceptance:** reproducible raw results, exact-gate status and one evidence-backed
 first bottleneck decision on named hardware. Follow the

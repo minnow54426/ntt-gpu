@@ -151,10 +151,12 @@ D6's review is complete; these are explicit later implementation gates:
   compare each forward/inverse/pointwise result and canonical range, then run
   compute-sanitizer race/memory checks and test launch failures. CPU success
   does not establish nvcc support, device reduction correctness, or timing.
-- **D9/API hardening:** define rejection policy for noncanonical residues,
-  incompatible roots, composite moduli, zero/oversized dimensions, and
-  mismatched vector/tower metadata. Add negative tests when those contracts
-  are implemented; do not claim current APIs reject all invalid inputs.
+- **API hardening:** D9/D10 define the contracts. Later
+  [offline preparation](offline-gpu-preparation.md) adds baseline rejection of
+  noncanonical residues, invalid roots, composite moduli, unsafe dimensions
+  and vector lengths, with host negative tests. Runtime format/provenance tags,
+  device failure paths and the production resident API remain later gates;
+  current APIs do not reject every possible misuse.
 - **Parameter helpers:** `find_primes` currently assumes safe shifts and a
   nonzero, nonoverflowing `2N`. Invalid bit counts can cause undefined shifts;
   `find_psi` assumes a compatible prime q>3 and has no attempt limit. These

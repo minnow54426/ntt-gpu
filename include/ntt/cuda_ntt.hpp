@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <iosfwd>
+#include <memory>
 #include <vector>
 
 namespace ntt {
@@ -28,9 +29,9 @@ class CudaNttTransform {
 public:
   // n: power-of-two transform length; q[k]/psi[k]: per-limb prime and
   // primitive 2n-th root. Parameters are validated by constructing the
-  // CPU reference per limb (throws the same exceptions as
-  // NegacyclicNtt) before device buffers are allocated; twiddle tables are
-  // built with the reference arithmetic and uploaded once.
+  // CPU reference per limb. Host preflight also checks prime moduli below
+  // 2^63, canonical roots, checked extents and N<=65536 before any CUDA call.
+  // Twiddle tables are built with the reference arithmetic and uploaded once.
   CudaNttTransform(uint64_t transform_length, const std::vector<uint64_t> &moduli,
                    const std::vector<uint64_t> &primitive_roots);
   ~CudaNttTransform();
@@ -61,7 +62,7 @@ public:
 
 private:
   struct Impl; // CUDA pointers and launch geometry live in the .cu
-  Impl *impl_;
+  std::unique_ptr<Impl> impl_;
 };
 
 // Timing sweep for the bench subcommand (implemented in the .cu): for
@@ -74,5 +75,7 @@ private:
 // an unnamed machine (README rule).
 void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
                uint64_t limb_count, std::ostream &output);
+// Requires a usable GPU; compiler-only preparation must not call this.
+void describe_device(std::ostream &output);
 
 } // namespace ntt::cuda

@@ -5,7 +5,8 @@ switching, and OpenFHE integration. The target workload is N=65,536 on RTX 5090,
 with RTX 4090 as the compatibility control.
 
 **Current state:** the CPU reference, Python oracle, portable GPU-schedule
-simulator, and OpenFHE transform/representation/Hybrid graph gates are implemented. CUDA source is ready;
+simulator, and OpenFHE transform/representation/Hybrid graph gates are implemented.
+CUDA binaries compile for `sm_89` and `sm_120` with a compiler-only toolkit;
 execution on a real GPU remains the next hardware gate. CPU simulation does
 not validate GPU barriers or launch behavior.
 
@@ -15,19 +16,22 @@ Requires CMake, a C++20 compiler, and Python 3. CUDA is optional and detected
 automatically.
 
 ```sh
-cmake -S . -B build
+cmake -S . -B build -DNTT_ENABLE_CUDA=OFF
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-The twelve portable checks cover vector generation at N=64/1024/65536, unit
+The fifteen portable checks cover vector generation at N=64/1024/65536, unit
 tests, the independent Python oracle, the shared device schedule, column and
 tile index/twiddle proofs in both directions, arithmetic exactness and
-full-size adversarial transforms, and the N=8 debug example. Small fixtures keep the
+full-size adversarial transforms, backend metadata, host CUDA preflight, session
+failure reporting, and the N=8 debug example. Small fixtures keep the
 quadratic oracle and schoolbook multiplication practical.
 
-With nvcc, three more gates compare CUDA with the same oracle and CPU
-reference. Array ordering, forward/inverse results, round trips, and polynomial
+With nvcc, three GPU gates compare CUDA with the same oracle and CPU
+reference. Enabling OpenFHE adds a fourth direct CUDA/OpenFHE gate. A separate
+compiled-wrapper constructor check requires no GPU. Array ordering,
+forward/inverse results, round trips, and polynomial
 multiplication must agree exactly. See [run and debug](docs/vscode-debugging.md)
 to step through the N=8 example.
 
@@ -73,14 +77,21 @@ for the standalone build.
 
 ### First session on a rented GPU
 
+Finish the [offline preparation](docs/offline-gpu-preparation.md) first. On the
+GPU image, use the selected clean checkout and an existing pinned OpenFHE prefix:
+
 ```sh
 bash scripts/autodl_setup.sh
 ```
 
-The script finds nvcc, updates source, builds, runs the gates, benchmarks N=65536,
-and writes hardware details and results to `VERDICT.txt`. Override the checkout,
-architecture, or benchmark arguments with `NTT_REPO_DIR`, `NTT_CUDA_ARCH`, and
-`NTT_BENCH_ARGS`.
+The script records hardware/toolchain details, requires CUDA and OpenFHE test
+registration, builds, runs exact tests and sanitizer smoke checks, and collects
+the 46-bit transfer-inclusive baseline benchmark. Each session writes logs and
+`report.json` under an ignored `bench-results-*` directory. Any failed stage
+returns nonzero. It does not update source, install packages or change drivers.
+Select paths with `NTT_REPO_DIR`, `NTT_CUDA_ROOT`, and `NTT_OPENFHE_PREFIX`;
+`NTT_CUDA_ARCH` defaults to `native`. See the preparation guide for full commands
+and the remaining P2 gates.
 
 The default build targets `sm_89` and, with CUDA 12.8+, `sm_120`. For one known
 GPU, use `-DCMAKE_CUDA_ARCHITECTURES=native` (CMake 3.24+).

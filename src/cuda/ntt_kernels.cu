@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "ntt/cuda_ntt.hpp"
+#include "ntt/cuda_validation.hpp"
 #include "ntt/dev_core.hpp"
 #include "ntt/mod_arith.hpp"
 #include "ntt/ntt.hpp"
@@ -48,6 +49,26 @@ namespace {
 // the simulator against the CPU reference.
 constexpr uint32_t kThreadsPerBlock = 256;
 constexpr uint64_t kPassSplitWidth = 256;
+
+class DeviceGuard {
+  int previous_;
+  bool changed_;
+
+public:
+  explicit DeviceGuard(int owner) : previous_(-1), changed_(false) {
+    CHECK_CUDA(cudaGetDevice(&previous_));
+    if (previous_ != owner) {
+      CHECK_CUDA(cudaSetDevice(owner));
+      changed_ = true;
+    }
+  }
+  ~DeviceGuard() noexcept {
+    if (changed_)
+      (void)cudaSetDevice(previous_);
+  }
+  DeviceGuard(const DeviceGuard &) = delete;
+  DeviceGuard &operator=(const DeviceGuard &) = delete;
+};
 
 // --- pass 1: one block per strided group ----------------------------------
 // The far stages (pair distance is a multiple of 256) pair values with the
@@ -208,6 +229,7 @@ __global__ void inverse_scale_kernel(uint64_t *values,
 
 // --- Impl: device buffers + launch geometry ------------------------------
 struct CudaNttTransform::Impl {
+  int device = -1;
   uint64_t transform_length = 0;
   uint64_t limb_count = 0;
   uint64_t contiguous_tile_length = 0;
@@ -227,13 +249,21 @@ struct CudaNttTransform::Impl {
   uint32_t contiguous_tile_block_count = 0;
   uint32_t elementwise_block_count = 0;
 
-  ~Impl() { // noexcept by rule: frees ignore errors
-    cudaFree(device_operand_a);
-    cudaFree(device_operand_b);
-    cudaFree(device_twiddle_powers);
-    cudaFree(device_inverse_twiddle_powers);
-    cudaFree(device_moduli);
-    cudaFree(device_inverse_transform_lengths);
+  ~Impl() noexcept {
+    if (device < 0)
+      return; // host preflight failed before any CUDA call
+    try {
+      DeviceGuard guard(device);
+      cudaFree(device_operand_a);
+      cudaFree(device_operand_b);
+      cudaFree(device_twiddle_powers);
+      cudaFree(device_inverse_twiddle_powers);
+      cudaFree(device_moduli);
+      cudaFree(device_inverse_transform_lengths);
+    } catch (...) {
+      // Device selection/context failure cannot be repaired by a destructor.
+      // Never free on a different device; native failure-path testing remains required.
+    }
   }
 };
 
@@ -243,7 +273,8 @@ namespace {
 // sequences src/device_sim.cpp walks: forward = strided pass then tile
 // pass; inverse = tile pass, strided pass, n^-1 scale. Forward uses two
 // launches and inverse uses three (one fewer each when n <= 256).
-void launch_forward_transform(CudaNttTransform::Impl &impl, uint64_t *device_values) {
+template <class Implementation>
+void launch_forward_transform(Implementation &impl, uint64_t *device_values) {
   if (impl.transform_length > kPassSplitWidth) {
     forward_strided_group_kernel<<<
         dim3(kPassSplitWidth, static_cast<unsigned>(impl.limb_count)),
@@ -260,7 +291,8 @@ void launch_forward_transform(CudaNttTransform::Impl &impl, uint64_t *device_val
   CHECK_CUDA(cudaGetLastError());
 }
 
-void launch_inverse_transform(CudaNttTransform::Impl &impl, uint64_t *device_values) {
+template <class Implementation>
+void launch_inverse_transform(Implementation &impl, uint64_t *device_values) {
   inverse_contiguous_tile_kernel<<<
       dim3(impl.contiguous_tile_block_count, static_cast<unsigned>(impl.limb_count)),
       impl.threads_per_block, impl.contiguous_tile_length * sizeof(uint64_t)>>>(
@@ -287,10 +319,10 @@ void launch_inverse_transform(CudaNttTransform::Impl &impl, uint64_t *device_val
 CudaNttTransform::CudaNttTransform(uint64_t transform_length,
                                    const std::vector<uint64_t> &moduli,
                                    const std::vector<uint64_t> &primitive_roots)
-    : impl_(new Impl{}) {
+    : impl_(std::make_unique<Impl>()) {
   Impl &impl = *impl_;
-  if (moduli.size() != primitive_roots.size() || moduli.empty())
-    throw std::invalid_argument("one (q, psi) pair per limb required");
+  const auto shape =
+      detail::validate_parameters(transform_length, moduli, primitive_roots);
   impl.transform_length = transform_length;
   impl.limb_count = moduli.size();
   impl.moduli = moduli;
@@ -301,8 +333,8 @@ CudaNttTransform::CudaNttTransform(uint64_t transform_length,
   std::vector<uint64_t> twiddle_powers;
   std::vector<uint64_t> inverse_twiddle_powers;
   std::vector<uint64_t> inverse_transform_lengths;
-  twiddle_powers.reserve(impl.limb_count * (transform_length + 1));
-  inverse_twiddle_powers.reserve(impl.limb_count * (transform_length + 1));
+  twiddle_powers.reserve(shape.twiddles);
+  inverse_twiddle_powers.reserve(shape.twiddles);
   for (uint64_t limb_index = 0; limb_index < impl.limb_count; ++limb_index) {
     const uint64_t modulus = moduli[limb_index];
     const uint64_t primitive_root = primitive_roots[limb_index];
@@ -319,8 +351,9 @@ CudaNttTransform::CudaNttTransform(uint64_t transform_length,
     }
     inverse_transform_lengths.push_back(inv_mod(transform_length, modulus));
   }
-  const size_t value_count = impl.limb_count * transform_length;
-  const size_t twiddle_count = impl.limb_count * (transform_length + 1);
+  const size_t value_count = shape.values;
+  const size_t twiddle_count = shape.twiddles;
+  CHECK_CUDA(cudaGetDevice(&impl.device));
   CHECK_CUDA(cudaMalloc(&impl.device_operand_a, value_count * sizeof(uint64_t)));
   CHECK_CUDA(cudaMalloc(&impl.device_operand_b, value_count * sizeof(uint64_t)));
   CHECK_CUDA(cudaMalloc(&impl.device_twiddle_powers, twiddle_count * sizeof(uint64_t)));
@@ -345,9 +378,7 @@ CudaNttTransform::CudaNttTransform(uint64_t transform_length,
       static_cast<uint32_t>((value_count + kThreadsPerBlock - 1) / kThreadsPerBlock);
 }
 
-CudaNttTransform::~CudaNttTransform() {
-  delete impl_;
-}
+CudaNttTransform::~CudaNttTransform() = default;
 
 uint64_t CudaNttTransform::n() const {
   return impl_->transform_length;
@@ -364,9 +395,8 @@ const NegacyclicNtt &CudaNttTransform::ref(uint64_t limb_index) const {
 
 void CudaNttTransform::forward(std::vector<uint64_t> &values) {
   const size_t value_count = impl_->limb_count * impl_->transform_length;
-  if (values.size() != value_count)
-    throw std::length_error("buffer size " + std::to_string(values.size()) +
-                            " != limbs*n " + std::to_string(value_count));
+  detail::validate_values(impl_->transform_length, impl_->moduli, values);
+  DeviceGuard guard(impl_->device);
   CHECK_CUDA(cudaMemcpy(impl_->device_operand_a, values.data(),
                         value_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
   launch_forward_transform(*impl_, impl_->device_operand_a);
@@ -376,9 +406,8 @@ void CudaNttTransform::forward(std::vector<uint64_t> &values) {
 
 void CudaNttTransform::inverse(std::vector<uint64_t> &values) {
   const size_t value_count = impl_->limb_count * impl_->transform_length;
-  if (values.size() != value_count)
-    throw std::length_error("buffer size " + std::to_string(values.size()) +
-                            " != limbs*n " + std::to_string(value_count));
+  detail::validate_values(impl_->transform_length, impl_->moduli, values);
+  DeviceGuard guard(impl_->device);
   CHECK_CUDA(cudaMemcpy(impl_->device_operand_a, values.data(),
                         value_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
   launch_inverse_transform(*impl_, impl_->device_operand_a);
@@ -389,8 +418,9 @@ void CudaNttTransform::inverse(std::vector<uint64_t> &values) {
 void CudaNttTransform::pointwise_multiply(std::vector<uint64_t> &left_values,
                                           const std::vector<uint64_t> &right_values) {
   const size_t value_count = impl_->limb_count * impl_->transform_length;
-  if (left_values.size() != value_count || right_values.size() != value_count)
-    throw std::length_error("pointwise operands must both be limbs*n");
+  detail::validate_values(impl_->transform_length, impl_->moduli, left_values);
+  detail::validate_values(impl_->transform_length, impl_->moduli, right_values);
+  DeviceGuard guard(impl_->device);
   CHECK_CUDA(cudaMemcpy(impl_->device_operand_a, left_values.data(),
                         value_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
   CHECK_CUDA(cudaMemcpy(impl_->device_operand_b, right_values.data(),
@@ -408,8 +438,9 @@ std::vector<uint64_t>
 CudaNttTransform::multiply(std::vector<uint64_t> left_values,
                            const std::vector<uint64_t> &right_values) {
   const size_t value_count = impl_->limb_count * impl_->transform_length;
-  if (left_values.size() != value_count || right_values.size() != value_count)
-    throw std::length_error("multiply operands must both be limbs*n");
+  detail::validate_values(impl_->transform_length, impl_->moduli, left_values);
+  detail::validate_values(impl_->transform_length, impl_->moduli, right_values);
+  DeviceGuard guard(impl_->device);
   // Everything below stays on device: two forwards, one pointwise, one
   // inverse — the round trips this class exists to remove.
   CHECK_CUDA(cudaMemcpy(impl_->device_operand_a, left_values.data(),
@@ -430,8 +461,27 @@ CudaNttTransform::multiply(std::vector<uint64_t> left_values,
 }
 
 // --- bench ---------------------------------------------------------------
+void describe_device(std::ostream &output) {
+  int count = 0, device = 0, driver = 0, runtime = 0;
+  CHECK_CUDA(cudaGetDeviceCount(&count));
+  if (count == 0)
+    throw std::runtime_error("no visible CUDA device");
+  CHECK_CUDA(cudaGetDevice(&device));
+  cudaDeviceProp props{};
+  CHECK_CUDA(cudaGetDeviceProperties(&props, device));
+  CHECK_CUDA(cudaDriverGetVersion(&driver));
+  CHECK_CUDA(cudaRuntimeGetVersion(&runtime));
+  output << "visible devices: " << count << "\nselected device: " << device
+         << "\nname: " << props.name << "\ncompute capability: " << props.major << '.'
+         << props.minor << "\nmemory bytes: " << props.totalGlobalMem
+         << "\ndriver API: " << driver << "\nruntime API: " << runtime << '\n';
+}
 void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
                uint64_t limb_count, std::ostream &output) {
+  if (minimum_size_exponent < 1 || maximum_size_exponent > 16 ||
+      minimum_size_exponent > maximum_size_exponent || limb_count == 0 ||
+      limb_count > 65535)
+    throw std::invalid_argument("bench requires 1<=min<=max<=16 and 1<=limbs<=65535");
   cudaDeviceProp device_properties{};
   int device_index = 0;
   CHECK_CUDA(cudaGetDevice(&device_index));
@@ -441,13 +491,15 @@ void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
   CHECK_CUDA(cudaDriverGetVersion(&driver_version));
   CHECK_CUDA(cudaRuntimeGetVersion(&runtime_version));
   output << "device: " << device_properties.name << " (sm_" << device_properties.major
-         << device_properties.minor << ", " << device_properties.clockRate / 1000
-         << " MHz)\n";
+         << device_properties.minor << ", " << device_properties.totalGlobalMem
+         << " device bytes)\n";
   output << "driver/runtime API: " << driver_version / 1000 << "."
          << (driver_version % 1000) / 10 << " / " << runtime_version / 1000 << "."
          << (runtime_version % 1000) / 10 << "\n";
   output << "v1 arithmetic: __uint128_t division (pre-Barrett; see README)\n";
   output << "columns are end-to-end per call: transfers included\n\n";
+  output
+      << "baseline parameters: 46-bit primes; host validation/device guards included\n";
   output << "| n | limbs | ref fwd ms | gpu fwd ms | gpu inv ms | gpu mul ms |\n";
   output << "|---|---|---|---|---|---|\n";
 
@@ -548,3 +600,5 @@ void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
     output.flush();
   }
 }
+
+} // namespace ntt::cuda

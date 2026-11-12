@@ -18,6 +18,7 @@
     {"source": "docs/openfhe-integration-plan.md", "url": "openfhe-integration-plan.html", "title": "Integration roadmap", "group": "Plans", "summary": "The tracked 95-working-day plan through exact OpenFHE Hybrid integration."},
     {"source": "docs/architecture-decision.md", "url": "architecture-decision.html", "title": "Architecture decision", "group": "Plans", "summary": "D10: accepted representation, backend ownership, adapter/fallback policy, resource budgets and P1 review."},
     {"source": "docs/implementation-backlog.md", "url": "implementation-backlog.html", "title": "Implementation backlog", "group": "Plans", "summary": "D10: dependency-ordered native GPU, resident runtime, cache, conversion, Hybrid and adapter acceptance gates."},
+    {"source": "docs/offline-gpu-preparation.md", "url": "offline-gpu-preparation.html", "title": "Before renting a GPU", "group": "Plans", "summary": "Completed compiler-only preparation, baseline safety fixes, tested session reporting and the first real-GPU handoff."},
     {"source": "docs/benchmark-tuning-plan.md", "url": "benchmark-tuning-plan.html", "title": "Benchmarks & tuning", "group": "Plans", "summary": "Workload matrix, profiling evidence, and per-device kernel selection."},
     {"source": "docs/README.md", "url": "contributing-docs.html", "title": "Writing & publishing", "group": "Contribute", "summary": "Preview the site, add a daily journal entry, and publish the HTML documentation."}
   ]
