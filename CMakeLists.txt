@@ -17,13 +17,15 @@ add_executable(ntt_device_sim src/device_sim.cpp)
 add_executable(ntt_column_mapping_tests tests/column_mapping_tests.cpp)
 add_executable(ntt_tile_mapping_tests tests/tile_mapping_tests.cpp)
 add_executable(ntt_arithmetic_contract_tests tests/arithmetic_contract_tests.cpp)
-foreach(t ntt_cli ntt_tests ntt_debug_example ntt_device_sim ntt_column_mapping_tests ntt_tile_mapping_tests ntt_arithmetic_contract_tests)
+add_executable(ntt_backend_contract_tests tests/backend_contract_tests.cpp)
+foreach(t ntt_cli ntt_tests ntt_debug_example ntt_device_sim ntt_column_mapping_tests ntt_tile_mapping_tests ntt_arithmetic_contract_tests ntt_backend_contract_tests)
   target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_compile_options(${t} PRIVATE -Wall -Wextra -Werror)
 endforeach()
 
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME backend_contract_check COMMAND ntt_backend_contract_tests)
 
 add_test(NAME arithmetic_bigint_check
          COMMAND Python3::Interpreter

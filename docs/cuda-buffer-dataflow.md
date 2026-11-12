@@ -198,8 +198,9 @@ timing.
 - Native CUDA compilation and launch/barrier behavior are still unverified
   here. CPU schedule tests do not compile or run this CUDA wrapper.
 
-D9 should freeze these ownership/API decisions; the production device API and
-RAII implementation must follow explicit failure/lifetime tests. The
+[D9's backend proposal](device-backend-contract.md) now specifies these
+ownership/API decisions for D10 review; the production device API and
+RAII implementation still require explicit failure/lifetime tests. The
 [D6 arithmetic review](modular-arithmetic-contract.md) examines arithmetic
 bounds, parameter assumptions, and adversarial exactness.
 

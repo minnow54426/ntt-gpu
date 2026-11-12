@@ -60,7 +60,7 @@ be shorter than α, including when only part of the first digit remains.
 | Each ModDown output | Active Q prefix | Evaluation |
 
 Here L is a **tower count**, not the ciphertext's public `GetLevel()` value.
-Derive it from the actual element parameters; D9 must keep these metadata
+Derive it from the actual element parameters; the [D9 proposal](device-backend-contract.md) keeps these metadata
 consistent. Every tower retains its exact OpenFHE modulus and root.
 
 ## 3. Why approximate CRT must keep the unreduced sum
@@ -298,11 +298,13 @@ With 8-byte residues and N=65536, the assembled digits request
 \(8N\beta_\ell(L+K)\) bytes and the two QP accumulators request
 \(16N(L+K)\) bytes. Each is **8 MiB** at full fixture level. Keys, temporary
 coefficient buffers, parameters, allocator overhead, and simultaneous lifetime
-choices are additional. D9 must specify these lifetimes before treating this
-as a peak-memory bound.
+choices are additional. [D9 specifies the proposed lifetimes](device-backend-contract.md#7-budget-the-hybrid-lifetimes);
+an implementation and allocation measurements are still needed before claiming
+a peak-memory bound.
 
 D8 freezes this source graph and the exercised array boundary. P1 stays open
-for D9's device/buffer/stream/cache proposal and D10's architecture decision.
+for D10's acceptance of the [D9 device/buffer/stream/cache proposal](device-backend-contract.md)
+and architecture decision.
 P4/P6 must broaden base-conversion and cryptographic fixtures across the
 production parameter/level/key matrix. This is not a GPU implementation,
 performance result, or complete CKKS encryption/decryption integration gate.

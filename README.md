@@ -56,6 +56,12 @@ reduced levels with deterministic diagnostic keys and actual generated keys,
 using independent unreduced-CRT formulas. It requires the PKE library and the
 64-bit, non-reduced-noise build; see the [D8 graph](docs/openfhe-hybrid-operation-graph.md).
 
+The normal CPU build also runs `backend_contract_check`, which checks D9's
+buffer/layout metadata, stream dependencies, cache identities and preflight
+fallback policy. The [D9 backend proposal](docs/device-backend-contract.md)
+includes compile-checked abstract interfaces; it does not implement a CUDA
+runtime backend or OpenFHE adapter.
+
 To reuse an installation, configure with `-DNTT_ENABLE_OPENFHE_COMPAT=ON`
 and set `CMAKE_PREFIX_PATH` to its install prefix. OpenFHE is not required
 for the standalone build.

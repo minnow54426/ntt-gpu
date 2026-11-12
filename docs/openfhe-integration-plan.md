@@ -5,7 +5,7 @@
 `uint32_t` indexing/control paths where safe  
 **Ring dimension:** `65536`<br>
 **Estimate:** 95 planned working days + 15 risk-reserve days  
-**Last updated:** 2026-11-11 (Asia/Shanghai)
+**Last updated:** 2026-11-12 (Asia/Shanghai)
 
 Follow the live tracker, then open the phase you need from the section sidebar.
 The sequence is NTT → base conversion → Hybrid key switching → OpenFHE.
@@ -15,9 +15,9 @@ Update this tracker only when a deliverable passes its gate.
 
 | Field | Current value |
 |---|---|
-| Working day | **D9** |
+| Working day | **D10** |
 | Active phase | **P1 — contract and architecture freeze** |
-| Active task | Design device buffer views, stream/cache ownership, and the backend integration seam (D1–D8 complete) |
+| Active task | Review and accept the architecture decision record and implementation backlog (D1–D9 complete) |
 | Next gate | P1 architecture review: frozen OpenFHE representation, buffer, ordering, and integration contracts |
 | Overall state | In progress |
 
@@ -144,14 +144,25 @@ comparisons against independent unreduced-CRT and scalar formulas, including
 real generated keys and negative alternatives. The opt-in Release suite now
 has 15 CPU tests. Rotation automorphisms and higher-degree relinearization are
 source-traced but remain later end-to-end gates; production matrix coverage,
-GPU execution and performance are not claimed. D9 is next.
+GPU execution and performance are not claimed.
+
+D9 complete: the [device backend contract](device-backend-contract.md) proposes
+immutable parameter snapshots, checked whole-tower views, device/session and
+generation identities, explicit stream/event dependencies, pinned resource
+lifetimes, cache identities, and an opt-in transactional DCRT format adapter.
+The portable metadata prototype is checked by `backend_contract_check` and a
+bridge to actual D8 OpenFHE output/key parameters. The opt-in Release suite
+has 16 CPU tests. Abstract interfaces compile without a CUDA dependency;
+CUDA resource management, event execution, caches and the adapter are not
+implemented. D10 must accept the proposal and implementation backlog.
 
 P1 exit gate:
 
 - [x] NTT/DCRT (D7) and Hybrid (D8) representation, ordering, and active-tower transitions are explicit.
 - [x] The exact pinned CKKS approximate-CRT and reduction order is identified (D8); broader production fixtures remain P4/P6 work.
-- [ ] Buffer views record ring size, Q/P towers, level, representation,
-  ordering, device, stream, and event ownership.
+- [x] Buffer views record ring size, Q/P towers, level, representation,
+  ordering, device, stream, and event ownership (D9 proposal and host checks;
+  runtime implementation pending).
 - [ ] The first integration seam and CPU fallback behavior are frozen.
 
 ## P2 — first real GPU baseline (D11–D15)

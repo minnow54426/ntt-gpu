@@ -12,6 +12,7 @@
 #include "openfhe.h"
 #include "keyswitch/keyswitch-hybrid.h"
 #include "ntt/ntt.hpp"
+#include "ntt/backend_contract.hpp"
 
 namespace {
 using namespace lbcrypto;
@@ -316,6 +317,28 @@ void run_case(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks,
   const auto digits = ks.EvalKeySwitchPrecomputeCore(input, cp);
   const auto expected_digits = check_digits(input, coeff, cp, digits);
   const auto ext = ks.EvalFastKeySwitchCoreExt(digits, key, active);
+  // D9 bridge: derive metadata from real OpenFHE parameters, never an object
+  // address or a presumed contiguous NativePoly allocation.
+  {
+    namespace contract = ntt::proposal;
+    std::vector<contract::Tower> q, p;
+    const auto full_q = cp->GetElementParams(), special = cp->GetParamsP();
+    for(size_t i=0;i<full_q->GetParams().size();++i) q.push_back({modulus(full_q,i),root(full_q,i)});
+    for(size_t i=0;i<special->GetParams().size();++i) p.push_back({modulus(special,i),root(special,i)});
+    const auto snapshot = contract::Parameters::create(N,q,p,cp->GetNumPerPartQ());
+    const contract::PolynomialLayout layout{snapshot,L,contract::qp_basis(*snapshot,L),
+      contract::Domain::Evaluation,contract::Order::BitReversed};
+    contract::validate(layout);
+    const auto offsets=contract::key_indices(*snapshot,L);
+    for(size_t i=0;i<layout.towers.size();++i) {
+      const auto expected=snapshot->tower(layout.towers[i]);
+      require(expected.q==modulus(ext[0].GetParams(),i) && expected.psi==root(ext[0].GetParams(),i),
+              "D9 active QlP metadata matches actual Hybrid output");
+      require(expected.q==modulus(key->GetAVector()[0].GetParams(),offsets[i]) &&
+              expected.psi==root(key->GetAVector()[0].GetParams(),offsets[i]),
+              "D9 key view addresses the full-context QP snapshot");
+    }
+  }
   const auto expected_ext = check_mac(expected_digits, key, active, ext);
   const auto fast = ks.EvalFastKeySwitchCore(digits, key, active);
   const auto full = ks.KeySwitchCore(input, key);

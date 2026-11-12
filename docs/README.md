@@ -131,6 +131,15 @@ The optional OpenFHE build registers both `openfhe_exact_compat` and
 explains the pinned source, exact array convention, and test command. These are
 CPU tests against OpenFHE 1.6.1; GPU execution remains a separate gate.
 
+### Device backend contract gate
+
+The normal build registers `backend_contract_check`. Read the
+[D9 proposal](device-backend-contract.md) for buffer layouts, stream dependencies,
+cache identities and fallback. These are host metadata checks, with abstract
+interfaces compiled by the test. The optional `openfhe_hybrid_graph` also checks
+the proposed active QP metadata and key offsets against actual OpenFHE objects.
+Neither gate implements a CUDA resource manager or OpenFHE device adapter.
+
 ## Publish with GitHub Pages
 
 ### Add the notebook to the personal website
