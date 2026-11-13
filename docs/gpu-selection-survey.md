@@ -102,6 +102,11 @@ much more. Record peak memory with all keys resident before choosing capacity.
 
 ## Recommended acquisition strategy
 
+For dated provider rates, billing rules and the first paid session, read the
+[GPU rental market survey](gpu-rental-market-survey.md), checked November 13,
+2026. Keep those rental observations separate from this hardware assessment's
+historical purchase prices.
+
 1. Develop and tune on RTX 5090; check workstation power and cooling.
 2. Retain or rent RTX 4090 for cross-architecture correctness and timing.
 3. Evaluate RTX PRO 6000 if measured residency exceeds 28 GB or enterprise

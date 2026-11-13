@@ -11,6 +11,10 @@ Rent or borrow a GPU when ready to verify that environment and run the prepared
 native checks. The [roadmap](openfhe-integration-plan.md) working-day numbers
 are engineering milestones, not continuous rental days.
 
+Use the [GPU rental market survey](gpu-rental-market-survey.md) to compare
+providers, estimate a short session's cost and check profiling access before
+choosing a machine. Market research does not complete the hardware gate.
+
 ## 1. What is ready
 
 | Work | Observed result |
