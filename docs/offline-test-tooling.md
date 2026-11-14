@@ -2,6 +2,13 @@
 
 **2026-11-14 · host checks complete; new CUDA code uncompiled/unrun locally**
 
+Freeze update: [compiler-only CI for f1ecff1](https://github.com/minnow54426/ntt-gpu/actions/runs/43599616970)
+now passes for **sm_89 and sm_120**, including driverless host checks. Local
+regression passes 18 standalone and 22 OpenFHE CPU CTests (140 workload cells).
+The batch is ready for the next rental's **native validation**, not accepted
+as a GPU result. CUDA/OpenFHE combined native gates, event measurements,
+sanitizers and profiler captures still need execution on a real device.
+
 The [first-run analysis](first-native-analysis.md) identified measurement and
 failure-path gaps. This increment implements host-testable preparation for the
 next session. It does not reconnect to the stopped rental or close B02/B04.

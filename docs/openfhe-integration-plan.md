@@ -17,7 +17,7 @@ Update this tracker only when a deliverable passes its gate.
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Freeze the locally verified 30/50/55/60-bit, up-to-40-tower batch; check no-GPU CUDA CI compilation before the next native rental |
+| Active task | Batch frozen; sm_89/sm_120 compiler-only CI passed. Next: rent a GPU for native exactness, sanitizer, 420-job timing and selected profile validation |
 | Next gate | P2: native CUDA/OpenFHE exactness and named-hardware baseline (D11–D15) |
 | Overall state | In progress; additional Ada hardware verified, primary-device and remaining P2 gates open |
 
