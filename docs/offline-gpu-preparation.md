@@ -2,6 +2,17 @@
 
 **D11 preparation complete · hardware verification still pending · N=65536**
 
+Update 2026-11-14: the [first native diagnostic](journal/2026-11-14.md) passed
+on the supplied machine reporting RTX 4080 SUPER. The offline observations
+below remain the original preparation record. RTX 5090 acceptance, native
+failure injection and full profiling remain open; do not treat the diagnostic
+as the primary-device baseline.
+
+Later on 2026-11-14, [offline test tooling](offline-test-tooling.md) adds raw
+sample collection and shared constructor ownership/fault tests. Those new CUDA
+changes have not been compiled or executed on this Mac; do not transfer the
+earlier native success onto them. The table below records the original preparation.
+
 The compiler, host checks and first-session collection path can be prepared
 without paying for a GPU. That preparation is now complete on this Linux
 workspace. D11 itself remains open because its final deliverable includes an
@@ -119,7 +130,8 @@ scope, not the complete production sanitizer/parameter matrix. All GPU cases are
 compiled but **unrun** in this workspace.
 
 The existing `cuda_oracle_crosscheck`, `cuda_matches_ref` and `cuda_verify` gates
-remain. All four native tests carry the `gpu` CTest label. The wrapper-constructor
+remain. Those four arithmetic gates carry the `gpu` label; the new setup fault
+probe is a fifth GPU-labelled gate, prepared but not yet run. The wrapper-constructor
 preflight is a separate host test and is safe without a driver.
 
 ## 5. First session on real hardware
@@ -144,8 +156,8 @@ NTT_OPENFHE_PREFIX="$PWD/build/openfhe-compat/install" \
 The helper no longer performs an implicit git pull or package installation.
 It records the selected commit, hardware/driver/clocks/power data and toolchain,
 requires a native CUDA build plus all OpenFHE/GPU tests, probes the actual device,
-runs the exact suite and four sanitizer smoke tools, then collects the existing
-46-bit transfer-inclusive baseline benchmark. GPU mode rejects dirty source
+runs the exact suite and four sanitizer smoke tools, then collects raw
+50/55/60-bit public-call samples with the new protocol. GPU mode rejects dirty source
 unless explicitly marked exploratory with `--allow-dirty`.
 
 For full control, call the Python collector directly:
@@ -163,9 +175,11 @@ Missing tools, missing GPU/OpenFHE tests, build/test/sanitizer/benchmark failure
 all produce a nonzero exit and a failed report. An existing report directory is
 never overwritten. Open `report.json` and the named stage logs after every run.
 
-The basic benchmark still uses 46-bit primes and wall time around public calls,
-including transfers, host validation and device guards. It is not a 50–60-bit
-production performance report, CUDA-event timing, or a completed D14 profile.
+The legacy `bench` command still uses 46-bit primes and public-call wall time.
+The collector now uses `bench-jsonl` at 50/55/60 bits, with fixed inputs, raw
+samples and strict summaries; this new CUDA path is unrun here. Neither path
+provides resident CUDA-event timing, an optimized OpenFHE CPU comparator or a
+completed D14 profile. See the [protocol and limits](offline-test-tooling.md).
 
 ## 6. When to stop the rental
 

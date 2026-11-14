@@ -15,6 +15,7 @@
 // covers all limbs; pointwise products stay limb-local.
 
 #include <cstdint>
+#include <cstddef>
 #include <iosfwd>
 #include <memory>
 #include <vector>
@@ -24,6 +25,9 @@ class NegacyclicNtt; // complete type in ntt/ntt.hpp; a reference here
 }
 
 namespace ntt::cuda {
+
+namespace detail { struct SetupTrace; }
+void check_native_setup_failures(std::ostream &output);
 
 class CudaNttTransform {
 public:
@@ -61,6 +65,10 @@ public:
                                  const std::vector<uint64_t> &right_values);
 
 private:
+  friend void check_native_setup_failures(std::ostream &output);
+  CudaNttTransform(uint64_t transform_length, const std::vector<uint64_t> &moduli,
+                  const std::vector<uint64_t> &primitive_roots,
+                  size_t failure_step, detail::SetupTrace *trace);
   struct Impl; // CUDA pointers and launch geometry live in the .cu
   std::unique_ptr<Impl> impl_;
 };
@@ -77,5 +85,11 @@ void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
                uint64_t limb_count, std::ostream &output);
 // Requires a usable GPU; compiler-only preparation must not call this.
 void describe_device(std::ostream &output);
+
+// Exact supplied q/root list; seeded operands. Raw host-wall samples plus
+// summary JSONL. No kernel-only or optimized OpenFHE CPU timing is implied.
+void run_bench_samples(uint64_t transform_length, const std::vector<uint64_t> &moduli,
+                       const std::vector<uint64_t> &roots, size_t warmups,
+                       size_t samples, std::ostream &output);
 
 } // namespace ntt::cuda

@@ -11,16 +11,19 @@ from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
+import sys
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts'))
+from benchmark_report import OPERATIONS
 spec = importlib.util.spec_from_file_location('gpu_session', ROOT / 'scripts/gpu_session.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
 class SessionTests(unittest.TestCase):
-    def scenario(self, mode='offline', fail=None, missing_gpu=False, bad_label=False, skip=False):
+    def scenario(self, mode='offline', fail=None, missing_gpu=False, bad_label=False, skip=False, bad_benchmark=False, synthetic=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             args = module.parser().parse_args(['--mode', mode, '--cuda-root', str(root / 'toolkit'),
@@ -30,7 +33,8 @@ class SessionTests(unittest.TestCase):
             args.benchmark = mode == 'gpu'
             args.skip_sanitizers = skip
             commands = []
-            names = module.OPENFHE_TESTS | {'cuda_constructor_preflight', 'cuda_host_validation'}
+            names = module.OPENFHE_TESTS | {'cuda_constructor_preflight', 'cuda_host_validation',
+                                           'setup_ownership_host', 'measurement_host'}
             if not missing_gpu:
                 names |= module.GPU_TESTS
             registered = {'tests': [{'name': name, 'properties': [{'name': 'LABELS', 'value':
@@ -45,6 +49,25 @@ class SessionTests(unittest.TestCase):
                     output.write('mock-source-commit\n')
                 elif command[0] == 'git':
                     output.write('')
+                elif 'bench-jsonl' in command:
+                    if bad_benchmark:
+                        output.write('not JSONL\n')
+                        return SimpleNamespace(returncode=0)
+                    bits = int(Path(command[-3]).stem.split('b')[-1])
+                    warmups, count = map(int, command[-2:])
+                    metadata = {'type': 'workload', 'schema': 1, 'n': 65536,
+                        'timing': 'host_wall_public_call', 'input_policy': 'fixed_seed_reset_outside_timer',
+                        'setup_included': False, 'towers': 3, 'warmups': warmups, 'samples': count,
+                        'moduli': [(1 << (bits-1)) + 1 + i*131072 for i in range(3)],
+                        'roots': [2, 3, 4], 'simulation': synthetic}
+                    output.write(json.dumps(metadata) + '\n')
+                    for operation in sorted(OPERATIONS):
+                        for index in range(count):
+                            output.write(json.dumps({'type': 'sample', 'operation': operation,
+                                'iteration': index, 'milliseconds': 1}) + '\n')
+                        output.write(json.dumps({'type': 'summary', 'operation': operation, 'count': count,
+                            'mean_ms': 1, 'median_ms': 1, 'p5_ms': 1, 'p95_ms': 1}) + '\n')
+                    output.write(json.dumps({'type': 'complete', 'operations': 6}) + '\n')
                 else:
                     output.write('mock command output\n')
                 return SimpleNamespace(returncode=19 if fail and fail(command) else 0)
@@ -86,14 +109,30 @@ class SessionTests(unittest.TestCase):
         code, report, commands = self.scenario(mode='gpu', fail=lambda c: '--output-on-failure' in c)
         self.assertEqual(code, 1)
         self.assertEqual(report['gpu_execution'], 'FAIL')
-        self.assertFalse(any('bench' in c for c in commands))
+        self.assertFalse(any('bench-jsonl' in c for c in commands))
 
     def test_benchmark_failure_cannot_return_success(self):
-        code, report, _ = self.scenario(mode='gpu', fail=lambda c: 'bench' in c)
+        code, report, _ = self.scenario(mode='gpu', fail=lambda c: 'bench-jsonl' in c)
         self.assertEqual(code, 1)
         self.assertEqual(report['status'], 'FAIL')
         self.assertEqual(report['benchmark'], 'FAIL')
         self.assertEqual(report['gpu_execution'], 'EXACT_TESTS_PASS')
+
+    def test_malformed_benchmark_cannot_return_success(self):
+        code, report, _ = self.scenario(mode='gpu', bad_benchmark=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(report['benchmark'], 'FAIL')
+
+    def test_raw_benchmarks_cover_all_widths(self):
+        code, report, commands = self.scenario(mode='gpu')
+        self.assertEqual(code, 0)
+        self.assertEqual(set(report['benchmark_summaries']), {'50', '55', '60'})
+        self.assertEqual(sum('bench-jsonl' in command for command in commands), 3)
+
+    def test_synthetic_benchmark_cannot_count_as_native(self):
+        code, report, _ = self.scenario(mode='gpu', synthetic=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(report['benchmark'], 'FAIL')
 
     def test_device_probe_failure_stops_runtime_tests(self):
         code, report, commands = self.scenario(mode='gpu', fail=lambda c: c[-1] == 'info')
@@ -105,7 +144,7 @@ class SessionTests(unittest.TestCase):
         code, report, commands = self.scenario(mode='gpu', fail=lambda c: 'racecheck' in c)
         self.assertEqual(code, 1)
         self.assertEqual(report['sanitizers'], 'FAIL')
-        self.assertFalse(any('bench' in c for c in commands))
+        self.assertFalse(any('bench-jsonl' in c for c in commands))
 
     def test_skipped_sanitizers_are_explicit(self):
         code, report, commands = self.scenario(mode='gpu', skip=True)

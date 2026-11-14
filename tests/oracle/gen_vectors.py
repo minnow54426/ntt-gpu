@@ -1,6 +1,6 @@
 """Generate a vector file consumed by ntt_cli, unit tests, and test_vectors.py.
 
-Usage: gen_vectors.py <out-path> [N=65536] [num_primes=3] [seed=1]
+Usage: gen_vectors.py <out-path> [N=65536] [num_primes=3] [seed=1] [bits=46]
 """
 
 import os
@@ -16,8 +16,11 @@ def main() -> int:
     n = int(sys.argv[2]) if len(sys.argv) > 2 else 65536
     num_primes = int(sys.argv[3]) if len(sys.argv) > 3 else 3
     seed = int(sys.argv[4]) if len(sys.argv) > 4 else 1
+    bits = int(sys.argv[5]) if len(sys.argv) > 5 else 46
+    if n < 2 or n & (n - 1) or n > 65536 or not 1 <= num_primes <= 65535 or not 2 <= bits <= 62:
+        raise ValueError("invalid dimension, prime count or width")
 
-    primes = find_primes(n, num_primes)
+    primes = find_primes(n, num_primes, bits)
     psis = [find_psi(q, n) for q in primes]
 
     q_total = 1

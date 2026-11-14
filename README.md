@@ -21,7 +21,7 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-The fifteen portable checks cover vector generation at N=64/1024/65536, unit
+The portable checks cover vector generation at N=64/1024/65536, unit
 tests, the independent Python oracle, the shared device schedule, column and
 tile index/twiddle proofs in both directions, arithmetic exactness and
 full-size adversarial transforms, backend metadata, host CUDA preflight, session
@@ -30,7 +30,8 @@ quadratic oracle and schoolbook multiplication practical.
 
 With nvcc, three GPU gates compare CUDA with the same oracle and CPU
 reference. Enabling OpenFHE adds a fourth direct CUDA/OpenFHE gate. A separate
-compiled-wrapper constructor check requires no GPU. Array ordering,
+compiled-wrapper constructor check requires no GPU. A fifth GPU-labelled setup
+fault probe is prepared for native execution. Array ordering,
 forward/inverse results, round trips, and polynomial
 multiplication must agree exactly. See [run and debug](docs/vscode-debugging.md)
 to step through the N=8 example.
@@ -69,7 +70,9 @@ runtime backend or OpenFHE adapter.
 D10 accepts the behavioral design in [ADR 0001](docs/architecture-decision.md)
 and tracks the remaining native GPU/runtime work in the
 [implementation backlog](docs/implementation-backlog.md). P1 is complete;
-the next task is D11's GPU environment record, not a claimed CUDA result.
+the current task is D11's primary GPU environment record. The supplied Ada
+machine has a [passing native diagnostic](docs/journal/2026-11-14.md), not
+RTX 5090 acceptance or production-backend validation.
 
 To reuse an installation, configure with `-DNTT_ENABLE_OPENFHE_COMPAT=ON`
 and set `CMAKE_PREFIX_PATH` to its install prefix. OpenFHE is not required
@@ -86,7 +89,10 @@ bash scripts/autodl_setup.sh
 
 The script records hardware/toolchain details, requires CUDA and OpenFHE test
 registration, builds, runs exact tests and sanitizer smoke checks, and collects
-the 46-bit transfer-inclusive baseline benchmark. Each session writes logs and
+raw 50/55/60-bit public-call samples using the
+[offline-prepared protocol](docs/offline-test-tooling.md). The new CUDA changes
+still require native compilation/execution; the saved first session predates
+them. Each session writes logs and
 `report.json` under an ignored `bench-results-*` directory. Any failed stage
 returns nonzero. It does not update source, install packages or change drivers.
 Select paths with `NTT_REPO_DIR`, `NTT_CUDA_ROOT`, and `NTT_OPENFHE_PREFIX`;
@@ -124,8 +130,8 @@ to inspect blocks, threads, pairs, and twiddle exponents.
 | Deliverable | State |
 |---|---|
 | CPU reference, oracle, schedule simulation | Complete |
-| CUDA kernels and automatic GPU test registration | Implemented; hardware validation pending |
-| Named-device baseline and tuning | Planned |
+| CUDA kernels and automatic GPU test registration | Native Ada diagnostic passed; RTX 5090 validation pending |
+| Named-device baseline and tuning | Initial Ada sample collected; full profiling/tuning pending |
 | Base conversion and Hybrid key switching | Planned |
 | OpenFHE integration with CPU fallback | Planned |
 

@@ -69,17 +69,21 @@ Every stored element is `uint64_t`.
 | `device_moduli` | 3 / 24 B | q for each limb | Constructor uploads; arithmetic kernels read |
 | `device_inverse_transform_lengths` | 3 / 24 B | N-inverse modulo each q | Constructor uploads; final scale kernel reads |
 
-`CudaNttTransform` owns `unique_ptr<Impl>`; `Impl` owns the CUDA pointers. They are private:
+`CudaNttTransform` owns `unique_ptr<Impl>`; `Impl` owns a shared-logic
+`SetupResources<CudaSetupRuntime>` allocation owner. The six named pointers
+are private aliases into that owner's allocation list:
 callers cannot retain a borrowed device-buffer view. Copy construction and
 copy assignment are deleted. No move operations are declared; this class is
 not currently movable either. Do not use one instance concurrently: public
 operations share and overwrite A/B and there is no locking or per-call scratch.
 
 On normal destruction or constructor unwinding, `unique_ptr` destroys `Impl`.
-Its destructor selects the owning device, calls `cudaFree` on each pointer and
-restores the previous device. Host-preflight failure skips CUDA entirely.
-Device-selection/free errors cannot be reported by this nonthrowing destructor;
-a failed device selection skips freeing rather than using a different device. Do not
+The allocation owner releases acquired pointers in reverse order. Its CUDA
+adapter selects/restores the owning device around each release. Host-preflight
+failure has no acquired pointers and skips CUDA cleanup entirely. A diagnostic
+trace counts releases/failures; the ordinary nonthrowing destructor still cannot
+report them to its caller. Failed device selection skips that free rather than
+using another device. Do not
 infer safe concurrent destruction or synchronization with unrelated GPU work.
 
 ### Exact byte counts (requested allocations, not measured device usage)
@@ -194,7 +198,9 @@ timing.
 
 - **Constructor cleanup:** the original raw-Impl ownership gap is repaired with
   `unique_ptr`. Partial device state now reaches the cleanup destructor during
-  unwinding. Real allocation/upload failure injection remains required; host
+  unwinding. Shared ownership logic now has host failure tests and a prepared
+  native pre-call injection probe; neither establishes real driver OOM, DMA or
+  context-error safety. Native execution of the new probe remains required; host
   rejection tests do not prove CUDA cleanup under a failed runtime/context.
 - The wrapper captures its owning device and guards operations/destruction.
   Native wrong-device, restore-failure and cleanup-error tests are still open.

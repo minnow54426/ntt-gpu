@@ -29,6 +29,8 @@
 #include "ntt/mod_arith.hpp"
 #include "ntt/ntt.hpp"
 #include "ntt/param_gen.hpp"
+#include "ntt/setup_resources.hpp"
+#include "ntt/measurement.hpp"
 
 // Every cudaRuntime call funnels through this: a failed allocation,
 // launch, or copy must fail the gates loudly (nonzero exit + stderr),
@@ -68,6 +70,25 @@ public:
   }
   DeviceGuard(const DeviceGuard &) = delete;
   DeviceGuard &operator=(const DeviceGuard &) = delete;
+};
+
+struct CudaSetupRuntime {
+  int device = -1;
+  uint64_t *allocate(size_t elements) {
+    uint64_t *pointer = nullptr;
+    CHECK_CUDA(cudaMalloc(&pointer, elements * sizeof(uint64_t)));
+    return pointer;
+  }
+  void upload(uint64_t *destination, const uint64_t *source, size_t elements) {
+    CHECK_CUDA(cudaMemcpy(destination, source, elements * sizeof(uint64_t),
+                          cudaMemcpyHostToDevice));
+  }
+  bool release(uint64_t *pointer) noexcept {
+    try {
+      DeviceGuard guard(device);
+      return cudaFree(pointer) == cudaSuccess;
+    } catch (...) { return false; }
+  }
 };
 
 // --- pass 1: one block per strided group ----------------------------------
@@ -229,6 +250,9 @@ __global__ void inverse_scale_kernel(uint64_t *values,
 
 // --- Impl: device buffers + launch geometry ------------------------------
 struct CudaNttTransform::Impl {
+  detail::SetupResources<CudaSetupRuntime> setup;
+  explicit Impl(size_t failure_step, detail::SetupTrace *trace)
+      : setup(CudaSetupRuntime{}, failure_step, trace) {}
   int device = -1;
   uint64_t transform_length = 0;
   uint64_t limb_count = 0;
@@ -249,22 +273,6 @@ struct CudaNttTransform::Impl {
   uint32_t contiguous_tile_block_count = 0;
   uint32_t elementwise_block_count = 0;
 
-  ~Impl() noexcept {
-    if (device < 0)
-      return; // host preflight failed before any CUDA call
-    try {
-      DeviceGuard guard(device);
-      cudaFree(device_operand_a);
-      cudaFree(device_operand_b);
-      cudaFree(device_twiddle_powers);
-      cudaFree(device_inverse_twiddle_powers);
-      cudaFree(device_moduli);
-      cudaFree(device_inverse_transform_lengths);
-    } catch (...) {
-      // Device selection/context failure cannot be repaired by a destructor.
-      // Never free on a different device; native failure-path testing remains required.
-    }
-  }
 };
 
 namespace {
@@ -319,7 +327,13 @@ void launch_inverse_transform(Implementation &impl, uint64_t *device_values) {
 CudaNttTransform::CudaNttTransform(uint64_t transform_length,
                                    const std::vector<uint64_t> &moduli,
                                    const std::vector<uint64_t> &primitive_roots)
-    : impl_(std::make_unique<Impl>()) {
+    : CudaNttTransform(transform_length, moduli, primitive_roots, 0, nullptr) {}
+
+CudaNttTransform::CudaNttTransform(uint64_t transform_length,
+                                   const std::vector<uint64_t> &moduli,
+                                   const std::vector<uint64_t> &primitive_roots,
+                                   size_t failure_step, detail::SetupTrace *trace)
+    : impl_(std::make_unique<Impl>(failure_step, trace)) {
   Impl &impl = *impl_;
   const auto shape =
       detail::validate_parameters(transform_length, moduli, primitive_roots);
@@ -354,24 +368,19 @@ CudaNttTransform::CudaNttTransform(uint64_t transform_length,
   const size_t value_count = shape.values;
   const size_t twiddle_count = shape.twiddles;
   CHECK_CUDA(cudaGetDevice(&impl.device));
-  CHECK_CUDA(cudaMalloc(&impl.device_operand_a, value_count * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMalloc(&impl.device_operand_b, value_count * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMalloc(&impl.device_twiddle_powers, twiddle_count * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMalloc(&impl.device_inverse_twiddle_powers,
-                        twiddle_count * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMalloc(&impl.device_moduli, impl.limb_count * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMalloc(&impl.device_inverse_transform_lengths,
-                        impl.limb_count * sizeof(uint64_t)));
-  CHECK_CUDA(cudaMemcpy(impl.device_twiddle_powers, twiddle_powers.data(),
-                        twiddle_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(impl.device_inverse_twiddle_powers,
-                        inverse_twiddle_powers.data(), twiddle_count * sizeof(uint64_t),
-                        cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(impl.device_moduli, moduli.data(),
-                        impl.limb_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(impl.device_inverse_transform_lengths,
-                        inverse_transform_lengths.data(),
-                        impl.limb_count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+  impl.setup.runtime().device = impl.device;
+  impl.device_operand_a = impl.setup.allocate(value_count);
+  impl.device_operand_b = impl.setup.allocate(value_count);
+  impl.device_twiddle_powers = impl.setup.allocate(twiddle_count);
+  impl.device_inverse_twiddle_powers = impl.setup.allocate(twiddle_count);
+  impl.device_moduli = impl.setup.allocate(impl.limb_count);
+  impl.device_inverse_transform_lengths = impl.setup.allocate(impl.limb_count);
+  impl.setup.upload(impl.device_twiddle_powers, twiddle_powers.data(), twiddle_count);
+  impl.setup.upload(impl.device_inverse_twiddle_powers,
+                    inverse_twiddle_powers.data(), twiddle_count);
+  impl.setup.upload(impl.device_moduli, moduli.data(), impl.limb_count);
+  impl.setup.upload(impl.device_inverse_transform_lengths,
+                    inverse_transform_lengths.data(), impl.limb_count);
   impl.contiguous_tile_block_count =
       static_cast<uint32_t>(std::max<uint64_t>(1, transform_length / kPassSplitWidth));
   impl.elementwise_block_count =
@@ -379,6 +388,26 @@ CudaNttTransform::CudaNttTransform(uint64_t transform_length,
 }
 
 CudaNttTransform::~CudaNttTransform() = default;
+
+void check_native_setup_failures(std::ostream &output) {
+  const auto moduli = find_primes(65536, 3, 50);
+  std::vector<uint64_t> roots;
+  for (auto modulus : moduli) roots.push_back(find_psi(modulus, 65536));
+  for (size_t step = 0; step <= 10; ++step) {
+    detail::SetupTrace trace;
+    bool injected = false;
+    try {
+      CudaNttTransform transform(65536, moduli, roots, step, &trace);
+    } catch (const detail::InjectedSetupFailure &) { injected = true; }
+    const size_t expected = step ? std::min(step - 1, size_t{6}) : 6;
+    if (injected != (step != 0) || trace.allocations != expected ||
+        trace.releases != expected || trace.release_failures != 0 ||
+        trace.uploads != (step ? (step > 7 ? step - 7 : 0) : 4))
+      throw std::runtime_error("native setup fault cleanup mismatch");
+    output << "SETUP_NATIVE step=" << step << " allocations=" << trace.allocations
+           << " releases=" << trace.releases << " passed\n";
+  }
+}
 
 uint64_t CudaNttTransform::n() const {
   return impl_->transform_length;
@@ -599,6 +628,108 @@ void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
            << gpu_multiply_milliseconds << " |\n";
     output.flush();
   }
+}
+
+void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
+                       const std::vector<uint64_t> &roots, size_t warmups,
+                       size_t samples, std::ostream &output) {
+  measurement::validate_counts(warmups, samples);
+  if (dimension != 65536)
+    throw std::invalid_argument("sample benchmark targets N=65536");
+  CudaNttTransform transform(dimension, moduli, roots);
+  cudaDeviceProp properties{};
+  int device, driver, runtime;
+  CHECK_CUDA(cudaGetDevice(&device));
+  CHECK_CUDA(cudaGetDeviceProperties(&properties, device));
+  CHECK_CUDA(cudaDriverGetVersion(&driver));
+  CHECK_CUDA(cudaRuntimeGetVersion(&runtime));
+  const size_t count = dimension * moduli.size();
+  std::vector<uint64_t> left(count), right(count);
+  uint64_t state = 0x7251d9;
+  for (size_t index = 0; index < count; ++index) {
+    state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+    left[index] = state % moduli[index / dimension];
+    state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+    right[index] = state % moduli[index / dimension];
+  }
+  auto cpu_transform = [&](std::vector<uint64_t> &values) {
+    for (size_t tower = 0; tower < moduli.size(); ++tower) {
+      std::vector<uint64_t> limb(values.begin() + tower * dimension,
+                                 values.begin() + (tower + 1) * dimension);
+      transform.ref(tower).forward(limb);
+      std::copy(limb.begin(), limb.end(), values.begin() + tower * dimension);
+    }
+  };
+  auto evaluation = left, right_evaluation = right;
+  cpu_transform(evaluation);
+  cpu_transform(right_evaluation);
+  auto expected_product = evaluation;
+  for (size_t index = 0; index < count; ++index)
+    expected_product[index] = mul_mod(evaluation[index], right_evaluation[index],
+                                     moduli[index / dimension]);
+  auto expected_coefficients = expected_product;
+  for (size_t tower = 0; tower < moduli.size(); ++tower) {
+    std::vector<uint64_t> limb(expected_coefficients.begin() + tower * dimension,
+                               expected_coefficients.begin() + (tower + 1) * dimension);
+    transform.ref(tower).inverse(limb);
+    std::copy(limb.begin(), limb.end(), expected_coefficients.begin() + tower * dimension);
+  }
+  output << "{\"type\":\"workload\",\"schema\":1,\"n\":" << dimension
+         << ",\"towers\":" << moduli.size() << ",\"warmups\":" << warmups
+         << ",\"samples\":" << samples << ",\"timing\":\"host_wall_public_call\","
+            "\"input_policy\":\"fixed_seed_reset_outside_timer\",\"seed\":7492057,"
+            "\"setup_included\":false,\"device\":";
+  measurement::json_string(output, properties.name);
+  output << ",\"compute_major\":" << properties.major << ",\"compute_minor\":" << properties.minor
+         << ",\"device_bytes\":" << properties.totalGlobalMem
+         << ",\"driver_api\":" << driver << ",\"runtime_api\":" << runtime << ",\"moduli\":[";
+  for (size_t tower = 0; tower < moduli.size(); ++tower) {
+    if (tower) output << ',';
+    output << moduli[tower];
+  }
+  output << "],\"roots\":[";
+  for (size_t tower = 0; tower < roots.size(); ++tower) {
+    if (tower) output << ',';
+    output << roots[tower];
+  }
+  output << "]}\n";
+  std::vector<uint64_t> working, other, product;
+  auto measure = [&](const std::string &name, auto prepare, auto operation,
+                     const std::vector<uint64_t> &expected, std::vector<uint64_t> &result) {
+    auto timings = measurement::collect(warmups, samples, prepare, operation);
+    if (result != expected)
+      throw std::runtime_error("benchmark result mismatch: " + name);
+    measurement::write_samples(output, name, timings);
+  };
+  std::vector<std::vector<uint64_t>> cpu_values(moduli.size(),
+                                                std::vector<uint64_t>(dimension));
+  auto cpu_samples = measurement::collect(warmups, samples, [&] {
+    for (size_t tower = 0; tower < moduli.size(); ++tower)
+      std::copy(left.begin() + tower * dimension, left.begin() + (tower + 1) * dimension,
+                cpu_values[tower].begin());
+  }, [&] {
+    for (size_t tower = 0; tower < moduli.size(); ++tower)
+      transform.ref(tower).forward(cpu_values[tower]);
+  });
+  for (size_t tower = 0; tower < moduli.size(); ++tower)
+    if (!std::equal(cpu_values[tower].begin(), cpu_values[tower].end(),
+                    evaluation.begin() + tower * dimension))
+      throw std::runtime_error("CPU benchmark result mismatch");
+  measurement::write_samples(output, "cpu_reference_forward", cpu_samples);
+  measure("gpu_forward", [&] { working = left; },
+          [&] { transform.forward(working); }, evaluation, working);
+  measure("gpu_inverse", [&] { working = evaluation; },
+          [&] { transform.inverse(working); }, left, working);
+  measure("gpu_pointwise", [&] { working = evaluation; },
+          [&] { transform.pointwise_multiply(working, right_evaluation); }, expected_product, working);
+  measure("gpu_unfused_multiply", [&] { working = left; other = right; }, [&] {
+    transform.forward(working); transform.forward(other);
+    transform.pointwise_multiply(working, other); transform.inverse(working);
+  }, expected_coefficients, working);
+  measure("gpu_fused_multiply", [&] { std::vector<uint64_t>().swap(product); }, [&] {
+    product = transform.multiply(left, right);
+  }, expected_coefficients, product);
+  output << "{\"type\":\"complete\",\"operations\":6}\n";
 }
 
 } // namespace ntt::cuda

@@ -65,6 +65,11 @@ provision or rent hardware as part of D10.
 Offline status: the compiler/toolchain record and collection scripts are ready.
 Actual GPU/driver discovery and native device execution are still pending.
 
+Native update 2026-11-14: [an additional Ada diagnostic](journal/2026-11-14.md)
+records actual hardware and passed native execution on a machine reporting
+RTX 4080 SUPER. The primary RTX 5090 gate remains open; this is not the
+planned RTX 4090 control.
+
 ### B02 — native build and baseline safety
 
 Work in [cuda_ntt.hpp](../include/ntt/cuda_ntt.hpp) and
@@ -79,6 +84,12 @@ implemented; sm_89/sm_120 compilation and driverless invalid-constructor checks
 pass. Native allocation/upload fault injection and context-error cleanup remain
 required before B02 is complete.
 
+Offline tooling update 2026-11-14: [shared ownership tests](offline-test-tooling.md)
+cover all six allocations/four uploads with host adapters. A native pre-call
+injection probe is registered but uncompiled/unrun here; real CUDA/context
+failure behavior remains unverified. The old 19cc285 native run does not
+validate this ownership refactor.
+
 **Acceptance:** native build and smoke run; injected failures at each allocation
 and constant upload unwind all prior allocations; invalid inputs submit no work;
 normal/destructor cleanup uses the owning device and does not throw. Update the
@@ -89,6 +100,12 @@ match the actual fix. Static source checks alone cannot complete this item.
 
 Offline status: `cuda_openfhe_exact` is compiled and registered with real
 50/55/60-bit OpenFHE and D8 level/basis fixtures. All native cases remain unrun.
+
+Native update 2026-11-14: the prepared matrix and four sanitizer smoke tools
+passed on the supplied Ada machine, including 169,279,488 direct CUDA-gate
+residue comparisons. See the [evidence and scope](journal/2026-11-14.md).
+Primary-device execution and broader production coverage remain pending;
+the offline paragraph above describes the earlier preparation state.
 
 Extend the native harness to import the exact OpenFHE fixture moduli, roots,
 input arrays and expected arrays. At N=65536 cover 50/55/60-bit primes, active
@@ -107,6 +124,17 @@ and no relevant sanitizer errors. The current CLI's generated baseline uses
 existing CPU/OpenFHE and small schedule-boundary gates green.
 
 ### B04 — timing and bottleneck report
+
+The [first-run offline analysis](first-native-analysis.md) audits the initial
+Ada sample and prioritizes measurement-protocol work before another session.
+Source-derived hypotheses are not profiler evidence; B04 remains open.
+Implementation of the proposed harness changes is a separate task.
+
+Offline tooling update: the raw-sample/fixed-input host protocol and report
+validator are now implemented with host checks, and the collector prepares
+50/55/60-bit public-call measurements. New CUDA compilation/execution, resident
+event timings, an optimized OpenFHE CPU comparator and profiling remain open.
+See [tooling status](offline-test-tooling.md).
 
 Separate construction/table upload, device-resident CUDA-event timings,
 transfer-inclusive wall time, and explicit synchronization. Add raw samples,

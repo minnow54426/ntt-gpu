@@ -5,7 +5,7 @@
 `uint32_t` indexing/control paths where safe  
 **Ring dimension:** `65536`<br>
 **Estimate:** 95 planned working days + 15 risk-reserve days  
-**Last updated:** 2026-11-12 (Asia/Shanghai)
+**Last updated:** 2026-11-14 (Asia/Shanghai)
 
 Follow the live tracker, then open the phase you need from the section sidebar.
 The sequence is NTT → base conversion → Hybrid key switching → OpenFHE.
@@ -16,10 +16,10 @@ Update this tracker only when a deliverable passes its gate.
 | Field | Current value |
 |---|---|
 | Working day | **D11** |
-| Active phase | **P2 — first RTX GPU baseline (offline preparation complete)** |
-| Active task | Validate and record the real GPU environment; D11 hardware gate remains open |
+| Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
+| Active task | Verify new CUDA measurement/fault tooling in a native build, then collect primary-device and remaining P2 evidence |
 | Next gate | P2: native CUDA/OpenFHE exactness and named-hardware baseline (D11–D15) |
-| Overall state | In progress; offline preparation complete, hardware verification pending |
+| Overall state | In progress; additional Ada hardware verified, primary-device and remaining P2 gates open |
 
 Hardware: RTX 5090 primary, RTX 4090 control. Use larger-memory hardware only
 when measurements justify it; see the [GPU comparison](gpu-selection-survey.md).
@@ -30,7 +30,7 @@ Status vocabulary: `DONE`, `IN PROGRESS`, `NOT STARTED`, `BLOCKED`.
 |---|---:|---|---|
 | P0 — pre-plan correctness baseline | Before D1 | DONE | CPU oracle, schedule simulator, CUDA source, exact OpenFHE NTT gate |
 | P1 — contracts and architecture | D1–D10 | DONE | [Accepted ADR](architecture-decision.md), frozen operation graph and [implementation backlog](implementation-backlog.md) |
-| P2 — first RTX GPU baseline | D11–D15 | IN PROGRESS | Offline compilation/preflight ready; native exact CUDA results and named-hardware baseline pending |
+| P2 — first RTX GPU baseline | D11–D15 | IN PROGRESS | Native Ada diagnostic passed; RTX 5090 evidence, failure injection and full profiling pending |
 | P3 — production GPU NTT | D16–D40 | NOT STARTED | Tuned, device-resident NTT dispatch |
 | P4 — exact base-conversion model | D41–D49 | NOT STARTED | OpenFHE-exact CPU Q↔QP oracle and fixtures |
 | P5 — GPU base conversion | D50–D61 | NOT STARTED | Exact and tuned ModUp/ModDown kernels |
@@ -184,6 +184,23 @@ P1 exit gate:
   observable acceptance criteria and explicit remaining runtime gates.
 
 ## P2 — first real GPU baseline (D11–D15)
+
+[First native diagnostic, 2026-11-14](journal/2026-11-14.md): the supplied
+machine reports RTX 4080 SUPER/compute 8.9. All 23 native CTests and four
+sanitizer smoke tools passed, with a saved 46-bit transfer-inclusive sample.
+This is additional Ada evidence, not the planned RTX 5090 primary or RTX 4090
+control. D11's primary-device gate and B02/B04's failure/profiling gates remain
+open; the working-day tracker does not advance automatically.
+
+[Offline analysis](first-native-analysis.md) audits this sample's exactness
+scope and measurement limitations. Next prepare raw samples, matched input
+protocols and failure injection before another rental. No measured bottleneck
+or completed B04/D15 acceptance is claimed from the existing averaged row.
+
+[Offline tooling](offline-test-tooling.md) now implements the host protocol,
+strict JSONL validation and shared ownership failure tests. New CUDA code and
+the native setup probe remain uncompiled/unrun locally; existing native evidence
+applies only to 19cc285. B02/B04 and the working-day gate remain open.
 
 [Offline preparation is complete](offline-gpu-preparation.md): stock nvcc builds
 sm_89/sm_120 binaries, 19 host/OpenFHE CTests pass with GPU tests excluded, and
@@ -400,3 +417,4 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 | 2026-11-12 | D9 → D10 | Completed checked metadata and the backend API proposal; runtime implementation remained pending. | [D9 contract](device-backend-contract.md); 78 host checks and 16 CPU/OpenFHE CTests |
 | 2026-11-12 | D10 → D11 | Accepted ADR 0001 and the implementation backlog; P1 is DONE. P2 awaits native GPU provisioning. | [ADR](architecture-decision.md); [backlog](implementation-backlog.md); [daily review](journal/2026-11-12.md#d10-accept-architecture-and-close-p1) |
 | 2026-11-12 | D11 preparation | Completed stock CUDA sm_89/sm_120 compilation, baseline ownership/preflight fixes, native fixture compilation and tested failure-aware session collection. P2 preparation is in progress; D11 hardware acceptance and native gates remain open. | [Preparation guide](offline-gpu-preparation.md); 19 host/OpenFHE CTests; [daily entry](journal/2026-11-12.md#offline-preparation-before-gpu-rental) |
+| 2026-11-14 | D11 diagnostic | Supplied RTX 4080 SUPER reports compute 8.9; clean native run passed 23 CTests, 169279488 CUDA-gate comparisons and four sanitizer smoke tools. Exported reports and initial 46-bit latency sample. Primary RTX 5090 and remaining P2 gates stay open. | [Native session](journal/2026-11-14.md); local `report.json`: `GPU_CHECKS_PASSED` |

@@ -209,6 +209,15 @@ int cmd_bench(int argc, char **argv) {
 
 int main(int argc, char **argv) {
   try {
+    if (argc >= 3 && std::string(argv[1]) == "bench-jsonl") {
+      if (argc != 3 && argc != 5)
+        throw std::invalid_argument("usage: bench-jsonl <parameter-vector> [warmups samples]");
+      const auto parameters = ntt::read_vector_file(argv[2]);
+      ntt::cuda::run_bench_samples(parameters.n, parameters.q, parameters.psi,
+          argc == 5 ? std::stoul(argv[3]) : 5,
+          argc == 5 ? std::stoul(argv[4]) : 100, std::cout);
+      return 0;
+    }
     if (argc == 2 && std::string(argv[1]) == "info") {
       ntt::cuda::describe_device(std::cout);
       return 0;
@@ -235,7 +244,8 @@ int main(int argc, char **argv) {
     std::cerr << "usage: ntt_cuda_cli <vector-file> <transform|identity>\n"
                  "       ntt_cuda_cli info\n"
                  "       ntt_cuda_cli verify <vector-file> [...]\n"
-                 "       ntt_cuda_cli bench [min_exp max_exp limbs]\n";
+                 "       ntt_cuda_cli bench [min_exp max_exp limbs]\n"
+                 "       ntt_cuda_cli bench-jsonl <parameter-vector> [warmups samples]\n";
     return 2;
   } catch (const std::exception &error) {
     std::cerr << "error: " << error.what() << "\n";

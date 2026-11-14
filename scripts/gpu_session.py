@@ -7,9 +7,10 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+from benchmark_report import validate_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
-GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact'}
+GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection'}
 OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph'}
 
 
@@ -87,7 +88,8 @@ class Session:
             self.run('build', [args.cmake, '--build', build, '-j', str(args.jobs)])
             registered = json.loads(self.run('registered-tests', [args.ctest, '--test-dir', build, '--show-only=json-v1']))
             tests = {test['name']: test for test in registered['tests']}
-            missing = (GPU_TESTS | OPENFHE_TESTS | {'cuda_constructor_preflight', 'cuda_host_validation'}) - tests.keys()
+            missing = (GPU_TESTS | OPENFHE_TESTS | {'cuda_constructor_preflight', 'cuda_host_validation',
+                        'setup_ownership_host', 'measurement_host'}) - tests.keys()
             if missing:
                 raise RuntimeError('Required tests missing (CPU-only/incomplete builds are rejected): ' + ', '.join(sorted(missing)))
             for name in GPU_TESTS:
@@ -115,11 +117,23 @@ class Session:
                     self.report['sanitizers'] = 'EXPLICITLY_SKIPPED'
                 if args.benchmark:
                     self.report['benchmark'] = 'RUNNING'
-                    self.run('benchmark', [build / 'ntt_cuda_cli', 'bench', '16', '16', '3'])
-                    self.report['benchmark'] = 'PASS_46_BIT_TRANSFER_INCLUSIVE_BASELINE'
+                    self.report['benchmark_summaries'] = {}
+                    for bits in (50, 55, 60):
+                        vector = self.output / f'benchmark-vector-b{bits}.txt'
+                        self.run(f'benchmark-parameters-b{bits}', [sys.executable,
+                            ROOT / 'tests/oracle/gen_vectors.py', vector, '65536', '3', '1', str(bits)])
+                        raw = self.run(f'benchmark-b{bits}', [build / 'ntt_cuda_cli', 'bench-jsonl',
+                            vector, str(args.benchmark_warmups), str(args.benchmark_samples)])
+                        summary = validate_jsonl(raw, expected_bits=bits)
+                        if summary['workload'].get('simulation'):
+                            raise RuntimeError('synthetic benchmark cannot count as native evidence')
+                        if summary['workload']['samples'] != args.benchmark_samples or summary['workload']['warmups'] != args.benchmark_warmups:
+                            raise RuntimeError('benchmark ignored requested repetition counts')
+                        self.report['benchmark_summaries'][str(bits)] = summary
+                    self.report['benchmark'] = 'PASS_50_55_60_BIT_PUBLIC_CALL_SAMPLES'
                 self.report['status'] = 'GPU_CHECKS_PASSED'
-                self.report['remaining_gates'] = ['Native allocation/upload fault injection',
-                    'Kernel-only events, raw timing samples and Nsight profiling',
+                self.report['remaining_gates'] = ['Actual driver OOM/transfer errors and failed-context cleanup beyond pre-call injection',
+                    'Kernel-only events, optimized OpenFHE CPU timing and Nsight profiling',
                     'Full production parameter/key matrix and optimized runtime integration']
             return 0
         except Exception as error:
@@ -147,6 +161,8 @@ def parser():
     result.add_argument('--cmake', default=tool('cmake'))
     result.add_argument('--ctest', default=tool('ctest'))
     result.add_argument('--benchmark', action='store_true')
+    result.add_argument('--benchmark-warmups', type=int, default=5)
+    result.add_argument('--benchmark-samples', type=int, default=100)
     result.add_argument('--skip-sanitizers', action='store_true')
     result.add_argument('--allow-dirty', action='store_true')
     return result
@@ -157,6 +173,8 @@ def main():
     args = cli.parse_args()
     if args.jobs < 1:
         cli.error('--jobs must be positive')
+    if not 1 <= args.benchmark_warmups <= 10000 or not 2 <= args.benchmark_samples <= 100000:
+        cli.error('benchmark requires 1..10000 warmups and 2..100000 samples')
     if args.mode == 'offline' and (args.benchmark or args.skip_sanitizers or args.architectures == 'native'):
         cli.error('Offline mode cannot execute a benchmark or use GPU/native execution flags')
     args.architectures = args.architectures or ('89;120' if args.mode == 'offline' else 'native')

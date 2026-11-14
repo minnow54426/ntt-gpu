@@ -6,6 +6,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / "src/cuda/ntt_kernels.cu").read_text()
 HEADER = (ROOT / "include/ntt/cuda_ntt.hpp").read_text()
+OWNERSHIP = (ROOT / "include/ntt/setup_resources.hpp").read_text()
 
 
 def body_after(marker):
@@ -35,27 +36,28 @@ class CudaDataflowSourceTests(unittest.TestCase):
             "device_inverse_transform_lengths": "impl.limb_count",
         }
         allocations = re.findall(
-            r"cudaMalloc\(&impl\.(device_\w+),\s*([\w.]+) \* sizeof\(uint64_t\)\)",
+            r"impl\.(device_\w+) = impl\.setup\.allocate\(([\w.]+)\)",
             SOURCE,
         )
         self.assertEqual(dict(allocations), expected)
         self.assertEqual(len(allocations), 6)
-        frees = re.findall(r"cudaFree\((device_\w+)\)", SOURCE)
-        self.assertEqual(sorted(frees), sorted(expected))
+        self.assertIn("detail::SetupResources<CudaSetupRuntime> setup", SOURCE)
+        self.assertIn("std::array<uint64_t *, 6> pointers_", OWNERSHIP)
+        self.assertIn("runtime_.release(pointers_[--count_])", OWNERSHIP)
+        self.assertIn("return cudaFree(pointer) == cudaSuccess", SOURCE)
         self.assertIn("value_count = shape.values", SOURCE)
         self.assertIn("twiddle_count = shape.twiddles", SOURCE)
         self.assertIn("std::unique_ptr<Impl> impl_", HEADER)
-        self.assertIn("impl_(std::make_unique<Impl>())", SOURCE)
+        self.assertIn("impl_(std::make_unique<Impl>(failure_step, trace))", SOURCE)
 
     def test_constructor_uploads_only_constants_before_public_methods(self):
         constructor = SOURCE[SOURCE.index("  Impl &impl = *impl_;"):SOURCE.index("CudaNttTransform::~")]
-        self.assertEqual(constructor.count("cudaMemcpy("), 4)
-        self.assertEqual(constructor.count("cudaMemcpyHostToDevice"), 4)
+        self.assertEqual(constructor.count("impl.setup.upload("), 4)
         for buffer in ("device_twiddle_powers", "device_inverse_twiddle_powers",
                        "device_moduli", "device_inverse_transform_lengths"):
-            self.assertRegex(constructor, r"cudaMemcpy\(impl\." + buffer + r",")
+            self.assertRegex(constructor, r"impl.setup.upload\(impl\." + buffer + r",")
         self.assertLess(constructor.index("cpu_references.emplace_back"),
-                        constructor.index("cudaMalloc("))
+                        constructor.index("impl.setup.allocate("))
 
     def test_public_copy_counts_and_fused_operation_order(self):
         for name, uploads in (("forward", 1), ("inverse", 1),

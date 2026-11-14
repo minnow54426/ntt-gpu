@@ -8,6 +8,11 @@
 Choose kernels using exact checks and measured latency or throughput at
 N=65536. Record the GPU, CKKS parameters, batch shape, and transfer boundary.
 
+The [first native-run analysis](first-native-analysis.md) audits the saved
+2026-11-14 Ada diagnostic. Missing raw samples, inverse warm-up/reset, timing
+separation and production-parameter performance are explicit. No measured
+bottleneck or RTX 5090 result is claimed.
+
 ## 1. Implementations to compare
 
 Each implementation must preserve the same transform convention and pass the
