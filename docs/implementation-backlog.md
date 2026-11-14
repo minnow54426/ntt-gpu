@@ -128,12 +128,15 @@ existing CPU/OpenFHE and small schedule-boundary gates green.
 The [first-run offline analysis](first-native-analysis.md) audits the initial
 Ada sample and prioritizes measurement-protocol work before another session.
 Source-derived hypotheses are not profiler evidence; B04 remains open.
-Implementation of the proposed harness changes is a separate task.
+Harness implementation is tracked separately from its native verification.
 
 Offline tooling update: the raw-sample/fixed-input host protocol and report
-validator are now implemented with host checks, and the collector prepares
-50/55/60-bit public-call measurements. New CUDA compilation/execution, resident
-event timings, an optimized OpenFHE CPU comparator and profiling remain open.
+validator are implemented with host checks. The collector prepares 30/50/55/60-bit
+public-call and resident-event/pinned-copy measurements at N=4096–65536,
+K=1/3/8/16/24/32/40,
+plus an OpenFHE NativeVector CRT-FTT CPU baseline. The CPU comparator passes
+the default matrix's local exact-result/protocol cases. Native CUDA compilation/execution and
+actual event/profile observations remain open; prepared tooling is not evidence.
 See [tooling status](offline-test-tooling.md).
 
 Separate construction/table upload, device-resident CUDA-event timings,
@@ -144,10 +147,11 @@ occupancy, registers/spills and launch gaps.
 
 The [session collector](../scripts/gpu_session.py), called by the
 [AutoDL helper](../scripts/autodl_setup.sh), now requires CUDA/OpenFHE coverage,
-retains logs and propagates failed stages, including benchmarks. Eleven host
-control-flow tests exercise those failure classifications. Actual timings,
-CUDA events, raw samples and profiler collection are still pending; its basic
-46-bit wall-clock benchmark does not complete B04.
+retains logs and propagates failed stages, including benchmarks. Host
+control-flow tests exercise those failure classifications. Expanded
+batch tests cover partial completion, strict input/scope matching, and hashed
+restart records. Optional bounded Nsight captures and compiler resource output
+are prepared, not executed here. The old 46-bit wall-clock row does not complete B04.
 
 **Acceptance:** reproducible raw results, exact-gate status and one evidence-backed
 first bottleneck decision on named hardware. Follow the

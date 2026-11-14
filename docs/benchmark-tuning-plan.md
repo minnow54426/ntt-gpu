@@ -3,7 +3,7 @@
 **Primary target:** NVIDIA RTX 5090 (`sm_120`)  
 **Cross-architecture control:** NVIDIA RTX 4090 (`sm_89`)  
 **Workload target:** OpenFHE 1.6.1 CKKS with Hybrid key switching  
-**Ring dimensions:** `65536`
+**Primary ring dimension:** `65536`; regression/benchmark sweep: `4096`–`65536`
 
 Choose kernels using exact checks and measured latency or throughput at
 N=65536. Record the GPU, CKKS parameters, batch shape, and transfer boundary.
@@ -35,8 +35,8 @@ The minimum matrix is:
 
 | Axis | Values |
 |---|---|
-| Ring dimension | `2^16` |
-| Modulus width | OpenFHE-compatible 50, 55, 59/60-bit primes |
+| Ring dimension | `4096`, `8192`, `16384`, `32768`, `65536`; optimize primarily for `65536` |
+| Modulus width | OpenFHE-compatible **30, 50, 55, 60-bit** primes; retain actual production 59-bit fixtures too |
 | Active RNS towers | representative shallow, medium, and deep CKKS levels |
 | Polynomial count | one component, full ciphertext, key-switch digits |
 | Batch size | `1`, `2`, `4`, `8`, then L2-capacity-limited sweep |
@@ -49,6 +49,17 @@ Take tower and Hybrid digit counts from the pinned OpenFHE parameter sets:
 [`PrecomputeCRTTables`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemerns/rns-cryptoparameters.cpp#L88-L134) defines the full-context partitions,
 and [`EvalKeySwitchPrecomputeCore`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L300-L366) derives the active-level count.
 Three-limb synthetic fixtures alone are insufficient.
+
+The next rental's bounded baseline batch uses all five dimensions, all four
+prime widths, and K=1/3/8/16/24/32/40: **140 workloads**, with separate public
+GPU, resident event/pinned-copy, and OpenFHE CPU jobs (**420 jobs**). Any K from 1 to 40 can
+be selected explicitly; K is primes per polynomial, not ciphertext batch size.
+Defaults are five warm-ups and 100 timed samples per operation. This does not
+yet sweep actual production CKKS parameter sets, ciphertext batches or
+alternative implementations. Thirty-bit
+primes currently use the same `uint64_t` buffers/arithmetic; this is not a
+specialized `uint32_t` implementation or a four-byte storage benchmark.
+See the [batch protocol](offline-test-tooling.md) for restart and timing limits.
 
 ## 3. GPU and kernel parameters to tune
 

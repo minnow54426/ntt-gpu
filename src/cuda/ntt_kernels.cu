@@ -14,6 +14,7 @@
 // same signature with a dedicated cross-check.
 
 #include <cuda_runtime.h>
+#include "ntt/benchmark_inputs.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -632,10 +633,8 @@ void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
 
 void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
                        const std::vector<uint64_t> &roots, size_t warmups,
-                       size_t samples, std::ostream &output) {
+                       size_t samples, std::ostream &output, bool event_timing) {
   measurement::validate_counts(warmups, samples);
-  if (dimension != 65536)
-    throw std::invalid_argument("sample benchmark targets N=65536");
   CudaNttTransform transform(dimension, moduli, roots);
   cudaDeviceProp properties{};
   int device, driver, runtime;
@@ -644,14 +643,7 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
   CHECK_CUDA(cudaDriverGetVersion(&driver));
   CHECK_CUDA(cudaRuntimeGetVersion(&runtime));
   const size_t count = dimension * moduli.size();
-  std::vector<uint64_t> left(count), right(count);
-  uint64_t state = 0x7251d9;
-  for (size_t index = 0; index < count; ++index) {
-    state = state * 6364136223846793005ULL + 1442695040888963407ULL;
-    left[index] = state % moduli[index / dimension];
-    state = state * 6364136223846793005ULL + 1442695040888963407ULL;
-    right[index] = state % moduli[index / dimension];
-  }
+  const auto [left, right] = measurement::benchmark_inputs(dimension, moduli, roots);
   auto cpu_transform = [&](std::vector<uint64_t> &values) {
     for (size_t tower = 0; tower < moduli.size(); ++tower) {
       std::vector<uint64_t> limb(values.begin() + tower * dimension,
@@ -676,7 +668,8 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
   }
   output << "{\"type\":\"workload\",\"schema\":1,\"n\":" << dimension
          << ",\"towers\":" << moduli.size() << ",\"warmups\":" << warmups
-         << ",\"samples\":" << samples << ",\"timing\":\"host_wall_public_call\","
+         << ",\"samples\":" << samples << ",\"timing\":\""
+         << (event_timing ? "cuda_event_resident_and_pinned_copy" : "host_wall_public_call") << "\","
             "\"input_policy\":\"fixed_seed_reset_outside_timer\",\"seed\":7492057,"
             "\"setup_included\":false,\"device\":";
   measurement::json_string(output, properties.name);
@@ -693,6 +686,94 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
     output << roots[tower];
   }
   output << "]}\n";
+  if (event_timing) {
+    // Standalone event experiments. Public methods are deliberately untouched.
+    // These scopes are not additive components of host-wall call latency.
+    struct Event {
+      cudaEvent_t handle{};
+      Event() { CHECK_CUDA(cudaEventCreate(&handle)); }
+      ~Event() { (void)cudaEventDestroy(handle); }
+      Event(const Event &) = delete;
+      Event &operator=(const Event &) = delete;
+    };
+    struct PinnedBuffer {
+      uint64_t *values = nullptr;
+      explicit PinnedBuffer(size_t bytes) {
+        CHECK_CUDA(cudaMallocHost(reinterpret_cast<void **>(&values), bytes));
+      }
+      ~PinnedBuffer() { (void)cudaFreeHost(values); }
+      PinnedBuffer(const PinnedBuffer &) = delete;
+      PinnedBuffer &operator=(const PinnedBuffer &) = delete;
+    };
+    auto &impl = *transform.impl_;
+    DeviceGuard guard(impl.device);
+    Event start, finish;
+    const size_t bytes = count * sizeof(uint64_t);
+    PinnedBuffer pinned(bytes);
+    std::vector<uint64_t> observed(count);
+    auto upload = [&](uint64_t *destination, const std::vector<uint64_t> &source) {
+      CHECK_CUDA(cudaMemcpy(destination, source.data(), bytes, cudaMemcpyHostToDevice));
+    };
+    auto verify_device = [&](const std::vector<uint64_t> &expected) {
+      CHECK_CUDA(cudaMemcpy(observed.data(), impl.device_operand_a, bytes, cudaMemcpyDeviceToHost));
+      if (observed != expected) throw std::runtime_error("event benchmark result mismatch");
+    };
+    auto measure_event = [&](const std::string &name, auto prepare, auto operation, auto verify) {
+      auto timings = measurement::collect_elapsed(warmups, samples, [&] {
+        prepare();
+        CHECK_CUDA(cudaStreamSynchronize(0));
+      }, [&] {
+        CHECK_CUDA(cudaEventRecord(start.handle, 0));
+        operation();
+        CHECK_CUDA(cudaEventRecord(finish.handle, 0));
+        CHECK_CUDA(cudaEventSynchronize(finish.handle));
+        float milliseconds = 0;
+        CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start.handle, finish.handle));
+        return static_cast<double>(milliseconds);
+      }, verify);
+      measurement::write_samples(output, name, timings);
+    };
+    auto launch_pointwise = [&] {
+      pointwise_multiply_kernel<<<impl.elementwise_block_count, impl.threads_per_block>>>(
+          impl.device_operand_a, impl.device_operand_b, impl.device_moduli,
+          dimension, impl.limb_count);
+      CHECK_CUDA(cudaGetLastError());
+    };
+    measure_event("gpu_forward", [&] { upload(impl.device_operand_a, left); },
+        [&] { launch_forward_transform(impl, impl.device_operand_a); },
+        [&] { verify_device(evaluation); });
+    measure_event("gpu_inverse", [&] { upload(impl.device_operand_a, evaluation); },
+        [&] { launch_inverse_transform(impl, impl.device_operand_a); },
+        [&] { verify_device(left); });
+    measure_event("gpu_pointwise", [&] {
+      upload(impl.device_operand_a, evaluation); upload(impl.device_operand_b, right_evaluation);
+    }, launch_pointwise, [&] { verify_device(expected_product); });
+    measure_event("gpu_fused_multiply", [&] {
+      upload(impl.device_operand_a, left); upload(impl.device_operand_b, right);
+    }, [&] {
+      launch_forward_transform(impl, impl.device_operand_a);
+      launch_forward_transform(impl, impl.device_operand_b);
+      launch_pointwise();
+      launch_inverse_transform(impl, impl.device_operand_a);
+    }, [&] { verify_device(expected_coefficients); });
+    measure_event("h2d_pinned", [&] {
+      std::copy(left.begin(), left.end(), pinned.values);
+      CHECK_CUDA(cudaMemset(impl.device_operand_a, 0, bytes));
+    }, [&] {
+      CHECK_CUDA(cudaMemcpyAsync(impl.device_operand_a, pinned.values, bytes, cudaMemcpyHostToDevice, 0));
+    }, [&] { verify_device(left); });
+    measure_event("d2h_pinned", [&] {
+      upload(impl.device_operand_a, left);
+      std::fill(pinned.values, pinned.values + count, 0);
+    }, [&] {
+      CHECK_CUDA(cudaMemcpyAsync(pinned.values, impl.device_operand_a, bytes, cudaMemcpyDeviceToHost, 0));
+    }, [&] {
+      if (!std::equal(left.begin(), left.end(), pinned.values))
+        throw std::runtime_error("pinned D2H benchmark result mismatch");
+    });
+    output << "{\"type\":\"complete\",\"operations\":6}\n";
+    return;
+  }
   std::vector<uint64_t> working, other, product;
   auto measure = [&](const std::string &name, auto prepare, auto operation,
                      const std::vector<uint64_t> &expected, std::vector<uint64_t> &result) {

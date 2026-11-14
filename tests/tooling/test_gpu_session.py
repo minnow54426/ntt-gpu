@@ -12,17 +12,65 @@ from types import SimpleNamespace
 import tempfile
 import unittest
 import sys
-from unittest.mock import patch
+import subprocess
+from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
-from benchmark_report import OPERATIONS
+from benchmark_report import TIMING_OPERATIONS
 spec = importlib.util.spec_from_file_location('gpu_session', ROOT / 'scripts/gpu_session.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
 class SessionTests(unittest.TestCase):
+    def test_prime_batch_defaults_and_bounds(self):
+        required = ['--mode', 'gpu', '--cuda-root', '/mock/cuda', '--openfhe-prefix', '/mock/openfhe']
+        self.assertEqual(module.parser().parse_args(required).benchmark_towers, [1, 3, 8, 16, 24, 32, 40])
+        self.assertEqual(module.parser().parse_args(required + ['--benchmark-towers', '2', '39', '40']).benchmark_towers,
+                         [2, 39, 40])
+        for invalid in ['0', '41']:
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                module.parser().parse_args(required + ['--benchmark-towers', invalid])
+
+    def test_process_timeout_kills_its_own_group(self):
+        process = MagicMock()
+        process.pid = 12345
+        process.wait.side_effect = [subprocess.TimeoutExpired('probe', 1), 0]
+        process.__enter__.return_value = process
+        with patch.object(module.subprocess, 'Popen', return_value=process), patch.object(module.os, 'killpg') as kill_group:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                module.run_process(['probe'], timeout=1)
+            if module.os.name == 'posix':
+                kill_group.assert_called_once_with(12345, module.signal.SIGKILL)
+        self.assertEqual(module.run_process([sys.executable, '-c', 'pass'], timeout=5).returncode, 0)
+
+    def test_resume_preserves_report_and_existing_logs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'record'
+            args = SimpleNamespace(output_dir=output, build_dir=Path(directory), mode='gpu', resume=False)
+            with patch.object(module.platform, 'platform', return_value='mock platform'):
+                first = module.Session(args)
+                (output / 'source.log').write_text('old log')
+                args.resume = True
+                second = module.Session(args)
+                self.assertEqual(second.report['attempt'], 2)
+                self.assertEqual(len(list(output.glob('report-history-*.json'))), 1)
+                with patch.object(module, 'run_process', return_value=SimpleNamespace(returncode=0)):
+                    second.run('source', ['git', 'rev-parse', 'HEAD'])
+                self.assertEqual((output / 'source.log').read_text(), 'old log')
+                self.assertEqual(second.report['stages'][0]['log'], 'source-retry-2.log')
+                self.assertEqual(first.report['attempt'], 1)
+
+    def test_timeout_is_a_failed_stage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(output_dir=Path(directory) / 'new', build_dir=Path(directory), mode='gpu')
+            with patch.object(module.platform, 'platform', return_value='mock platform'):
+                session = module.Session(args)
+                with patch.object(module, 'run_process', side_effect=subprocess.TimeoutExpired('probe', 1)):
+                    with self.assertRaises(RuntimeError): session.run('probe', ['probe'])
+                self.assertEqual(session.report['stages'][0]['status'], 'FAIL')
+
     def scenario(self, mode='offline', fail=None, missing_gpu=False, bad_label=False, skip=False, bad_benchmark=False, synthetic=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -32,6 +80,14 @@ class SessionTests(unittest.TestCase):
             args.architectures = '89;120' if mode == 'offline' else 'native'
             args.benchmark = mode == 'gpu'
             args.skip_sanitizers = skip
+            # Small matrix here; separate batch tests cover the full defaults.
+            args.benchmark_dimensions = [65536]
+            args.benchmark_towers = [3]
+            (root / 'build').mkdir()
+            (root / 'openfhe').mkdir()
+            (root / 'openfhe/libOPENFHEcore.a').write_text('mock library')
+            for binary in ['ntt_cuda_cli', 'ntt_openfhe_bench']:
+                (root / 'build' / binary).write_text('mock executable bytes')
             commands = []
             names = module.OPENFHE_TESTS | {'cuda_constructor_preflight', 'cuda_host_validation',
                                            'setup_ownership_host', 'measurement_host'}
@@ -49,30 +105,40 @@ class SessionTests(unittest.TestCase):
                     output.write('mock-source-commit\n')
                 elif command[0] == 'git':
                     output.write('')
-                elif 'bench-jsonl' in command:
+                elif any(c.endswith('gen_vectors.py') for c in command):
+                    vector, dimension, towers, _, bits = command[-5:]
+                    dimension, towers, bits = int(dimension), int(towers), int(bits)
+                    # Parameters only: benchmark collector does not consume coefficients.
+                    Path(vector).write_text(f'{dimension} {towers}\n' + ''.join(
+                        f'{(1 << (bits - 1)) + 1 + i * 131072} {i + 2}\n' for i in range(towers)))
+                elif 'bench-jsonl' in command or 'events-jsonl' in command or command[0].endswith('ntt_openfhe_bench'):
                     if bad_benchmark:
                         output.write('not JSONL\n')
                         return SimpleNamespace(returncode=0)
                     bits = int(Path(command[-3]).stem.split('b')[-1])
                     warmups, count = map(int, command[-2:])
+                    timing = ('host_wall_public_call' if 'bench-jsonl' in command else
+                              'cuda_event_resident_and_pinned_copy' if 'events-jsonl' in command else
+                              'host_wall_openfhe_native')
+                    operations = TIMING_OPERATIONS[timing]
                     metadata = {'type': 'workload', 'schema': 1, 'n': 65536,
-                        'timing': 'host_wall_public_call', 'input_policy': 'fixed_seed_reset_outside_timer',
+                        'timing': timing, 'input_policy': 'fixed_seed_reset_outside_timer', 'seed': 7492057,
                         'setup_included': False, 'towers': 3, 'warmups': warmups, 'samples': count,
                         'moduli': [(1 << (bits-1)) + 1 + i*131072 for i in range(3)],
                         'roots': [2, 3, 4], 'simulation': synthetic}
                     output.write(json.dumps(metadata) + '\n')
-                    for operation in sorted(OPERATIONS):
+                    for operation in sorted(operations):
                         for index in range(count):
                             output.write(json.dumps({'type': 'sample', 'operation': operation,
                                 'iteration': index, 'milliseconds': 1}) + '\n')
                         output.write(json.dumps({'type': 'summary', 'operation': operation, 'count': count,
                             'mean_ms': 1, 'median_ms': 1, 'p5_ms': 1, 'p95_ms': 1}) + '\n')
-                    output.write(json.dumps({'type': 'complete', 'operations': 6}) + '\n')
+                    output.write(json.dumps({'type': 'complete', 'operations': len(operations)}) + '\n')
                 else:
                     output.write('mock command output\n')
                 return SimpleNamespace(returncode=19 if fail and fail(command) else 0)
 
-            with patch.object(module.platform, 'platform', return_value='mock platform'), patch.object(module.subprocess, 'run', side_effect=run), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with patch.object(module.platform, 'platform', return_value='mock platform'), patch.object(module, 'run_process', side_effect=run), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 session = module.Session(args)
                 code = session.execute()
             report = json.loads((root / 'record/report.json').read_text())
@@ -126,8 +192,11 @@ class SessionTests(unittest.TestCase):
     def test_raw_benchmarks_cover_all_widths(self):
         code, report, commands = self.scenario(mode='gpu')
         self.assertEqual(code, 0)
-        self.assertEqual(set(report['benchmark_summaries']), {'50', '55', '60'})
-        self.assertEqual(sum('bench-jsonl' in command for command in commands), 3)
+        self.assertEqual(len(report['benchmark_summaries']), 12)
+        for bits in [30, 50, 55, 60]:
+            self.assertIn(f'benchmark-n65536-k3-b{bits}-public', report['benchmark_summaries'])
+        self.assertEqual(sum('bench-jsonl' in command for command in commands), 4)
+        self.assertEqual(sum('events-jsonl' in command for command in commands), 4)
 
     def test_synthetic_benchmark_cannot_count_as_native(self):
         code, report, _ = self.scenario(mode='gpu', synthetic=True)
@@ -156,7 +225,7 @@ class SessionTests(unittest.TestCase):
     def test_missing_executable_records_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             args = SimpleNamespace(output_dir=Path(directory) / 'new', build_dir=Path(directory), mode='offline')
-            with patch.object(module.platform, 'platform', return_value='mock platform'), patch.object(module.subprocess, 'run', side_effect=FileNotFoundError('missing program')), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with patch.object(module.platform, 'platform', return_value='mock platform'), patch.object(module, 'run_process', side_effect=FileNotFoundError('missing program')), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 session = module.Session(args)
                 self.assertEqual(session.execute(), 1)
             self.assertEqual(session.report['status'], 'FAIL')

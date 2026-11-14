@@ -66,6 +66,9 @@ public:
 
 private:
   friend void check_native_setup_failures(std::ostream &output);
+  friend void run_bench_samples(uint64_t, const std::vector<uint64_t> &,
+                               const std::vector<uint64_t> &, size_t, size_t,
+                               std::ostream &, bool);
   CudaNttTransform(uint64_t transform_length, const std::vector<uint64_t> &moduli,
                   const std::vector<uint64_t> &primitive_roots,
                   size_t failure_step, detail::SetupTrace *trace);
@@ -87,9 +90,10 @@ void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
 void describe_device(std::ostream &output);
 
 // Exact supplied q/root list; seeded operands. Raw host-wall samples plus
-// summary JSONL. No kernel-only or optimized OpenFHE CPU timing is implied.
+// summary JSONL. event_timing selects separate resident-kernel and pinned-copy
+// experiments, not an instrumentation/decomposition of the public calls.
 void run_bench_samples(uint64_t transform_length, const std::vector<uint64_t> &moduli,
                        const std::vector<uint64_t> &roots, size_t warmups,
-                       size_t samples, std::ostream &output);
+                       size_t samples, std::ostream &output, bool event_timing = false);
 
 } // namespace ntt::cuda

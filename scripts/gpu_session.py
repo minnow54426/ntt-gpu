@@ -3,15 +3,17 @@
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import platform
+import signal
 import subprocess
 import sys
-from benchmark_report import validate_jsonl
+from benchmark_batch import DIMENSIONS, MAX_TOWERS, TOWER_COUNTS, collect_batch, collect_profiles
 
 ROOT = Path(__file__).resolve().parents[1]
-GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection'}
-OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph'}
+GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection', 'cuda_benchmark_matrix_exact'}
+OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph', 'openfhe_benchmark_protocol'}
 
 
 def tool(name):
@@ -19,14 +21,45 @@ def tool(name):
     return str(local) if local.is_file() else name
 
 
+def run_process(command, *, timeout, **options):
+    """Bound command trees on Linux/macOS, including compiler/profiler children."""
+    with subprocess.Popen(command, start_new_session=(os.name == 'posix'), **options) as process:
+        try:
+            return subprocess.CompletedProcess(command, process.wait(timeout=timeout))
+        except BaseException:
+            if os.name == 'posix':
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                process.kill()
+            process.wait()
+            raise
+
+
 class Session:
     def __init__(self, args):
         self.args = args
+        self.root = ROOT
         self.output = args.output_dir.resolve()
-        self.output.mkdir(parents=True, exist_ok=False)
+        previous_attempt = 0
+        if getattr(args, 'resume', False):
+            previous = json.loads((self.output / 'report.json').read_text())
+            if previous['mode'] != 'gpu' or args.mode != 'gpu':
+                raise ValueError('Only native GPU sessions can resume')
+            previous_attempt = previous.get('attempt', 1)
+            history = self.output / ('report-history-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.json')
+            with history.open('x') as archive:
+                json.dump(previous, archive, indent=2)
+        else:
+            self.output.mkdir(parents=True, exist_ok=False)
         self.report = {'mode': args.mode, 'status': 'RUNNING', 'started_utc': datetime.now(timezone.utc).isoformat(),
                        'platform': platform.platform(), 'build_dir': str(args.build_dir.resolve()),
-                       'stages': [], 'gpu_execution': 'NOT_RUN', 'sanitizers': 'NOT_RUN', 'benchmark': 'NOT_RUN'}
+                       'attempt': previous_attempt + 1,
+                       'stages': [], 'gpu_execution': 'NOT_RUN', 'sanitizers': 'NOT_RUN',
+                       'profiling': 'NOT_RUN' if getattr(args, 'profile', False) else 'NOT_REQUESTED',
+                       'benchmark': 'NOT_RUN'}
         self.save()
 
     def save(self):
@@ -38,17 +71,26 @@ class Session:
         command = [str(x) for x in command]
         print(f'[{name}] {" ".join(command)}', flush=True)
         log = self.output / (name + '.log')
+        retry = 1
+        while log.exists():
+            retry += 1
+            log = self.output / f'{name}-retry-{retry}.log'
         stage = {'name': name, 'command': command, 'log': log.name, 'status': 'RUNNING'}
         self.report['stages'].append(stage)
         self.save()
         try:
             with log.open('w') as output:
-                result = subprocess.run(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT)
+                result = run_process(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT,
+                                     timeout=getattr(self.args, 'command_timeout', 1800))
             stage.update(status='PASS' if result.returncode == 0 else 'FAIL', exit_code=result.returncode)
-        except OSError as error:
+        except (OSError, subprocess.TimeoutExpired) as error:
             stage.update(status='FAIL', error=str(error))
             self.save()
             raise RuntimeError(f'{name}: {error}') from error
+        except KeyboardInterrupt:
+            stage.update(status='INTERRUPTED')
+            self.save()
+            raise
         self.save()
         if result.returncode:
             raise RuntimeError(f'{name} failed ({result.returncode}); see {log}')
@@ -67,6 +109,8 @@ class Session:
             self.run('nvcc-version', [nvcc, '--version'])
             if args.mode == 'gpu':
                 self.run('hardware', ['nvidia-smi', '--query-gpu=name,driver_version,memory.total,pstate,power.limit,clocks.sm,clocks.mem', '--format=csv'])
+                hardware_identity = self.run('hardware-identity', ['nvidia-smi', '--query-gpu=uuid,pci.bus_id,name,driver_version', '--format=csv'])
+                self.run('cpu-info', ['lscpu'])
                 if not args.skip_sanitizers:
                     self.run('sanitizer-version', ['compute-sanitizer', '--version'])
             build = args.build_dir.resolve()
@@ -78,6 +122,7 @@ class Session:
             if cache.is_file():
                 keys = {'CMAKE_CXX_COMPILER', 'CMAKE_CUDA_COMPILER', 'CMAKE_CUDA_HOST_COMPILER',
                         'CMAKE_CUDA_ARCHITECTURES', 'CMAKE_BUILD_TYPE', 'OpenFHE_DIR',
+                        'CMAKE_CXX_FLAGS', 'CMAKE_CXX_FLAGS_RELEASE', 'CMAKE_CUDA_FLAGS', 'CMAKE_CUDA_FLAGS_RELEASE',
                         'NTT_REQUIRE_CUDA', 'NTT_ENABLE_CUDA', 'NTT_ENABLE_OPENFHE_COMPAT'}
                 self.report['configured_cache'] = {}
                 for line in cache.read_text().splitlines():
@@ -103,7 +148,7 @@ class Session:
                 self.run('host-tests', [args.ctest, '--test-dir', build, '-LE', 'gpu', '--output-on-failure'])
                 self.report['status'] = 'OFFLINE_READY'
             else:
-                self.run('device-info', [build / 'ntt_cuda_cli', 'info'])
+                self.report['selected_device'] = self.run('device-info', [build / 'ntt_cuda_cli', 'info']).strip()
                 self.report['gpu_execution'] = 'RUNNING'
                 self.run('exact-tests', [args.ctest, '--test-dir', build, '--output-on-failure'])
                 self.report['gpu_execution'] = 'EXACT_TESTS_PASS'
@@ -112,32 +157,31 @@ class Session:
                     for sanitizer in ['memcheck', 'racecheck', 'initcheck', 'synccheck']:
                         self.run('sanitizer-' + sanitizer, ['compute-sanitizer', '--tool', sanitizer,
                             '--error-exitcode', '1', build / 'ntt_cuda_openfhe_tests', '--smoke'])
+                        self.run('sanitizer-matrix-' + sanitizer, ['compute-sanitizer', '--tool', sanitizer,
+                            '--error-exitcode', '1', build / 'ntt_cuda_openfhe_tests', '--matrix-smoke'])
                     self.report['sanitizers'] = 'SMOKE_MATRIX_PASS'
                 else:
                     self.report['sanitizers'] = 'EXPLICITLY_SKIPPED'
                 if args.benchmark:
                     self.report['benchmark'] = 'RUNNING'
                     self.report['benchmark_summaries'] = {}
-                    for bits in (50, 55, 60):
-                        vector = self.output / f'benchmark-vector-b{bits}.txt'
-                        self.run(f'benchmark-parameters-b{bits}', [sys.executable,
-                            ROOT / 'tests/oracle/gen_vectors.py', vector, '65536', '3', '1', str(bits)])
-                        raw = self.run(f'benchmark-b{bits}', [build / 'ntt_cuda_cli', 'bench-jsonl',
-                            vector, str(args.benchmark_warmups), str(args.benchmark_samples)])
-                        summary = validate_jsonl(raw, expected_bits=bits)
-                        if summary['workload'].get('simulation'):
-                            raise RuntimeError('synthetic benchmark cannot count as native evidence')
-                        if summary['workload']['samples'] != args.benchmark_samples or summary['workload']['warmups'] != args.benchmark_warmups:
-                            raise RuntimeError('benchmark ignored requested repetition counts')
-                        self.report['benchmark_summaries'][str(bits)] = summary
-                    self.report['benchmark'] = 'PASS_50_55_60_BIT_PUBLIC_CALL_SAMPLES'
+                    collect_batch(self, hardware_identity)
+                if args.profile:
+                    self.report['profiling'] = 'RUNNING'
+                    collect_profiles(self)
                 self.report['status'] = 'GPU_CHECKS_PASSED'
                 self.report['remaining_gates'] = ['Actual driver OOM/transfer errors and failed-context cleanup beyond pre-call injection',
-                    'Kernel-only events, optimized OpenFHE CPU timing and Nsight profiling',
+                    'Native verification of event/CPU measurement and profiler data; per-kernel counters beyond the bounded capture',
                     'Full production parameter/key matrix and optimized runtime integration']
             return 0
+        except KeyboardInterrupt:
+            for field in ['gpu_execution', 'sanitizers', 'benchmark', 'profiling']:
+                if self.report[field] == 'RUNNING':
+                    self.report[field] = 'INTERRUPTED'
+            self.report.update(status='INTERRUPTED', error='Interrupted by user; partial evidence retained')
+            return 130
         except Exception as error:
-            for field in ['gpu_execution', 'sanitizers', 'benchmark']:
+            for field in ['gpu_execution', 'sanitizers', 'benchmark', 'profiling']:
                 if self.report[field] == 'RUNNING':
                     self.report[field] = 'FAIL'
             self.report.update(status='FAIL', error=str(error))
@@ -163,6 +207,12 @@ def parser():
     result.add_argument('--benchmark', action='store_true')
     result.add_argument('--benchmark-warmups', type=int, default=5)
     result.add_argument('--benchmark-samples', type=int, default=100)
+    result.add_argument('--benchmark-dimensions', type=int, nargs='+', choices=DIMENSIONS, default=list(DIMENSIONS))
+    result.add_argument('--benchmark-towers', type=int, nargs='+', choices=range(1, MAX_TOWERS + 1),
+                        default=list(TOWER_COUNTS), help='RNS prime count (1..40); default: 1 3 8 16 24 32 40')
+    result.add_argument('--profile', action='store_true', help='Bounded nsys/ncu capture; requires both tools and permissions')
+    result.add_argument('--resume', action='store_true', help='Rerun gates; reuse only validated matching benchmark jobs')
+    result.add_argument('--command-timeout', type=int, default=1800, help='Seconds per command (1..7200)')
     result.add_argument('--skip-sanitizers', action='store_true')
     result.add_argument('--allow-dirty', action='store_true')
     return result
@@ -175,7 +225,13 @@ def main():
         cli.error('--jobs must be positive')
     if not 1 <= args.benchmark_warmups <= 10000 or not 2 <= args.benchmark_samples <= 100000:
         cli.error('benchmark requires 1..10000 warmups and 2..100000 samples')
-    if args.mode == 'offline' and (args.benchmark or args.skip_sanitizers or args.architectures == 'native'):
+    if not 1 <= args.command_timeout <= 7200:
+        cli.error('--command-timeout must be 1..7200 seconds')
+    if len(set(args.benchmark_dimensions)) != len(args.benchmark_dimensions) or len(set(args.benchmark_towers)) != len(args.benchmark_towers):
+        cli.error('benchmark matrix axes must not contain duplicates')
+    if args.resume and (args.output_dir is None or not args.benchmark or args.allow_dirty):
+        cli.error('--resume requires --output-dir, --benchmark and a clean checkout')
+    if args.mode == 'offline' and (args.benchmark or args.profile or args.resume or args.skip_sanitizers or args.architectures == 'native'):
         cli.error('Offline mode cannot execute a benchmark or use GPU/native execution flags')
     args.architectures = args.architectures or ('89;120' if args.mode == 'offline' else 'native')
     args.build_dir = args.build_dir or ROOT / ('build/cuda-offline13' if args.mode == 'offline' else 'build/native-gpu')

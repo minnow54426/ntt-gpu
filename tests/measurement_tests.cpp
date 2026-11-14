@@ -1,4 +1,5 @@
 #include "ntt/measurement.hpp"
+#include "ntt/benchmark_inputs.hpp"
 #include <iostream>
 #include <sstream>
 namespace {
@@ -32,6 +33,26 @@ int main(int argc, char **argv) {
         [&] { require(!FakeClock::inside); ++resets; value = 7; },
         [&] { require(value == 7 && FakeClock::inside == (runs >= 2)); ++runs; value = 0; });
     require(resets == 6 && runs == 6 && samples == std::vector<double>(4, 1));
+    std::string protocol;
+    auto external = ntt::measurement::collect_elapsed(1, 2,
+        [&] { protocol += 'P'; }, [&] { protocol += 'T'; return 2.5; },
+        [&] { protocol += 'V'; });
+    require(protocol == "PTVPTVPTV" && external == std::vector<double>(2, 2.5));
+    bool bad_external = false;
+    try {
+      ntt::measurement::collect_elapsed(1, 2, [] {}, [] { return -1.; }, [] {});
+    } catch (const std::runtime_error &) { bad_external = true; }
+    require(bad_external);
+    const auto inputs = ntt::measurement::benchmark_inputs(2, {17, 41}, {4, 9});
+    require(inputs == ntt::measurement::benchmark_inputs(2, {17, 41}, {4, 9}));
+    uint64_t state = ntt::measurement::kInputSeed;
+    for (size_t index = 0; index < 4; ++index) {
+      const uint64_t modulus = index < 2 ? 17 : 41;
+      state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+      require(inputs.first[index] == state % modulus);
+      state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+      require(inputs.second[index] == state % modulus);
+    }
     require(ntt::measurement::percentile({4, 1, 3, 2}, .5) == 2.5);
     require(std::abs(ntt::measurement::percentile({4, 1, 3, 2}, .05) - 1.15) < 1e-12);
     std::ostringstream output;

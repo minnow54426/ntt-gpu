@@ -3,6 +3,7 @@
 Usage: gen_vectors.py <out-path> [N=65536] [num_primes=3] [seed=1] [bits=46]
 """
 
+import argparse
 import os
 import random
 import sys
@@ -12,11 +13,16 @@ from ntt_oracle import find_primes, find_psi
 
 
 def main() -> int:
-    out = sys.argv[1]
-    n = int(sys.argv[2]) if len(sys.argv) > 2 else 65536
-    num_primes = int(sys.argv[3]) if len(sys.argv) > 3 else 3
-    seed = int(sys.argv[4]) if len(sys.argv) > 4 else 1
-    bits = int(sys.argv[5]) if len(sys.argv) > 5 else 46
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('out')
+    parser.add_argument('n', type=int, nargs='?', default=65536)
+    parser.add_argument('num_primes', type=int, nargs='?', default=3)
+    parser.add_argument('seed', type=int, nargs='?', default=1)
+    parser.add_argument('bits', type=int, nargs='?', default=46)
+    parser.add_argument('--zero-coefficients', action='store_true',
+                        help='Small benchmark parameter file; zero placeholders, not a correctness fixture')
+    args = parser.parse_args()
+    out, n, num_primes, seed, bits = args.out, args.n, args.num_primes, args.seed, args.bits
     if n < 2 or n & (n - 1) or n > 65536 or not 1 <= num_primes <= 65535 or not 2 <= bits <= 62:
         raise ValueError("invalid dimension, prime count or width")
 
@@ -28,13 +34,15 @@ def main() -> int:
         q_total *= q
 
     rng = random.Random(seed)
-    coeffs = [rng.randrange(q_total) for _ in range(n)]
+    coeffs = [0] * n if args.zero_coefficients else [rng.randrange(q_total) for _ in range(n)]
 
     with open(out, "w", encoding="utf-8") as f:
         f.write(
             "# ntt-gpu vector v1: N, primes+psis, "
             "decimal coefficients in [0, Q)\n"
         )
+        if args.zero_coefficients:
+            f.write('# coefficient policy: zero placeholders for benchmark parameters only\n')
         f.write(f"{n} {num_primes}\n")
         for q, psi in zip(primes, psis):
             f.write(f"{q} {psi}\n")

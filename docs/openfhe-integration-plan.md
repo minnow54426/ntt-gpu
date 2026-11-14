@@ -1,9 +1,9 @@
 # CKKS GPU-to-OpenFHE integration plan
 
 **Target:** OpenFHE 1.6.1 CKKS with Hybrid key switching  
-**Primary arithmetic:** 50–60-bit RNS primes stored in `uint64_t`, with
+**Primary arithmetic:** 30/50/55/60-bit RNS benchmark primes stored in `uint64_t`, with
 `uint32_t` indexing/control paths where safe  
-**Ring dimension:** `65536`<br>
+**Ring dimension:** primary `65536`; baseline sweep `4096`–`65536`<br>
 **Estimate:** 95 planned working days + 15 risk-reserve days  
 **Last updated:** 2026-11-14 (Asia/Shanghai)
 
@@ -17,7 +17,7 @@ Update this tracker only when a deliverable passes its gate.
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Verify new CUDA measurement/fault tooling in a native build, then collect primary-device and remaining P2 evidence |
+| Active task | Freeze the locally verified 30/50/55/60-bit, up-to-40-tower batch; check no-GPU CUDA CI compilation before the next native rental |
 | Next gate | P2: native CUDA/OpenFHE exactness and named-hardware baseline (D11–D15) |
 | Overall state | In progress; additional Ada hardware verified, primary-device and remaining P2 gates open |
 

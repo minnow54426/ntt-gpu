@@ -15,6 +15,24 @@ inline void validate_counts(size_t warmups, size_t samples) {
   if (warmups < 1 || warmups > 10000 || samples < 2 || samples > 100000)
     throw std::invalid_argument("require 1..10000 warmups and 2..100000 samples");
 }
+// For external clocks (CUDA events). The operation returns its own elapsed
+// milliseconds; reset and verification cannot enter that timed interval.
+template <class Prepare, class TimedOperation, class Verify>
+std::vector<double> collect_elapsed(size_t warmups, size_t samples, Prepare prepare,
+                                    TimedOperation operation, Verify verify) {
+  validate_counts(warmups, samples);
+  std::vector<double> result;
+  result.reserve(samples);
+  for (size_t index = 0; index < warmups + samples; ++index) {
+    prepare();
+    const double elapsed = operation();
+    if (!std::isfinite(elapsed) || elapsed < 0)
+      throw std::runtime_error("invalid external-clock sample");
+    verify();
+    if (index >= warmups) result.push_back(elapsed);
+  }
+  return result;
+}
 template <class Clock = std::chrono::steady_clock, class Prepare, class Operation>
 std::vector<double> collect(size_t warmups, size_t samples, Prepare prepare,
                             Operation operation) {

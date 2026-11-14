@@ -89,10 +89,13 @@ bash scripts/autodl_setup.sh
 
 The script records hardware/toolchain details, requires CUDA and OpenFHE test
 registration, builds, runs exact tests and sanitizer smoke checks, and collects
-raw 50/55/60-bit public-call samples using the
+raw 30/50/55/60-bit samples over N=4096–65536 and 1/3/8/16/24/32/40 RNS towers using the
 [offline-prepared protocol](docs/offline-test-tooling.md). The new CUDA changes
 still require native compilation/execution; the saved first session predates
-them. Each session writes logs and
+them. The batch separates public-call wall time, resident CUDA events/pinned
+copies and the OpenFHE NativeVector CPU baseline. Optional `--profile` captures
+Nsight data; `--resume --output-dir <previous-record>` reruns gates and reuses
+only matching, hash-verified completed benchmark jobs. Each session writes logs and
 `report.json` under an ignored `bench-results-*` directory. Any failed stage
 returns nonzero. It does not update source, install packages or change drivers.
 Select paths with `NTT_REPO_DIR`, `NTT_CUDA_ROOT`, and `NTT_OPENFHE_PREFIX`;

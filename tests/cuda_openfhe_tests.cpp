@@ -3,6 +3,7 @@
 #include "math/nbtheory.h"
 #include "ntt/cuda_ntt.hpp"
 #include "ntt/ntt.hpp"
+#include "ntt/param_gen.hpp"
 #include <array>
 #include <iostream>
 #include <string>
@@ -11,6 +12,7 @@ constexpr size_t N = 65536;
 size_t comparisons = 0;
 struct Basis {
   std::vector<uint64_t> q, roots;
+  size_t dimension = N;
 };
 void equal(const std::vector<uint64_t> &a, const std::vector<uint64_t> &b,
            const char *label) {
@@ -24,6 +26,7 @@ void equal(const std::vector<uint64_t> &a, const std::vector<uint64_t> &b,
 }
 std::vector<uint64_t> openfhe(const Basis &basis, const std::vector<uint64_t> &input,
                               bool inverse, bool square = false) {
+  const size_t N = basis.dimension;
   std::vector<uint64_t> out(input.size()), cpu = input;
   for (size_t k = 0; k < basis.q.size(); ++k) {
     auto params = std::make_shared<lbcrypto::NativePoly::Params>(
@@ -56,6 +59,7 @@ std::vector<uint64_t> openfhe(const Basis &basis, const std::vector<uint64_t> &i
   return out;
 }
 void run(const Basis &basis, bool smoke) {
+  const size_t N = basis.dimension;
   for (size_t k = 0; k < basis.q.size(); ++k)
     std::cout << "PARAM " << k << " q=" << basis.q[k] << " psi=" << basis.roots[k]
               << '\n';
@@ -104,9 +108,26 @@ void run(const Basis &basis, bool smoke) {
 int main(int argc, char **argv) {
   try {
     const bool smoke = argc == 2 && std::string(argv[1]) == "--smoke";
-    if (argc > 1 && !smoke)
-      throw std::invalid_argument("usage: ntt_cuda_openfhe_tests [--smoke]");
+    const bool matrix = argc == 2 && std::string(argv[1]) == "--benchmark-matrix";
+    const bool matrix_smoke = argc == 2 && std::string(argv[1]) == "--matrix-smoke";
+    if (argc > 2 || (argc > 1 && !smoke && !matrix && !matrix_smoke))
+      throw std::invalid_argument("usage: ntt_cuda_openfhe_tests [--smoke|--benchmark-matrix|--matrix-smoke]");
     ntt::cuda::describe_device(std::cout);
+    if (matrix || matrix_smoke) {
+      for (size_t dimension : {4096, 8192, 16384, 32768, 65536})
+        for (unsigned bits : {30, 50, 55, 60})
+          for (size_t towers : {1, 3, 8, 16, 24, 32, 40}) {
+            if (matrix_smoke && ((towers != 3 && towers != 40) || (bits != 30 && bits != 60) ||
+                                (dimension != 4096 && dimension != 65536))) continue;
+            Basis basis;
+            basis.dimension = dimension;
+            basis.q = ntt::find_primes(dimension, towers, bits);
+            for (auto modulus : basis.q) basis.roots.push_back(ntt::find_psi(modulus, dimension));
+            run(basis, matrix_smoke);
+          }
+      std::cout << "NATIVE CUDA MATRIX PASS: " << comparisons << " exact residue comparisons\n";
+      return 0;
+    }
     Basis widths;
     for (unsigned bits : {55U, 50U, 60U}) {
       auto q = lbcrypto::LastPrime<lbcrypto::NativeInteger>(bits, 2 * N);

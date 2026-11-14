@@ -156,8 +156,10 @@ NTT_OPENFHE_PREFIX="$PWD/build/openfhe-compat/install" \
 The helper no longer performs an implicit git pull or package installation.
 It records the selected commit, hardware/driver/clocks/power data and toolchain,
 requires a native CUDA build plus all OpenFHE/GPU tests, probes the actual device,
-runs the exact suite and four sanitizer smoke tools, then collects raw
-50/55/60-bit public-call samples with the new protocol. GPU mode rejects dirty source
+runs the exact suite and four sanitizer tools on legacy and matrix-smoke scopes,
+then collects the 30/50/55/60-bit N=4096–65536, K=1/3/8/16/24/32/40 batch
+in three timing scopes (140 workloads, 420 jobs).
+GPU mode rejects dirty source
 unless explicitly marked exploratory with `--allow-dirty`.
 
 For full control, call the Python collector directly:
@@ -172,14 +174,18 @@ python3 scripts/gpu_session.py --mode gpu \
 `--skip-sanitizers` is available for an explicitly limited diagnostic run;
 its report says `EXPLICITLY_SKIPPED`. Such a run cannot satisfy sanitizer gates.
 Missing tools, missing GPU/OpenFHE tests, build/test/sanitizer/benchmark failures
-all produce a nonzero exit and a failed report. An existing report directory is
-never overwritten. Open `report.json` and the named stage logs after every run.
+all produce a nonzero exit and a failed report. Existing directories are rejected
+unless explicitly using `--resume --output-dir <previous-record>`; resume archives
+the prior report, reruns gates and preserves logs. Open `report.json` and the
+named stage logs after every run.
 
 The legacy `bench` command still uses 46-bit primes and public-call wall time.
-The collector now uses `bench-jsonl` at 50/55/60 bits, with fixed inputs, raw
-samples and strict summaries; this new CUDA path is unrun here. Neither path
-provides resident CUDA-event timing, an optimized OpenFHE CPU comparator or a
-completed D14 profile. See the [protocol and limits](offline-test-tooling.md).
+The collector now separates `bench-jsonl` public calls, `events-jsonl` resident
+work/pinned copies and `ntt_openfhe_bench` CPU arithmetic. The new CUDA paths
+remain uncompiled/unrun here; the CPU comparator is locally verified.
+Optional `--profile` needs working `nsys` and `ncu` plus counter permissions;
+it prepares a bounded capture, not a completed D14 bottleneck report.
+See the [protocol and limits](offline-test-tooling.md).
 
 ## 6. When to stop the rental
 
@@ -189,7 +195,7 @@ are ready. Export all raw records before stopping the machine. Analyze and
 publish results offline for D15.
 
 The collector returning `GPU_CHECKS_PASSED` still leaves native failure injection,
-full production coverage, kernel-only raw timing and Nsight profiling as explicit
+full production coverage, acceptance of raw event timings and Nsight analysis as explicit
 remaining gates. Completing this offline checklist does not automatically close
 D11, B02, B03, D14 or P2. The [backlog](implementation-backlog.md) controls those
 acceptance criteria.

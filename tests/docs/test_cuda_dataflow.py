@@ -88,7 +88,12 @@ class CudaDataflowSourceTests(unittest.TestCase):
         self.assertIn("std::vector<uint64_t> multiply(std::vector<uint64_t> left_values", HEADER)
         for name in ("n", "limbs", "q", "ref"):
             self.assertNotIn("cudaMemcpy", method(name))
-        self.assertNotIn("cudaMemcpyAsync", SOURCE)
+        for name in ("forward", "inverse", "pointwise_multiply", "multiply"):
+            self.assertNotIn("cudaMemcpyAsync", method(name))
+        # Benchmark-only pinned-copy experiments do not change the public API.
+        benchmark = body_after("void run_bench_samples(")
+        self.assertIn("cudaMemcpyAsync", benchmark)
+        self.assertIn("cudaEventSynchronize", benchmark)
         self.assertNotIn("cudaStream_t", HEADER)
 
     def test_launch_composition_and_limb_selection(self):

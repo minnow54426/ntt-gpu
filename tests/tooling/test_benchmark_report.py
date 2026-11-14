@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
-from benchmark_report import OPERATIONS, validate_jsonl
+from benchmark_report import OPERATIONS, TIMING_OPERATIONS, validate_jsonl
 
 
 def fixture():
@@ -28,6 +28,33 @@ def validate(rows, **kwargs):
 
 
 class BenchmarkReportTests(unittest.TestCase):
+    def test_each_scope_and_supported_dimension(self):
+        for timing, operations in TIMING_OPERATIONS.items():
+            for dimension in [4096, 8192, 16384, 32768, 65536]:
+                rows = fixture()
+                rows[0].update(n=dimension, timing=timing)
+                template = rows[1:6]
+                rows = rows[:1]
+                for operation in operations:
+                    for original in template:
+                        row = dict(original, operation=operation)
+                        rows.append(row)
+                rows.append({'type': 'complete', 'operations': len(operations)})
+                with self.subTest(timing=timing, dimension=dimension):
+                    validate(rows, expected_n=dimension, expected_towers=1, expected_timing=timing)
+                    with self.assertRaises(ValueError):
+                        validate(rows, expected_towers=3)
+                    with self.assertRaises(ValueError):
+                        validate(rows, expected_timing='wrong-scope')
+
+    def test_30_bit_parameters_and_invalid_dimensions(self):
+        rows = fixture()
+        rows[0]['moduli'] = [536903681]
+        validate(rows, expected_bits=30)
+        for dimension in [False, 0, 4097, 131072]:
+            rows[0]['n'] = dimension
+            with self.subTest(n=dimension), self.assertRaises(ValueError): validate(rows)
+
     def test_recomputes_linear_percentiles(self):
         result = validate(fixture(), expected_bits=50)
         self.assertEqual(result['summaries']['gpu_inverse']['median_ms'], 2.5)
