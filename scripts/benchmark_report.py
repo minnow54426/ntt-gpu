@@ -12,6 +12,7 @@ EVENT_OPERATIONS = {"gpu_forward", "gpu_inverse", "gpu_pointwise", "gpu_fused_mu
 OPENFHE_OPERATIONS = {"cpu_openfhe_forward", "cpu_openfhe_inverse", "cpu_openfhe_pointwise",
                       "cpu_openfhe_multiply"}
 TIMING_OPERATIONS = {"host_wall_public_call": OPERATIONS,
+                     "host_wall_gpu_public_call": OPERATIONS - {"cpu_reference_forward"},
                      "cuda_event_resident_and_pinned_copy": EVENT_OPERATIONS,
                      "host_wall_openfhe_native": OPENFHE_OPERATIONS}
 

@@ -633,7 +633,8 @@ void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
 
 void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
                        const std::vector<uint64_t> &roots, size_t warmups,
-                       size_t samples, std::ostream &output, bool event_timing) {
+                       size_t samples, std::ostream &output, bool event_timing,
+                       bool include_cpu_reference_timing) {
   measurement::validate_counts(warmups, samples);
   CudaNttTransform transform(dimension, moduli, roots);
   cudaDeviceProp properties{};
@@ -669,7 +670,8 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
   output << "{\"type\":\"workload\",\"schema\":1,\"n\":" << dimension
          << ",\"towers\":" << moduli.size() << ",\"warmups\":" << warmups
          << ",\"samples\":" << samples << ",\"timing\":\""
-         << (event_timing ? "cuda_event_resident_and_pinned_copy" : "host_wall_public_call") << "\","
+         << (event_timing ? "cuda_event_resident_and_pinned_copy" :
+             include_cpu_reference_timing ? "host_wall_public_call" : "host_wall_gpu_public_call") << "\","
             "\"input_policy\":\"fixed_seed_reset_outside_timer\",\"seed\":7492057,"
             "\"setup_included\":false,\"device\":";
   measurement::json_string(output, properties.name);
@@ -782,21 +784,25 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
       throw std::runtime_error("benchmark result mismatch: " + name);
     measurement::write_samples(output, name, timings);
   };
-  std::vector<std::vector<uint64_t>> cpu_values(moduli.size(),
-                                                std::vector<uint64_t>(dimension));
-  auto cpu_samples = measurement::collect(warmups, samples, [&] {
+  // Rental runs omit repeated CPU timing, but retain untimed exact GPU oracles.
+  if (include_cpu_reference_timing) {
+    std::vector<std::vector<uint64_t>> cpu_values(
+        moduli.size(), std::vector<uint64_t>(dimension));
+    auto cpu_samples = measurement::collect(warmups, samples, [&] {
+      for (size_t tower = 0; tower < moduli.size(); ++tower)
+        std::copy(left.begin() + tower * dimension,
+                  left.begin() + (tower + 1) * dimension,
+                  cpu_values[tower].begin());
+    }, [&] {
+      for (size_t tower = 0; tower < moduli.size(); ++tower)
+        transform.ref(tower).forward(cpu_values[tower]);
+    });
     for (size_t tower = 0; tower < moduli.size(); ++tower)
-      std::copy(left.begin() + tower * dimension, left.begin() + (tower + 1) * dimension,
-                cpu_values[tower].begin());
-  }, [&] {
-    for (size_t tower = 0; tower < moduli.size(); ++tower)
-      transform.ref(tower).forward(cpu_values[tower]);
-  });
-  for (size_t tower = 0; tower < moduli.size(); ++tower)
-    if (!std::equal(cpu_values[tower].begin(), cpu_values[tower].end(),
-                    evaluation.begin() + tower * dimension))
-      throw std::runtime_error("CPU benchmark result mismatch");
-  measurement::write_samples(output, "cpu_reference_forward", cpu_samples);
+      if (!std::equal(cpu_values[tower].begin(), cpu_values[tower].end(),
+                      evaluation.begin() + tower * dimension))
+        throw std::runtime_error("CPU benchmark result mismatch");
+    measurement::write_samples(output, "cpu_reference_forward", cpu_samples);
+  }
   measure("gpu_forward", [&] { working = left; },
           [&] { transform.forward(working); }, evaluation, working);
   measure("gpu_inverse", [&] { working = evaluation; },
@@ -810,7 +816,8 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
   measure("gpu_fused_multiply", [&] { std::vector<uint64_t>().swap(product); }, [&] {
     product = transform.multiply(left, right);
   }, expected_coefficients, product);
-  output << "{\"type\":\"complete\",\"operations\":6}\n";
+  output << "{\"type\":\"complete\",\"operations\":"
+         << (include_cpu_reference_timing ? 6 : 5) << "}\n";
 }
 
 } // namespace ntt::cuda

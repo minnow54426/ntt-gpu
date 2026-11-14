@@ -28,6 +28,17 @@ def validate(rows, **kwargs):
 
 
 class BenchmarkReportTests(unittest.TestCase):
+    def test_gpu_only_scope_rejects_cpu_timing(self):
+        rows = fixture()
+        rows[0]['timing'] = 'host_wall_gpu_public_call'
+        rows[-1]['operations'] = 5
+        with self.assertRaises(ValueError):
+            validate(rows)
+        rows = [row for row in rows if row.get('operation') != 'cpu_reference_forward']
+        result = validate(rows)
+        self.assertEqual(len(result['summaries']), 5)
+        self.assertNotIn('cpu_reference_forward', result['summaries'])
+
     def test_each_scope_and_supported_dimension(self):
         for timing, operations in TIMING_OPERATIONS.items():
             for dimension in [4096, 8192, 16384, 32768, 65536]:

@@ -68,7 +68,7 @@ private:
   friend void check_native_setup_failures(std::ostream &output);
   friend void run_bench_samples(uint64_t, const std::vector<uint64_t> &,
                                const std::vector<uint64_t> &, size_t, size_t,
-                               std::ostream &, bool);
+                               std::ostream &, bool, bool);
   CudaNttTransform(uint64_t transform_length, const std::vector<uint64_t> &moduli,
                   const std::vector<uint64_t> &primitive_roots,
                   size_t failure_step, detail::SetupTrace *trace);
@@ -92,8 +92,11 @@ void describe_device(std::ostream &output);
 // Exact supplied q/root list; seeded operands. Raw host-wall samples plus
 // summary JSONL. event_timing selects separate resident-kernel and pinned-copy
 // experiments, not an instrumentation/decomposition of the public calls.
+// Disabling include_cpu_reference_timing skips repeated CPU timing only;
+// untimed reference preparation still validates every GPU operation exactly.
 void run_bench_samples(uint64_t transform_length, const std::vector<uint64_t> &moduli,
                        const std::vector<uint64_t> &roots, size_t warmups,
-                       size_t samples, std::ostream &output, bool event_timing = false);
+                       size_t samples, std::ostream &output, bool event_timing = false,
+                       bool include_cpu_reference_timing = true);
 
 } // namespace ntt::cuda

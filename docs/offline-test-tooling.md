@@ -15,6 +15,29 @@ next session. It does not reconnect to the stopped rental or close B02/B04.
 
 ## Raw measurement protocol
 
+### Rental GPU / local CPU split
+
+The later [November 14 session notes](journal/2026-11-14.md) supersede the
+pre-rental execution status above. Rental runs can now use:
+
+```sh
+ntt_cuda_cli gpu-bench-jsonl parameters.txt 5 100
+ntt_cuda_cli events-jsonl parameters.txt 5 100
+```
+
+`gpu-bench-jsonl` emits five GPU public operations under the distinct
+`host_wall_gpu_public_call` timing scope. It skips repeated scalar CPU
+timings, not the untimed reference preparation/checks needed to validate GPU
+outputs. The event command is unchanged. Run the four-operation
+`ntt_openfhe_bench` baseline separately on the local M1 Pro using identical
+N/q/roots/seed and repetition counts. Always retain separate machine/build
+identities: M1 CPU versus rental GPU is not a same-host acceleration factor.
+
+The legacy `gpu_session.py --benchmark` collector below still schedules
+mixed CPU/GPU work. Do not use it unchanged for a GPU-only rental. This session
+uses an independently archived split runner and manifests; integrating scope
+selection into the normal resumable collector remains follow-up work.
+
 The new `ntt_cuda_cli bench-jsonl <parameter-vector> [warmups samples]` path
 uses the vector file's exact N/q/root list; coefficients are generated from a
 fixed documented seed, not copied from that file. The batch covers N=4096,
