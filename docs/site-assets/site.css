@@ -100,14 +100,15 @@ html { scroll-behavior:smooth; scroll-padding-top:84px; }
 .site-contribute-note { margin:34px 0 0; padding-top:18px; border-top:1px solid var(--site-line); color:#7b8690; font-size:11px; }
 .site-contribute-note a { color:#50667b; }
 .site-directory-note { margin:0 0 22px; font-size:13px; color:#687582; }
-.site-directory { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
+.site-directory { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; align-items:start; }
 .site-directory-group { min-width:0; border:1px solid var(--site-line); border-radius:6px; padding:20px; background:var(--site-card); }
 .site-directory-group h3 { font:400 23px Georgia,serif; margin:0 0 12px; }
+.site-directory-group summary { cursor:pointer; font:500 27px var(--site-serif); margin-bottom:14px; }
+.site-directory-group summary:focus-visible { outline:2px solid currentColor; outline-offset:4px; }
 .site-directory-link { display:block; text-decoration:none; color:#3a4857; padding:15px 0; border-top:1px solid var(--site-line); }
 .site-directory-link:hover strong { text-decoration:underline; }
 .site-directory-link strong { display:flex; justify-content:space-between; gap:12px; font-size:13px; font-weight:600; }
 .site-directory-link p { margin:6px 0 9px; font-size:12px; line-height:1.7; color:#6e7a87; }
-.site-page-url { display:block; font:11px/1.7 var(--site-mono); overflow-wrap:anywhere; color:#4b6177; background:#e6ecf2; padding:5px 8px; border-radius:3px; }
 @media(max-width:600px) { .site-directory { grid-template-columns:1fr; gap:16px; } }
 .site-footer { margin:0!important; padding:19px 42px!important; border-top:1px solid var(--site-line)!important; display:flex!important; justify-content:space-between; gap:16px; font:9px/1.8 var(--site-mono)!important; color:#7c8792!important; letter-spacing:0!important; }
 .site-footer a { color:#657483; }
@@ -259,7 +260,6 @@ html { scroll-behavior:smooth; scroll-padding-top:84px; }
 .site-directory-group h3 { font-size:22px; }
 .site-directory-link { padding:12px 0; }
 .site-directory-link p { color:#535f6b; font-size:13px; margin-bottom:0; }
-.site-page-url { display:none; }
 .site-directory-note { color:#535f6b; }
 .site-evidence-strip { gap:16px; }
 .site-evidence-strip strong { font-size:14px; }

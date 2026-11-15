@@ -1,5 +1,6 @@
 #include "ntt/measurement.hpp"
 #include "ntt/benchmark_inputs.hpp"
+#include "ntt/benchmark_mode.hpp"
 #include <iostream>
 #include <sstream>
 namespace {
@@ -17,6 +18,28 @@ struct FakeClock {
 }
 int main(int argc, char **argv) {
   try {
+    using ntt::measurement::BenchmarkMode;
+    require(ntt::measurement::benchmark_mode("bench-jsonl") == BenchmarkMode::PublicWithCpu);
+    require(ntt::measurement::benchmark_mode("gpu-bench-jsonl") == BenchmarkMode::PublicGpuOnly);
+    require(ntt::measurement::benchmark_mode("events-jsonl") == BenchmarkMode::ResidentEvents);
+    for (const auto &protocol : ntt::measurement::kBenchmarkProtocols) {
+      require(ntt::measurement::benchmark_mode(protocol.command) == protocol.mode);
+      require(&ntt::measurement::benchmark_protocol(protocol.mode) == &protocol);
+      require(protocol.operation_count ==
+              (protocol.mode == BenchmarkMode::PublicGpuOnly ? 5 : 6));
+    }
+    require(!ntt::measurement::benchmark_mode("unknown"));
+    require(!ntt::measurement::benchmark_mode(""));
+    require(ntt::measurement::benchmark_protocol(BenchmarkMode::PublicWithCpu).timing ==
+            "host_wall_public_call");
+    require(ntt::measurement::benchmark_protocol(BenchmarkMode::PublicGpuOnly).timing ==
+            "host_wall_gpu_public_call");
+    require(ntt::measurement::benchmark_protocol(BenchmarkMode::ResidentEvents).timing ==
+            "cuda_event_resident_and_pinned_copy");
+    bool invalid_mode = false;
+    try { (void)ntt::measurement::benchmark_protocol(static_cast<BenchmarkMode>(-1)); }
+    catch (const std::invalid_argument &) { invalid_mode = true; }
+    require(invalid_mode);
     if (argc == 2 && std::string(argv[1]) == "--emit") {
       std::cout << "{\"type\":\"workload\",\"schema\":1,\"n\":65536,\"towers\":1,"
                    "\"samples\":4,\"warmups\":2,\"moduli\":[562949954338817],\"roots\":[2],"

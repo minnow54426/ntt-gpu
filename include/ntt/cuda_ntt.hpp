@@ -20,6 +20,8 @@
 #include <memory>
 #include <vector>
 
+#include "ntt/benchmark_mode.hpp"
+
 namespace ntt {
 class NegacyclicNtt; // complete type in ntt/ntt.hpp; a reference here
 }
@@ -68,7 +70,7 @@ private:
   friend void check_native_setup_failures(std::ostream &output);
   friend void run_bench_samples(uint64_t, const std::vector<uint64_t> &,
                                const std::vector<uint64_t> &, size_t, size_t,
-                               std::ostream &, bool, bool);
+                               std::ostream &, measurement::BenchmarkMode);
   CudaNttTransform(uint64_t transform_length, const std::vector<uint64_t> &moduli,
                   const std::vector<uint64_t> &primitive_roots,
                   size_t failure_step, detail::SetupTrace *trace);
@@ -89,14 +91,12 @@ void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
 // Requires a usable GPU; compiler-only preparation must not call this.
 void describe_device(std::ostream &output);
 
-// Exact supplied q/root list; seeded operands. Raw host-wall samples plus
-// summary JSONL. event_timing selects separate resident-kernel and pinned-copy
-// experiments, not an instrumentation/decomposition of the public calls.
-// Disabling include_cpu_reference_timing skips repeated CPU timing only;
-// untimed reference preparation still validates every GPU operation exactly.
+// Exact q/roots and seeded operands; raw samples and summaries in JSONL.
+// PublicGpuOnly omits repeated CPU timing, not untimed exact reference checks.
+// ResidentEvents is a separate experiment, not a public-call decomposition.
 void run_bench_samples(uint64_t transform_length, const std::vector<uint64_t> &moduli,
                        const std::vector<uint64_t> &roots, size_t warmups,
-                       size_t samples, std::ostream &output, bool event_timing = false,
-                       bool include_cpu_reference_timing = true);
+                       size_t samples, std::ostream &output,
+                       measurement::BenchmarkMode mode = measurement::BenchmarkMode::PublicWithCpu);
 
 } // namespace ntt::cuda

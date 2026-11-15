@@ -356,8 +356,7 @@ def entry_cards(entries, current, limit=None):
     return "".join(cards)
 
 
-def page_directory(pages, entries, public_base_url=None):
-    public_base_url = public_base_url or read_catalog()["public_base_url"]
+def page_directory(pages, entries):
     directory_pages = list(pages) + [{
         "url": "journal.html", "title": "All journal entries",
         "group": "Daily journal", "summary": "The complete daily progress timeline.",
@@ -372,12 +371,11 @@ def page_directory(pages, entries, public_base_url=None):
             links.append(
                 f'<a class="site-directory-link" href="{escape(page["url"], quote=True)}">'
                 f'<strong>{escape(title)}</strong>'
-                f'<p>{escape(page["summary"])}</p>'
-                f'<code class="site-page-url" aria-label="Public URL">{escape(urljoin(public_base_url, page["url"]))}</code></a>'
+                f'<p>{escape(page["summary"])}</p></a>'
             )
         groups.append(
-            f'<div class="site-directory-group"><h3>{escape(group)}</h3>'
-            + "".join(links) + "</div>"
+            f'<details class="site-directory-group"{" open" if group == "Start here" else ""}>'
+            f'<summary>{escape(group)}</summary>' + "".join(links) + "</details>"
         )
     return '<div class="site-directory">' + "".join(groups) + "</div>"
 
@@ -390,33 +388,24 @@ def home_content(pages, entries):
   <div><p class="site-eyebrow"><span class="site-status-dot"></span> An open engineering notebook</p>
     <h1>Notes on encrypted computation.</h1>
     <p class="site-lede">Learn the NTT, inspect the CUDA schedule, and follow the path to exact OpenFHE integration.</p>
-    <div class="site-hero-actions"><a class="site-primary-link" href="#all-pages">Browse all pages <span>↓</span></a><a class="site-secondary-link" href="journal.html">Follow our progress</a></div>
-    <div class="site-specs"><span>RTX 5090</span><span>u64 / u32</span><span>N = 65,536</span></div>
+    <div class="site-hero-actions"><a class="site-primary-link" href="batch40-native-analysis.html">Read the GPU results</a><a class="site-secondary-link" href="#all-pages">Browse all pages ↓</a></div>
+    <div class="site-specs"><span>CKKS · Hybrid</span><span>N = 4,096–65,536</span><span>Target: RTX 5090</span></div>
   </div>
   <div class="site-checkpoint"><div class="site-checkpoint-label">Working day <span>{escape(state['Working day'])}</span></div>
     <div class="site-checkpoint-symbol" aria-hidden="true">⌁</div>
     <h2>Current checkpoint</h2><p><strong>{escape(state['Active phase'])}</strong></p>
-    <p>{escape(state['Active task'])}.</p>
+    <p>{escape(state['Active task']).rstrip('.')}.</p>
     <a href="openfhe-integration-plan.html">Explore the working-day plan</a>
   </div>
 </div>
 <div class="site-evidence-strip">
-  <div><span class="site-evidence-label">Verified baseline</span><strong><span class="site-status-dot"></span> CPU / OpenFHE baseline</strong><p>Exact array checks and CPU simulation.</p></div>
-  <div><span class="site-evidence-label">GPU execution</span><strong><span class="site-pending-dot"></span> Hardware gate pending</strong><p>CUDA source exists; RTX validation is next.</p></div>
+  <div><span class="site-evidence-label">Verified</span><strong><span class="site-status-dot"></span> Temporary GPU baseline passed</strong><p>Exact NTT checks, sanitizers and timings.</p></div>
+  <div><span class="site-evidence-label">Still pending</span><strong><span class="site-pending-dot"></span> RTX 5090 validation</strong><p>Base conversion and key switching come later.</p></div>
   <div><span class="site-evidence-label">Current record</span><strong>{escape(latest)}</strong><p>Latest published journal entry.</p></div>
 </div>
 <div class="site-section-heading" id="all-pages"><h2>All pages</h2></div>
 <p class="site-directory-note">Choose a lesson, reference, plan, or dated journal entry.</p>
 {page_directory(pages, entries)}
-<div class="site-section-heading"><h2>Implementation sequence</h2><a href="openfhe-integration-plan.html">Tracked plan</a></div>
-<ol class="site-plan">
-  <li><strong>NTT</strong><span>Exactness, GPU validation, tuning</span></li>
-  <li><strong>Base conversion</strong><span>Q ↔ QP</span></li>
-  <li><strong>Hybrid key switching</strong><span>Decompose, multiply, reduce</span></li>
-  <li><strong>OpenFHE</strong><span>Integration and CPU fallback</span></li>
-  <li><strong>Encrypted inference</strong><span>After integration</span></li>
-</ol>
-
 """
 
 

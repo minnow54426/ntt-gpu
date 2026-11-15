@@ -633,8 +633,9 @@ void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
 
 void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
                        const std::vector<uint64_t> &roots, size_t warmups,
-                       size_t samples, std::ostream &output, bool event_timing,
-                       bool include_cpu_reference_timing) {
+                       size_t samples, std::ostream &output,
+                       measurement::BenchmarkMode mode) {
+  const auto &protocol = measurement::benchmark_protocol(mode);
   measurement::validate_counts(warmups, samples);
   CudaNttTransform transform(dimension, moduli, roots);
   cudaDeviceProp properties{};
@@ -670,8 +671,7 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
   output << "{\"type\":\"workload\",\"schema\":1,\"n\":" << dimension
          << ",\"towers\":" << moduli.size() << ",\"warmups\":" << warmups
          << ",\"samples\":" << samples << ",\"timing\":\""
-         << (event_timing ? "cuda_event_resident_and_pinned_copy" :
-             include_cpu_reference_timing ? "host_wall_public_call" : "host_wall_gpu_public_call") << "\","
+         << protocol.timing << "\","
             "\"input_policy\":\"fixed_seed_reset_outside_timer\",\"seed\":7492057,"
             "\"setup_included\":false,\"device\":";
   measurement::json_string(output, properties.name);
@@ -688,7 +688,7 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
     output << roots[tower];
   }
   output << "]}\n";
-  if (event_timing) {
+  if (mode == measurement::BenchmarkMode::ResidentEvents) {
     // Standalone event experiments. Public methods are deliberately untouched.
     // These scopes are not additive components of host-wall call latency.
     struct Event {
@@ -773,7 +773,7 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
       if (!std::equal(left.begin(), left.end(), pinned.values))
         throw std::runtime_error("pinned D2H benchmark result mismatch");
     });
-    output << "{\"type\":\"complete\",\"operations\":6}\n";
+    output << "{\"type\":\"complete\",\"operations\":" << protocol.operation_count << "}\n";
     return;
   }
   std::vector<uint64_t> working, other, product;
@@ -785,7 +785,7 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
     measurement::write_samples(output, name, timings);
   };
   // Rental runs omit repeated CPU timing, but retain untimed exact GPU oracles.
-  if (include_cpu_reference_timing) {
+  if (mode == measurement::BenchmarkMode::PublicWithCpu) {
     std::vector<std::vector<uint64_t>> cpu_values(
         moduli.size(), std::vector<uint64_t>(dimension));
     auto cpu_samples = measurement::collect(warmups, samples, [&] {
@@ -817,7 +817,7 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
     product = transform.multiply(left, right);
   }, expected_coefficients, product);
   output << "{\"type\":\"complete\",\"operations\":"
-         << (include_cpu_reference_timing ? 6 : 5) << "}\n";
+         << protocol.operation_count << "}\n";
 }
 
 } // namespace ntt::cuda

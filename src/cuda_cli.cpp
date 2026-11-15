@@ -209,17 +209,15 @@ int cmd_bench(int argc, char **argv) {
 
 int main(int argc, char **argv) {
   try {
-    if (argc >= 3 && (std::string(argv[1]) == "bench-jsonl" ||
-                      std::string(argv[1]) == "events-jsonl" ||
-                      std::string(argv[1]) == "gpu-bench-jsonl")) {
+    const auto benchmark_mode = ntt::measurement::benchmark_mode(argc > 1 ? argv[1] : "");
+    if (benchmark_mode) {
       if (argc != 3 && argc != 5)
         throw std::invalid_argument("usage: bench-jsonl|gpu-bench-jsonl|events-jsonl <parameter-vector> [warmups samples]");
       const auto parameters = ntt::read_vector_file(argv[2]);
       ntt::cuda::run_bench_samples(parameters.n, parameters.q, parameters.psi,
           argc == 5 ? std::stoul(argv[3]) : 5,
           argc == 5 ? std::stoul(argv[4]) : 100, std::cout,
-          std::string(argv[1]) == "events-jsonl",
-          std::string(argv[1]) != "gpu-bench-jsonl");
+          *benchmark_mode);
       return 0;
     }
     if (argc == 2 && std::string(argv[1]) == "info") {

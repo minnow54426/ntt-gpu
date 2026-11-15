@@ -107,11 +107,21 @@ class RoutingTests(unittest.TestCase):
         parser.feed(directory)
         expected = {page["url"] for page in pages + entries} | {"journal.html"}
         self.assertEqual(set(parser.references), expected)
-        self.assertEqual(directory.count('class="site-page-url"'), len(expected))
-        for url in expected:
-            self.assertIn("https://minnow54426.github.io/systems/ntt-gpu/" + url, directory)
+        self.assertNotIn('class="site-page-url"', directory)
+        self.assertEqual(directory.count('<summary>'), 6)
+        self.assertEqual(directory.count(' open>'), 1)
+        self.assertNotIn('https://minnow54426.github.io/', directory)
         self.assertNotIn("127.0.0.1", directory)
         self.assertNotIn("localhost", directory)
+
+    def test_home_shows_current_evidence_without_old_pending_message(self):
+        home = site.home_content(site.read_catalog()['pages'], site.read_journal())
+        self.assertIn('Temporary GPU baseline passed', home)
+        self.assertIn('RTX 5090 validation', home)
+        self.assertIn('batch40-native-analysis.html', home)
+        self.assertIn('id="all-pages"', home)
+        self.assertNotIn('CUDA source exists', home)
+        self.assertNotIn('Implementation sequence', home)
 
     def test_nested_journal_document_link_keeps_fragment(self):
         url = site.rewrite_url(
