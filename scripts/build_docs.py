@@ -316,7 +316,7 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
   <header class="site-topbar">
     <button class="site-menu-button" type="button" aria-controls="site-sidebar" aria-expanded="false">☰ <span>Menu</span></button>
     <div class="site-breadcrumb"><a href="{home}">Notebook</a><span>/</span>{escape(page["group"])}</div>
-    {'<button class="site-contents-button" type="button" aria-controls="site-section-nav" aria-expanded="false">Sections</button>' if toc else ''}
+{'    <button class="site-contents-button" type="button" aria-controls="site-section-nav" aria-expanded="false">Sections</button>' if toc else ''}
     <button class="site-search-button" type="button" aria-haspopup="dialog"><span>⌕</span> Search documentation <kbd>⌘ K</kbd></button>
   </header>
   <main id="site-main" class="site-main">
