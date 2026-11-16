@@ -93,7 +93,10 @@ raw 30/50/55/60-bit samples over N=4096–65536 and 1/3/8/16/24/32/40 RNS towers
 [offline-prepared protocol](docs/offline-test-tooling.md). The new CUDA changes
 still require native compilation/execution; the saved first session predates
 them. The batch separates public-call wall time, resident CUDA events/pinned
-copies and the OpenFHE NativeVector CPU baseline. Optional `--profile` captures
+copies and the OpenFHE NativeVector CPU baseline. The rental helper now selects
+GPU-only measurements by default (280 jobs); direct collector commands retain
+the previous combined default (420 jobs). Select `--benchmark-scope all` to
+request that combined batch explicitly. Optional `--profile` captures
 Nsight data; `--resume --output-dir <previous-record>` reruns gates and reuses
 only matching, hash-verified completed benchmark jobs. Each session writes logs and
 `report.json` under an ignored `bench-results-*` directory. Any failed stage
@@ -101,6 +104,18 @@ returns nonzero. It does not update source, install packages or change drivers.
 Select paths with `NTT_REPO_DIR`, `NTT_CUDA_ROOT`, and `NTT_OPENFHE_PREFIX`;
 `NTT_CUDA_ARCH` defaults to `native`. See the preparation guide for full commands
 and the remaining P2 gates.
+
+Collect the matching 140-job CPU baseline locally without a CUDA installation:
+
+```sh
+python3 scripts/gpu_session.py --mode cpu \
+  --openfhe-prefix build/openfhe-compat/install \
+  --benchmark --output-dir bench-results-local-cpu
+```
+
+CPU and GPU sessions retain separate machine/build identities. Scope or mode
+changes require a fresh record directory; CPU measurements never satisfy native
+GPU gates. Use the same workload and repetition options for comparisons.
 
 The default build targets `sm_89` and, with CUDA 12.8+, `sm_120`. For one known
 GPU, use `-DCMAKE_CUDA_ARCHITECTURES=native` (CMake 3.24+).

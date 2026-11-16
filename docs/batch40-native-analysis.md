@@ -60,7 +60,8 @@ does not establish an intrinsic advantage for wider primes.
 
 ## What to do next
 
-1. Make GPU-only rental collection and local CPU collection routine.
+1. Use the [split collector](offline-test-tooling.md#collector-and-validation):
+   GPU-only measurement jobs on the rental and the OpenFHE CPU baseline locally.
 2. Prepare device-resident operation chains with checked external inputs.
 3. Test arithmetic and memory-layout candidates separately.
 4. Repeat a frozen batch on the actual RTX 5090, with controlled ordering and

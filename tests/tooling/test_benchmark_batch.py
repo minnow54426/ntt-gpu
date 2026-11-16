@@ -1,11 +1,13 @@
 """Synthetic batch-control evidence only; never launches CUDA/profilers."""
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 import sys
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -14,7 +16,7 @@ from benchmark_report import TIMING_OPERATIONS
 
 
 class FakeSession:
-    def __init__(self, directory, dimensions=(65536,), towers=(3,)):
+    def __init__(self, directory, dimensions=(65536,), towers=(3,), mode='gpu', scope=None):
         self.root, self.output = ROOT, Path(directory)
         build = self.output / 'build'
         build.mkdir()
@@ -24,10 +26,12 @@ class FakeSession:
         prefix.mkdir()
         (prefix / 'libOPENFHEcore.a').write_text('mock library identity')
         self.args = SimpleNamespace(build_dir=build, openfhe_prefix=prefix, architectures='native',
+            mode=mode, benchmark_scope=scope,
             benchmark_warmups=1, benchmark_samples=2, benchmark_dimensions=list(dimensions),
             benchmark_towers=list(towers))
         self.report = {'source_commit': 'mock-source', 'source_dirty': False,
-                       'selected_device': 'mock device', 'stages': [], 'attempt': 1}
+                       'selected_device': 'mock device', 'cpu_identity': {'model': 'mock CPU'},
+                       'stages': [], 'attempt': 1}
         self.commands = []
         self.fail = set()
         self.wrong_parameters = False
@@ -50,7 +54,8 @@ class FakeSession:
         elif name.startswith('benchmark-'):
             tokens = Path(command[-3]).read_text().split()
             dimension, towers = map(int, tokens[:2])
-            timing = ('host_wall_public_call' if name.endswith('-public') else
+            timing = ('host_wall_gpu_public_call' if name.endswith('-gpu-public') else
+                      'host_wall_public_call' if name.endswith('-public') else
                       'cuda_event_resident_and_pinned_copy' if name.endswith('-events') else
                       'host_wall_openfhe_native')
             operations = TIMING_OPERATIONS[timing]
@@ -107,6 +112,61 @@ class BatchTests(unittest.TestCase):
             for dimension in DIMENSIONS:
                 self.assertIn(f'benchmark-n{dimension}-k3-b30-events', session.report['benchmark_summaries'])
                 self.assertIn(f'benchmark-n{dimension}-k40-b30-events', session.report['benchmark_summaries'])
+
+    def test_gpu_only_runs_280_jobs_without_cpu_benchmark_binary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = FakeSession(directory, DIMENSIONS, TOWER_COUNTS, scope='gpu')
+            (session.args.build_dir / 'ntt_openfhe_bench').unlink()
+            collect_batch(session, 'GPU')
+            self.assertEqual(len(session.report['benchmark_summaries']), 280)
+            self.assertEqual(session.report['benchmark_expected_jobs'], 280)
+            self.assertEqual(session.report['benchmark_scopes'], ['gpu-public', 'events'])
+            self.assertTrue(any('gpu-bench-jsonl' in command for _, command in session.commands))
+            self.assertFalse(any('bench-jsonl' in command for _, command in session.commands))
+            self.assertTrue(all(not name.endswith('-openfhe') for name in session.report['benchmark_summaries']))
+            manifest = json.loads((session.output / 'benchmark-manifest.json').read_text())
+            self.assertEqual(set(manifest['context']['binaries']), {'ntt_cuda_cli'})
+
+    def test_cpu_only_runs_140_jobs_without_cuda_binary_or_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = FakeSession(directory, DIMENSIONS, TOWER_COUNTS, mode='cpu')
+            (session.args.build_dir / 'ntt_cuda_cli').unlink()
+            del session.report['selected_device']
+            collect_batch(session, 'CPU')
+            self.assertEqual(len(session.report['benchmark_summaries']), 140)
+            self.assertEqual(session.report['benchmark_expected_jobs'], 140)
+            self.assertEqual(session.report['benchmark_scopes'], ['openfhe'])
+            self.assertTrue(all(name.endswith('-openfhe') for name in session.report['benchmark_summaries']))
+            manifest = json.loads((session.output / 'benchmark-manifest.json').read_text())
+            self.assertEqual(set(manifest['context']['binaries']), {'ntt_openfhe_bench'})
+            self.assertNotIn('selected_device', manifest['context'])
+            self.assertNotIn('architectures', manifest['context'])
+            self.assertNotIn('cuda_visible_devices', manifest['context'])
+
+    def test_cpu_resume_ignores_unused_gpu_binary_and_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = FakeSession(directory, mode='cpu')
+            collect_batch(session, 'CPU')
+            (session.args.build_dir / 'ntt_cuda_cli').write_text('unrelated GPU binary changed')
+            session.commands.clear()
+            with patch.dict(os.environ, {'CUDA_VISIBLE_DEVICES': 'unrelated'}):
+                collect_batch(session, 'CPU')
+            self.assertFalse(any(name.startswith('benchmark-') for name, _ in session.commands))
+            self.assertTrue(all(row['reused'] for row in session.report['benchmark_summaries'].values()))
+
+    def test_scope_or_cpu_identity_changes_cannot_reuse_a_manifest(self):
+        for change in ('scope', 'cpu_identity'):
+            with tempfile.TemporaryDirectory() as directory, self.subTest(change=change):
+                session = FakeSession(directory)
+                collect_batch(session, 'GPU')
+                before = (session.output / 'benchmark-manifest.json').read_bytes()
+                if change == 'scope':
+                    session.args.benchmark_scope = 'gpu'
+                else:
+                    session.report['cpu_identity']['model'] = 'other CPU'
+                with self.assertRaisesRegex(RuntimeError, 'Cannot resume'):
+                    collect_batch(session, 'GPU')
+                self.assertEqual(before, (session.output / 'benchmark-manifest.json').read_bytes())
 
     def test_partial_failure_keeps_other_jobs_and_resume_reuses_only_passes(self):
         with tempfile.TemporaryDirectory() as directory:

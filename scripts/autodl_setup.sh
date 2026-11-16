@@ -10,4 +10,5 @@ extra_args=()
 if [[ "${NTT_SKIP_SANITIZERS:-0}" == "1" ]]; then extra_args+=(--skip-sanitizers); fi
 exec python3 "$repo_root/scripts/gpu_session.py" --mode gpu \
   --cuda-root "$cuda_root" --openfhe-prefix "$openfhe_prefix" \
-  --architectures "${NTT_CUDA_ARCH:-native}" --benchmark "${extra_args[@]}" "$@"
+  --architectures "${NTT_CUDA_ARCH:-native}" --benchmark \
+  --benchmark-scope "${NTT_BENCHMARK_SCOPE:-gpu}" "${extra_args[@]}" "$@"

@@ -5,7 +5,7 @@
 `uint32_t` indexing/control paths where safe  
 **Ring dimension:** primary `65536`; baseline sweep `4096`–`65536`<br>
 **Estimate:** 95 planned working days + 15 risk-reserve days  
-**Last updated:** 2026-11-14 (Asia/Shanghai)
+**Last updated:** 2026-11-16 (Asia/Shanghai)
 
 Follow the live tracker, then open the phase you need from the section sidebar.
 The sequence is NTT → base conversion → Hybrid key switching → OpenFHE.
@@ -17,7 +17,7 @@ Update this tracker only when a deliverable passes its gate.
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Simplify benchmark tooling and prepare device-resident operation chains locally |
+| Active task | Prepare device-resident operation chains locally; verify the split collector on RTX 5090 |
 | Next gate | P2: native CUDA/OpenFHE exactness and named-hardware baseline (D11–D15) |
 | Overall state | In progress; additional Ada hardware verified, primary-device and remaining P2 gates open |
 

@@ -110,10 +110,35 @@ unlike GPU public multiplication it does not include a by-value return copy.
 
 ## Collector and validation
 
-With `--benchmark`, [gpu_session.py](../scripts/gpu_session.py) now generates
+The November 16 collector update separates rental GPU measurements from local
+CPU collection. [gpu_session.py](../scripts/gpu_session.py) generates
 parameter vectors at **30, 50, 55 and 60 bits**, all five dimensions above,
-and K=1/3/8/16/24/32/40 towers: **140 workloads and 420 measurement jobs**, three timing
-scopes per workload. Every scope must match the requested N/K/q/roots/seed
+and K=1/3/8/16/24/32/40 towers: **140 workloads**. Select the measurement scopes:
+
+| Session / selection | Measurement jobs | Timing scopes |
+|---|---|---|
+| `--mode gpu --benchmark-scope gpu` | 280 | Five-operation GPU public calls, resident events/pinned copies |
+| `--mode cpu` | 140 | Four-operation OpenFHE CPU baseline |
+| `--mode gpu --benchmark-scope all` | 420 | Legacy public calls including scalar CPU forward, events, OpenFHE CPU baseline |
+
+Add `--benchmark` to collect measurements. Direct GPU collector commands default
+to `all` for compatibility. The rental helper `scripts/autodl_setup.sh` defaults
+to `gpu`; use `--benchmark-scope all` or `NTT_BENCHMARK_SCOPE=all` to request its
+previous combined behavior.
+
+GPU-only collection invokes `gpu-bench-jsonl` with the distinct
+`host_wall_gpu_public_call` timing label and `*-gpu-public.log` filenames.
+Untimed CPU reference preparation/result checks remain necessary. All native
+GPU exactness gates and requested sanitizers still run. Only the separate CPU
+benchmark-protocol sweep is excluded from that session's CTest invocation.
+
+CPU mode configures `NTT_ENABLE_CUDA=OFF` and `NTT_REQUIRE_CUDA=OFF` in its own
+`build/native-cpu` directory. It requires the pinned OpenFHE host gates and
+never calls `nvcc`, `nvidia-smi`, a CUDA executable or a GPU profiler. Omit
+`--cuda-root`, `--architectures` and other GPU-only flags. Its report says
+`CPU_CHECKS_PASSED` with `gpu_execution: NOT_RUN`; it cannot close a GPU gate.
+
+Every scope must match the requested N/K/q/roots/seed
 and repetition counts. Thirty-bit parameters still use `uint64_t` storage;
 no `uint32_t` specialization or reduced transfer size is claimed.
 It retains `benchmark-n65536-k3-b30-public.log` and similarly named event/CPU
@@ -132,10 +157,24 @@ On the next compatible GPU host, from a reviewed clean checkout:
 ```sh
 python3 scripts/gpu_session.py --mode gpu \
   --cuda-root /path/to/cuda --openfhe-prefix /path/to/openfhe \
-  --architectures native --benchmark --profile \
+  --architectures native --benchmark --benchmark-scope gpu --profile \
   --output-dir bench-results-next \
   --benchmark-warmups 5 --benchmark-samples 100
 ```
+
+On the local Linux or macOS CPU host, from the same reviewed source revision:
+
+```sh
+python3 scripts/gpu_session.py --mode cpu \
+  --openfhe-prefix /path/to/local/openfhe \
+  --benchmark --output-dir bench-results-cpu
+```
+
+Use the same dimensions, tower counts, prime widths, warm-ups and sample counts
+on both machines. Retain separate record directories and machine/build identities;
+these are cross-platform measurements, not a same-host acceleration claim.
+The new CPU session path is verified locally on Linux. The macOS identity path
+has control-flow tests; a new native M1 run remains pending.
 
 Offline analysis after that future session:
 
@@ -147,9 +186,11 @@ python3 scripts/benchmark_report.py /path/to/benchmark-n65536-k3-b30-public.log
 while retaining all four prime widths. Defaults use five warm-ups and 100
 samples per operation. Any individual prime count from 1 through 40 can be
 selected with `--benchmark-towers`; the default is a representative sweep,
-not every integer count. The complete default batch contains 224,000 timed
-operation samples, not 224,000 independent random inputs; rental runtime remains
-unmeasured. Commands have a configurable timeout (default 1,800 seconds each).
+not every integer count. At 100 samples per operation, GPU-only collection has
+154,000 timed samples, CPU-only collection has 56,000 and the legacy combined
+selection has 224,000. Samples reuse fixed seeded operands; they are not that
+many independent random inputs. New collector rental runtime remains unmeasured.
+Commands have a configurable timeout (default 1,800 seconds each).
 
 Here K means **RNS primes/towers in one polynomial**, not the number of
 ciphertexts or independent polynomials. Benchmark parameter files contain
@@ -167,13 +208,17 @@ not additional cells of this fixed direct-OpenFHE/sanitizer gate.
 
 ### Restart and preserve partial results
 
-Rerun the same command with `--resume --output-dir bench-results-next` after
-an interrupted/failed attempt. Environment probes, build, exactness and
-sanitizers always rerun. Prior reports are archived and stage logs get unique
+Rerun the same CPU or GPU command with `--resume --output-dir <record-directory>`
+after an interrupted/failed attempt. Applicable environment probes, build,
+exactness and requested GPU sanitizers always rerun. Prior reports are archived and stage logs get unique
 retry names. Benchmark jobs resume only with the same clean source revision,
-binary and OpenFHE-library hashes, device/driver identity, selection policy,
+selected scope group, measured executable and OpenFHE-library hashes, stable CPU
+identity, applicable GPU/driver identity and selection policy,
 matrix and repetition counts. Completed raw logs must pass SHA-256 and full
 record/parameter validation again. Different contexts require a fresh directory.
+Changing CPU/GPU mode or scope is rejected before the existing report is
+replaced. CPU resumes do not depend on unused CUDA binaries, GPU visibility or
+CUDA architecture settings. Clock/scaling readings are not CPU identity keys.
 
 Independent measurement jobs continue after a measurement failure, preserving
 successful logs/summary checkpoints; the overall batch still exits nonzero.

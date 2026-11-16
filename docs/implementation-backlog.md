@@ -139,6 +139,14 @@ the default matrix's local exact-result/protocol cases. Native CUDA compilation/
 actual event/profile observations remain open; prepared tooling is not evidence.
 See [tooling status](offline-test-tooling.md).
 
+Collector update 2026-11-16: the normal runner now supports separate GPU-only
+and local CPU sessions with mode/scope-specific resume manifests. CPU mode
+builds with CUDA disabled and has real Linux host/OpenFHE execution evidence;
+macOS identity handling and GPU selection have control-flow tests. The rental
+helper defaults to GPU-only measurements while retaining native correctness
+and requested sanitizer gates. This is tooling completion, not a new RTX 5090
+run or a completed B04 bottleneck gate.
+
 Separate construction/table upload, device-resident CUDA-event timings,
 transfer-inclusive wall time, and explicit synchronization. Add raw samples,
 warm-up, median/p5/p95, workload metadata and `ptxas` resource reports. Profile

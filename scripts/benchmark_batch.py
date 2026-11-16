@@ -12,8 +12,24 @@ PRIME_BITS = (30, 50, 55, 60)
 TOWER_COUNTS = (1, 3, 8, 16, 24, 32, 40)
 MAX_TOWERS = 40
 SCOPES = {'public': ('ntt_cuda_cli', 'bench-jsonl', 'host_wall_public_call'),
+          'gpu-public': ('ntt_cuda_cli', 'gpu-bench-jsonl', 'host_wall_gpu_public_call'),
           'events': ('ntt_cuda_cli', 'events-jsonl', 'cuda_event_resident_and_pinned_copy'),
           'openfhe': ('ntt_openfhe_bench', None, 'host_wall_openfhe_native')}
+SCOPE_GROUPS = {'all': ('public', 'events', 'openfhe'),
+                'gpu': ('gpu-public', 'events'), 'cpu': ('openfhe',)}
+
+
+def benchmark_scope(args):
+    """Resolve the selection for both the CLI and programmatic sessions."""
+    mode = args.mode
+    scope = getattr(args, 'benchmark_scope', None) or ('cpu' if mode == 'cpu' else 'all')
+    if scope not in SCOPE_GROUPS:
+        raise ValueError('Unknown benchmark scope: ' + scope)
+    if mode == 'cpu' and scope != 'cpu':
+        raise ValueError('CPU mode requires --benchmark-scope cpu')
+    if mode == 'gpu' and scope == 'cpu':
+        raise ValueError('CPU-only measurements require --mode cpu')
+    return scope
 
 
 def digest(path):
@@ -37,6 +53,8 @@ def collect_batch(session, hardware_identity):
     poisoned CUDA context in the next job. Any failure makes the batch fail.
     """
     args, output = session.args, session.output
+    scope_group = benchmark_scope(args)
+    scopes = SCOPE_GROUPS[scope_group]
     build = args.build_dir.resolve()
     prefix = args.openfhe_prefix.resolve()
     libraries = {str(path.relative_to(prefix)): digest(path)
@@ -44,17 +62,21 @@ def collect_batch(session, hardware_identity):
                  and (path.suffix in ('.a', '.so', '.dylib') or '.so.' in path.name)}
     if not libraries:
         raise RuntimeError('No OpenFHE libraries found under the requested prefix')
-    context = {'source_commit': session.report['source_commit'],
+    context = {'mode': args.mode, 'benchmark_scope': scope_group, 'scopes': list(scopes),
+               'source_commit': session.report['source_commit'],
                'source_dirty': session.report['source_dirty'],
                'hardware_identity': hardware_identity.strip(),
-               'selected_device': session.report['selected_device'],
-               'cuda_visible_devices': os.environ.get('CUDA_VISIBLE_DEVICES'),
-               'architectures': args.architectures,
+               'cpu_identity': session.report['cpu_identity'],
                'warmups': args.benchmark_warmups, 'samples': args.benchmark_samples,
                'dimensions': list(args.benchmark_dimensions),
                'tower_counts': list(args.benchmark_towers), 'prime_bits': list(PRIME_BITS),
                'openfhe_libraries': libraries,
-               'binaries': {name: digest(build / name) for name in ('ntt_cuda_cli', 'ntt_openfhe_bench')}}
+               'binaries': {name: digest(build / name) for name in
+                            dict.fromkeys(SCOPES[scope][0] for scope in scopes)}}
+    if args.mode == 'gpu':
+        context.update(selected_device=session.report['selected_device'],
+                       cuda_visible_devices=os.environ.get('CUDA_VISIBLE_DEVICES'),
+                       architectures=args.architectures)
     manifest_path = output / 'benchmark-manifest.json'
     manifest = {'context': context, 'jobs': {}}
     if manifest_path.exists():
@@ -64,6 +86,9 @@ def collect_batch(session, hardware_identity):
     else:
         atomic_json(manifest_path, manifest)
     session.report['benchmark_manifest'] = manifest_path.name
+    session.report['benchmark_scopes'] = list(scopes)
+    session.report['benchmark_expected_jobs'] = (len(args.benchmark_dimensions) *
+        len(args.benchmark_towers) * len(PRIME_BITS) * len(scopes))
     session.report['benchmark_summaries'] = {}
     errors = []
     for dimension in args.benchmark_dimensions:
@@ -84,7 +109,8 @@ def collect_batch(session, hardware_identity):
                 except Exception as error:
                     errors.append(f'{cell} parameters: {error}')
                     continue
-                for scope, (binary, subcommand, timing) in SCOPES.items():
+                for scope in scopes:
+                    binary, subcommand, timing = SCOPES[scope]
                     name = f'benchmark-{cell}-{scope}'
                     job = manifest['jobs'].get(name, {})
                     try:
@@ -126,7 +152,11 @@ def collect_batch(session, hardware_identity):
     if errors:
         session.report['benchmark_errors'] = errors
         raise RuntimeError(f'{len(errors)} benchmark jobs failed; completed jobs retained for --resume')
-    session.report['benchmark'] = 'PASS_30_50_55_60_BIT_PUBLIC_EVENTS_OPENFHE'
+    session.report['benchmark'] = {
+        'all': 'PASS_30_50_55_60_BIT_PUBLIC_EVENTS_OPENFHE',
+        'gpu': 'PASS_30_50_55_60_BIT_GPU_PUBLIC_EVENTS',
+        'cpu': 'PASS_30_50_55_60_BIT_CPU_OPENFHE',
+    }[scope_group]
 
 
 def collect_profiles(session):

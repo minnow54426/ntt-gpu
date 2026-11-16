@@ -24,6 +24,88 @@ spec.loader.exec_module(module)
 
 
 class SessionTests(unittest.TestCase):
+    def test_cli_cpu_needs_no_cuda_and_uses_its_own_build_directory(self):
+        with patch.object(module, 'Session') as session:
+            session.return_value.execute.return_value = 0
+            self.assertEqual(module.main(['--mode', 'cpu', '--openfhe-prefix', '/mock/openfhe', '--benchmark']), 0)
+            args = session.call_args.args[0]
+            self.assertIsNone(args.cuda_root)
+            self.assertIsNone(args.architectures)
+            self.assertEqual(module.benchmark_scope(args), 'cpu')
+            self.assertEqual(args.build_dir, ROOT / 'build/native-cpu')
+
+    def test_invalid_mode_scope_and_gpu_flag_combinations_fail_before_a_session(self):
+        cases = [
+            ['--mode', 'gpu'],
+            ['--mode', 'offline'],
+            ['--mode', 'cpu', '--benchmark', '--benchmark-scope', 'gpu'],
+            ['--mode', 'cpu', '--benchmark', '--benchmark-scope', 'all'],
+            ['--mode', 'cpu', '--cuda-root', '/unused/cuda'],
+            ['--mode', 'cpu', '--profile'],
+            ['--mode', 'cpu', '--skip-sanitizers'],
+            ['--mode', 'cpu', '--architectures', 'native'],
+            ['--mode', 'cpu', '--benchmark-scope', 'cpu'],
+            ['--mode', 'gpu', '--cuda-root', '/mock/cuda', '--benchmark', '--benchmark-scope', 'cpu'],
+        ]
+        for args in cases:
+            with self.subTest(args=args), patch.object(module, 'Session') as session, \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                module.main(args + ['--openfhe-prefix', '/mock/openfhe'])
+            session.assert_not_called()
+
+    def test_resume_scope_or_mode_rejection_preserves_the_original_report(self):
+        for mode, scope in [('gpu', 'all'), ('cpu', 'cpu')]:
+            with tempfile.TemporaryDirectory() as directory, self.subTest(mode=mode):
+                args = SimpleNamespace(output_dir=Path(directory) / 'record', build_dir=Path(directory),
+                                       mode='gpu', benchmark_scope='gpu', resume=False)
+                first = module.Session(args)
+                original = (first.output / 'report.json').read_bytes()
+                args.mode, args.benchmark_scope, args.resume = mode, scope, True
+                with self.assertRaises(ValueError):
+                    module.Session(args)
+                self.assertEqual((first.output / 'report.json').read_bytes(), original)
+                self.assertFalse(list(first.output.glob('report-history-*')))
+
+    def test_cpu_resume_preserves_attempt_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(output_dir=Path(directory) / 'record', build_dir=Path(directory),
+                                   mode='cpu', benchmark_scope=None, resume=False)
+            first = module.Session(args)
+            args.resume = True
+            second = module.Session(args)
+            self.assertEqual(second.report['attempt'], first.report['attempt'] + 1)
+            self.assertEqual(second.report['benchmark_scope'], 'cpu')
+            self.assertEqual(len(list(first.output.glob('report-history-*'))), 1)
+
+    def test_cpu_identity_is_stable_across_clock_changes_and_supports_macos(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(output_dir=Path(directory) / 'record', build_dir=Path(directory), mode='cpu')
+            session = module.Session(args)
+            fields = [{'field': 'Architecture:', 'data': 'x86_64'},
+                      {'field': 'Model name:', 'data': 'Mock CPU'},
+                      {'field': 'CPU(s):', 'data': '8'},
+                      {'field': 'CPU MHz:', 'data': '1234'}]
+            with patch.object(module.platform, 'system', return_value='Linux'), patch.object(session, 'run') as run:
+                run.return_value = json.dumps({'lscpu': fields})
+                first = session.record_cpu_identity()
+                fields[-1]['data'] = '5678'
+                run.return_value = json.dumps({'lscpu': fields})
+                self.assertEqual(session.record_cpu_identity(), first)
+                fields[1]['data'] = 'Other CPU'
+                run.return_value = json.dumps({'lscpu': fields})
+                self.assertNotEqual(session.record_cpu_identity(), first)
+                run.return_value = '{"lscpu": []}'
+                with self.assertRaisesRegex(RuntimeError, 'identity missing'):
+                    session.record_cpu_identity()
+            with patch.object(module.platform, 'system', return_value='Darwin'), patch.object(session, 'run') as run:
+                run.return_value = 'MacBookPro18,3\nApple M1 Pro\n8\n17179869184\n'
+                identity = json.loads(session.record_cpu_identity())
+                self.assertEqual(identity['machdep.cpu.brand_string'], 'Apple M1 Pro')
+                self.assertNotIn('lscpu', run.call_args.args[1])
+                run.return_value = 'incomplete\n'
+                with self.assertRaisesRegex(RuntimeError, 'Incomplete macOS'):
+                    session.record_cpu_identity()
+
     def test_prime_batch_defaults_and_bounds(self):
         required = ['--mode', 'gpu', '--cuda-root', '/mock/cuda', '--openfhe-prefix', '/mock/openfhe']
         self.assertEqual(module.parser().parse_args(required).benchmark_towers, [1, 3, 8, 16, 24, 32, 40])
@@ -71,14 +153,19 @@ class SessionTests(unittest.TestCase):
                     with self.assertRaises(RuntimeError): session.run('probe', ['probe'])
                 self.assertEqual(session.report['stages'][0]['status'], 'FAIL')
 
-    def scenario(self, mode='offline', fail=None, missing_gpu=False, bad_label=False, skip=False, bad_benchmark=False, synthetic=False):
+    def scenario(self, mode='offline', fail=None, missing_gpu=False, bad_label=False, skip=False,
+                 bad_benchmark=False, synthetic=False, scope=None, missing_openfhe=False,
+                 unexpected_gpu=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             args = module.parser().parse_args(['--mode', mode, '--cuda-root', str(root / 'toolkit'),
                 '--openfhe-prefix', str(root / 'openfhe'), '--build-dir', str(root / 'build'),
                 '--output-dir', str(root / 'record')])
             args.architectures = '89;120' if mode == 'offline' else 'native'
-            args.benchmark = mode == 'gpu'
+            args.benchmark = mode in ('gpu', 'cpu')
+            args.benchmark_scope = scope
+            if mode == 'cpu':
+                args.cuda_root = args.architectures = None
             args.skip_sanitizers = skip
             # Small matrix here; separate batch tests cover the full defaults.
             args.benchmark_dimensions = [65536]
@@ -91,7 +178,13 @@ class SessionTests(unittest.TestCase):
             commands = []
             names = module.OPENFHE_TESTS | {'cuda_constructor_preflight', 'cuda_host_validation',
                                            'setup_ownership_host', 'measurement_host'}
-            if not missing_gpu:
+            if mode == 'cpu':
+                names -= {'cuda_constructor_preflight'}
+            if missing_openfhe:
+                names -= {'openfhe_exact_compat'}
+            if not missing_gpu and mode != 'cpu':
+                names |= module.GPU_TESTS
+            if unexpected_gpu:
                 names |= module.GPU_TESTS
             registered = {'tests': [{'name': name, 'properties': [{'name': 'LABELS', 'value':
                 ['gpu'] if name in module.GPU_TESTS and not bad_label else []}]} for name in sorted(names)]}
@@ -105,19 +198,27 @@ class SessionTests(unittest.TestCase):
                     output.write('mock-source-commit\n')
                 elif command[0] == 'git':
                     output.write('')
+                elif 'lscpu' in command:
+                    output.write(json.dumps({'lscpu': [
+                        {'field': 'Architecture:', 'data': 'x86_64'},
+                        {'field': 'Model name:', 'data': 'Mock CPU'},
+                        {'field': 'CPU(s):', 'data': '4'},
+                        {'field': 'CPU MHz:', 'data': '1234'}]}))
                 elif any(c.endswith('gen_vectors.py') for c in command):
                     vector, dimension, towers, _, bits = command[-5:]
                     dimension, towers, bits = int(dimension), int(towers), int(bits)
                     # Parameters only: benchmark collector does not consume coefficients.
                     Path(vector).write_text(f'{dimension} {towers}\n' + ''.join(
                         f'{(1 << (bits - 1)) + 1 + i * 131072} {i + 2}\n' for i in range(towers)))
-                elif 'bench-jsonl' in command or 'events-jsonl' in command or command[0].endswith('ntt_openfhe_bench'):
+                elif ('bench-jsonl' in command or 'gpu-bench-jsonl' in command or
+                      'events-jsonl' in command or command[0].endswith('ntt_openfhe_bench')):
                     if bad_benchmark:
                         output.write('not JSONL\n')
                         return SimpleNamespace(returncode=0)
                     bits = int(Path(command[-3]).stem.split('b')[-1])
                     warmups, count = map(int, command[-2:])
-                    timing = ('host_wall_public_call' if 'bench-jsonl' in command else
+                    timing = ('host_wall_gpu_public_call' if 'gpu-bench-jsonl' in command else
+                              'host_wall_public_call' if 'bench-jsonl' in command else
                               'cuda_event_resident_and_pinned_copy' if 'events-jsonl' in command else
                               'host_wall_openfhe_native')
                     operations = TIMING_OPERATIONS[timing]
@@ -138,7 +239,7 @@ class SessionTests(unittest.TestCase):
                     output.write('mock command output\n')
                 return SimpleNamespace(returncode=19 if fail and fail(command) else 0)
 
-            with patch.object(module.platform, 'platform', return_value='mock platform'), patch.object(module, 'run_process', side_effect=run), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with patch.object(module.platform, 'platform', return_value='mock platform'), patch.object(module.platform, 'system', return_value='Linux'), patch.object(module, 'run_process', side_effect=run), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 session = module.Session(args)
                 code = session.execute()
             report = json.loads((root / 'record/report.json').read_text())
@@ -153,6 +254,51 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(report['benchmark'], 'NOT_RUN')
         self.assertTrue(any('-LE' in c and 'gpu' in c for c in commands))
         self.assertFalse(any('nvidia-smi' == c[0] or c[0].endswith('ntt_cuda_cli') for c in commands))
+
+    def test_cpu_session_builds_checks_and_benchmarks_without_any_cuda_tools(self):
+        code, report, commands = self.scenario(mode='cpu')
+        self.assertEqual(code, 0)
+        self.assertEqual(report['status'], 'CPU_CHECKS_PASSED')
+        self.assertEqual(report['cpu_execution'], 'EXACT_TESTS_PASS')
+        self.assertEqual(report['gpu_execution'], 'NOT_RUN')
+        self.assertEqual(report['sanitizers'], 'NOT_RUN')
+        self.assertEqual(report['benchmark_scopes'], ['openfhe'])
+        self.assertEqual(len(report['benchmark_summaries']), 4)
+        self.assertFalse(any('nvcc' in str(arg) or 'nvidia-smi' in str(arg) or
+            'ntt_cuda_cli' in str(arg) or 'compute-sanitizer' in str(arg) for c in commands for arg in c))
+        self.assertTrue(any('-DNTT_ENABLE_CUDA=OFF' in c and '-DNTT_REQUIRE_CUDA=OFF' in c for c in commands))
+
+    def test_cpu_rejects_missing_openfhe_or_unexpected_gpu_tests(self):
+        for options in ({'missing_openfhe': True}, {'unexpected_gpu': True}):
+            with self.subTest(options=options):
+                code, report, commands = self.scenario(mode='cpu', **options)
+                self.assertEqual(code, 1)
+                self.assertEqual(report['gpu_execution'], 'NOT_RUN')
+                self.assertFalse(any('--output-on-failure' in c for c in commands))
+
+    def test_cpu_host_gate_or_measurement_failure_cannot_report_success(self):
+        for fail in (lambda c: '--output-on-failure' in c,
+                     lambda c: c[0].endswith('ntt_openfhe_bench')):
+            code, report, _ = self.scenario(mode='cpu', fail=fail)
+            self.assertEqual(code, 1)
+            self.assertEqual(report['status'], 'FAIL')
+            self.assertEqual(report['gpu_execution'], 'NOT_RUN')
+            self.assertIn('FAIL', (report['cpu_execution'], report['benchmark']))
+
+    def test_gpu_only_keeps_native_gates_and_sanitizers_but_omits_cpu_measurements(self):
+        code, report, commands = self.scenario(mode='gpu', scope='gpu')
+        self.assertEqual(code, 0)
+        self.assertEqual(report['gpu_execution'], 'EXACT_TESTS_PASS')
+        self.assertEqual(report['sanitizers'], 'SMOKE_MATRIX_PASS')
+        self.assertEqual(report['benchmark_scopes'], ['gpu-public', 'events'])
+        self.assertEqual(len(report['benchmark_summaries']), 8)
+        self.assertFalse(any(c[0].endswith('ntt_openfhe_bench') for c in commands))
+        self.assertEqual(sum('gpu-bench-jsonl' in c for c in commands), 4)
+        self.assertFalse(any('bench-jsonl' in c for c in commands))
+        gate = next(c for c in commands if '--output-on-failure' in c)
+        self.assertEqual(gate[-2:], ['-E', '^openfhe_benchmark_protocol$'])
+        self.assertEqual(report['excluded_tests'], ['openfhe_benchmark_protocol'])
+        self.assertEqual(report['registered_gpu_tests'], sorted(module.GPU_TESTS))
 
     def test_cpu_only_test_list_cannot_pass(self):
         code, report, _ = self.scenario(missing_gpu=True)
