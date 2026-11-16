@@ -88,6 +88,11 @@ def read_catalog():
         for field in ("source", "url", "title", "group", "summary"):
             if not page.get(field):
                 raise ValueError(f"Catalog entry missing {field}: {page}")
+        takeaways = page.get("takeaways")
+        if not isinstance(takeaways, list) or not 1 <= len(takeaways) <= 3 or not all(
+            isinstance(point, str) and point.strip() for point in takeaways
+        ):
+            raise ValueError(f"Expected one to three takeaways: {page['source']}")
         source = (ROOT / page["source"]).resolve()
         if not source.is_relative_to(ROOT) or not source.is_file():
             raise ValueError(f"Invalid source: {page['source']}")
@@ -257,6 +262,9 @@ def section_outline(content):
 
 def shell(page, content, pages, revision, repository, toc="", legacy_head="", public_base_url=""):
     content, toc = section_outline(content)
+    # The full text keeps its anchors, but its outline would clutter the summary.
+    if page.get("source"):
+        toc = ""
     current = page["url"]
     prefix = relative_url(current, "assets/").rstrip("/")
     home = relative_url(current, "index.html")
@@ -371,12 +379,11 @@ def page_directory(pages, entries):
             title = (page["date"] + " · " if page.get("date") else "") + page["title"]
             links.append(
                 f'<a class="site-directory-link" href="{escape(page["url"], quote=True)}">'
-                f'<strong>{escape(title)}</strong>'
-                f'<p>{escape(page["summary"])}</p></a>'
+                f'{escape(title)}</a>'
             )
         groups.append(
-            f'<div class="site-directory-group"><h3>{escape(group)}</h3>'
-            + "".join(links) + "</div>"
+            f'<details class="site-directory-group"{" open" if group == "Start here" else ""}>'
+            f'<summary>{escape(group)}</summary>' + "".join(links) + "</details>"
         )
     return '<div class="site-directory">' + "".join(groups) + "</div>"
 
@@ -387,8 +394,8 @@ def home_content(pages, entries):
     return f"""
 <div class="site-home-hero">
   <div><p class="site-eyebrow"><span class="site-status-dot"></span> An open engineering notebook</p>
-    <h1>Notes on encrypted computation.</h1>
-    <p class="site-lede">Learn the NTT, inspect the CUDA schedule, and follow the path to exact OpenFHE integration.</p>
+    <h1>GPU NTT for CKKS</h1>
+    <p class="site-lede">Learn the transform, see what ran on the GPU, and follow the work toward OpenFHE integration.</p>
     <div class="site-hero-actions"><a class="site-primary-link" href="batch40-native-analysis.html">Read the GPU results</a><a class="site-secondary-link" href="#all-pages">Browse all pages ↓</a></div>
     <div class="site-specs"><span>CKKS · Hybrid</span><span>N = 4,096–65,536</span><span>Target: RTX 5090</span></div>
   </div>
@@ -453,6 +460,22 @@ def check_links(output):
     return len(parsed_pages)
 
 
+def concise_article(page, full_content):
+    journal = page["group"] == "Daily journal"
+    lesson = page["source"].endswith(".html")
+    label = "Open interactive lesson" if lesson else "Read full entry" if journal else "Read full notes"
+    title = escape(page["title"])
+    points = page.get("takeaways", [page["summary"]])
+    brief = (
+        f'<p>{escape(points[0])}</p>' if len(points) == 1 else
+        '<ul>' + ''.join(f'<li>{escape(point)}</li>' for point in points) + '</ul>'
+    )
+    return (
+        f'<section class="site-article site-brief"><h1>{title}</h1>{brief}</section>'
+        f'<details class="site-full-notes"><summary>{label}</summary>{full_content}</details>'
+    )
+
+
 def build():
     catalog = read_catalog()
     pages = catalog["pages"]
@@ -493,13 +516,12 @@ def build():
                 body = body.replace("<main>", '<div class="legacy-main">').replace("</main>", "</div>")
                 # HTML explainers have root-relative sibling assets already.
                 body = rewrite_links(body, page["source"], page["url"], routes, repository, revision)
-                write_page(page, '<div class="site-legacy">' + body + "</div>", legacy_head=head)
+                write_page(page, concise_article(page, '<div class="site-legacy">' + body + "</div>"),
+                           legacy_head=head)
             else:
                 body, toc, _ = render_markdown(text)
-                if page["group"] == "Daily journal":
-                    body = re.sub(r"(</h1>)", r'\1<p class="site-journal-summary">' + escape(page["summary"]) + '</p>', body, count=1)
                 body = rewrite_links(body, page["source"], page["url"], routes, repository, revision)
-                content = '<article class="site-article">' + body + "</article>"
+                content = concise_article(page, '<article class="site-article">' + body + "</article>")
                 if page["group"] == "Daily journal":
                     content = f'<div class="site-journal-banner"><time datetime="{page["date"]}">{page["date"]}</time><span>{escape(page["phase"])}</span><a href="../journal.html">← All entries</a></div>' + content
                 write_page(page, content, toc)
@@ -512,11 +534,7 @@ def build():
                    "summary": "Dated outcomes, reasoning, verification, and next steps.",
                    "group": "Daily journal"}
         write_page(journal, f"""
-<div class="site-journal-intro"><p class="site-eyebrow">THE DAILY JOURNAL</p>
-<h1>The work, as it happens.</h1><p>Outcomes, decisions, and the evidence behind them.
-Follow the project one entry at a time.</p></div>
-<section><h2>How to read the journal</h2><p class="site-journal-explainer">Dates record when work was documented. Roadmap days track deliverables.
-Reconstructed history is labeled; CPU checks and GPU execution are recorded separately.</p></section>
+<div class="site-journal-intro"><h1>Daily journal</h1><p>What changed, what passed, and what comes next.</p></div>
 <section><h2>Entries</h2><div class="site-journal-list">{entry_cards(entries, 'journal.html')}</div></section>""")
         (output / "search-index.json").write_text(json.dumps(search, ensure_ascii=False))
         (output / "search-index.js").write_text(

@@ -1,6 +1,27 @@
 "use strict";
 
 (function () {
+  function revealLinkedSection() {
+    let target;
+    try {
+      target = document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
+    } catch (error) {
+      if (error instanceof URIError) return;
+      throw error;
+    }
+    if (!target) return;
+    let revealed = false;
+    for (let parent = target.parentElement; parent; parent = parent.parentElement) {
+      if (parent.matches("details:not([open])")) {
+        parent.open = true;
+        revealed = true;
+      }
+    }
+    if (revealed) target.scrollIntoView();
+  }
+  revealLinkedSection();
+  window.addEventListener("hashchange", revealLinkedSection);
+
   const menu = document.querySelector(".site-menu-button");
   const sidebar = document.querySelector(".site-sidebar");
   const contentsButton = document.querySelector(".site-contents-button");

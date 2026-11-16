@@ -108,11 +108,24 @@ class RoutingTests(unittest.TestCase):
         expected = {page["url"] for page in pages + entries} | {"journal.html"}
         self.assertEqual(set(parser.references), expected)
         self.assertNotIn('class="site-page-url"', directory)
-        self.assertEqual(directory.count('<h3>'), 6)
-        self.assertNotIn('<details', directory)
+        self.assertEqual(directory.count('<summary>'), 6)
+        self.assertEqual(directory.count(' open>'), 1)
         self.assertNotIn('https://minnow54426.github.io/', directory)
         self.assertNotIn("127.0.0.1", directory)
         self.assertNotIn("localhost", directory)
+
+    def test_every_source_page_gets_a_brief_and_preserves_full_content(self):
+        for page in site.read_catalog()["pages"] + site.read_journal():
+            with self.subTest(page=page["url"]):
+                original = '<h2 id="evidence">Evidence</h2><script>const test = 1;</script>'
+                body = site.concise_article(page, original)
+                summary, full = body.split('<details class="site-full-notes">', 1)
+                self.assertIn('site-brief', summary)
+                self.assertIn(original, full)
+                self.assertNotIn(original, summary)
+                self.assertLessEqual(summary.count("<li>"), 3)
+                label = "Open interactive lesson" if page["source"].endswith(".html") else "Read full"
+                self.assertIn(label, full)
 
     def test_home_shows_current_evidence_without_old_pending_message(self):
         home = site.home_content(site.read_catalog()['pages'], site.read_journal())
