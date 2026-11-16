@@ -115,11 +115,17 @@ CPU collection. [gpu_session.py](../scripts/gpu_session.py) generates
 parameter vectors at **30, 50, 55 and 60 bits**, all five dimensions above,
 and K=1/3/8/16/24/32/40 towers: **140 workloads**. Select the measurement scopes:
 
-| Session / selection | Measurement jobs | Timing scopes |
+<div class="site-table-scroll" role="region" aria-label="Benchmark collection modes and timing scopes" tabindex="0" markdown="1">
+<div style="min-width:42rem" markdown="1">
+
+| Session / selection | Jobs | Timing scopes |
 |---|---|---|
 | `--mode gpu --benchmark-scope gpu` | 280 | Five-operation GPU public calls, resident events/pinned copies |
 | `--mode cpu` | 140 | Four-operation OpenFHE CPU baseline |
 | `--mode gpu --benchmark-scope all` | 420 | Legacy public calls including scalar CPU forward, events, OpenFHE CPU baseline |
+
+</div>
+</div>
 
 Add `--benchmark` to collect measurements. Direct GPU collector commands default
 to `all` for compatibility. The rental helper `scripts/autodl_setup.sh` defaults
