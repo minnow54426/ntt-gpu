@@ -62,7 +62,8 @@ does not establish an intrinsic advantage for wider primes.
 
 1. Use the [split collector](offline-test-tooling.md#collector-and-validation):
    GPU-only measurement jobs on the rental and the OpenFHE CPU baseline locally.
-2. Prepare device-resident operation chains with checked external inputs.
+2. Validate the [prepared resident operation chain](resident-operation-chain.md)
+   on named GPU hardware, including its lifetime and failure behavior.
 3. Test arithmetic and memory-layout candidates separately.
 4. Repeat a frozen batch on the actual RTX 5090, with controlled ordering and
    profiling permissions checked early.

@@ -204,13 +204,22 @@ zero coefficient placeholders to avoid generating unused, huge CRT integers
 at K=40. The executables still generate the same seeded dense operands; real
 correctness fixtures retain their original nonzero input generation.
 
-The full suite now requires `cuda_benchmark_matrix_exact`: all 140 default
+The full suite requires `cuda_benchmark_matrix_exact`: all 140 default
 parameter cells, seven patterns, independent inverse, roundtrip and product
 comparisons directly against OpenFHE. This is prepared, not native evidence.
-Each sanitizer runs the historical `--smoke` and new `--matrix-smoke`: the
+Each sanitizer runs the historical `--smoke` and `--matrix-smoke`: the
 latter selects N=4096/65536, 30/60-bit K=3/40, zero/dense inputs, not the full matrix.
 Non-default integer tower counts get the benchmark's reference checks, but are
 not additional cells of this fixed direct-OpenFHE/sanitizer gate.
+
+Update 2026-11-16: the [resident-chain prototype](resident-operation-chain.md)
+adds `resident_runtime_host` and `resident_openfhe_host` to the CPU gates, plus
+`resident_cuda_preflight` and GPU-labelled `resident_cuda_exact` for CUDA builds.
+The collector also runs `ntt_resident_cuda_tests --smoke` (one dense N=65536,
+55/50/60-bit fixture) under each sanitizer: twelve runs across four tools and
+three scopes. Host transport checks and compiler-only CUDA builds pass; native
+resident execution and sanitizer results remain pending. This does not advance
+the roadmap's hardware gates.
 
 ### Restart and preserve partial results
 

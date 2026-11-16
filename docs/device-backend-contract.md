@@ -31,6 +31,11 @@ wrapper and its algorithms were unchanged by D9. Later
 [offline preparation](offline-gpu-preparation.md) adds baseline ownership and
 preflight fixes without implementing this proposed resident backend.
 
+Update 2026-11-16: a separate [bounded resident-chain prototype](resident-operation-chain.md)
+now implements a single-stream runtime and CUDA transport. Its host checks pass
+and CUDA builds compile; native execution remains pending. It does not implement
+the full abstract backend, cache or OpenFHE adapter proposed in this article.
+
 **D10 accepted this design in [ADR 0001](architecture-decision.md); P1 is complete.**
 The article records the D9 proposal and its implementation limits. The ADR adds
 fixed initial budgets, admission rules and partial-submission cleanup, with an

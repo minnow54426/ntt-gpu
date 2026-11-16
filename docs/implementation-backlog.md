@@ -5,7 +5,8 @@
 P1's contracts are complete. The next working day is **D11**: provision and
 record the native GPU environment. B01–B04 now have
 [completed offline preparation](offline-gpu-preparation.md); their native
-acceptance gates remain open. B05–B12 are **NOT STARTED**. Design acceptance,
+acceptance gates remain open. B06 has bounded offline prototype preparation;
+B05 and B07–B12 production work is **NOT STARTED**. Design acceptance,
 compiler-only builds and portable CPU checks do not satisfy CUDA/runtime gates.
 
 The [95-working-day roadmap](openfhe-integration-plan.md) retains its phase
@@ -180,6 +181,14 @@ range/overflow tests and hardware-specific exactness evidence accompany each
 policy. Alternative encodings need a superseding contract, not a changed label.
 
 ### B06 — resident runtime and registry
+
+Offline preparation 2026-11-16: the [resident-chain prototype](resident-operation-chain.md)
+implements private handles, one-stream dependencies, immutable outputs, bounded
+reservations, owned staging and failed-work quarantine. Its deferred host
+transport passes OpenFHE comparisons and lifetime/error tests; the real CUDA
+adapter compiles for sm_89/sm_120. Native CUDA execution, actual failed-context
+cleanup, broader concurrency/cache behavior and production API acceptance are
+still open. This is not a completed B06 or a P3 phase transition.
 
 Implement the accepted metadata through a private registry, move-only allocation
 owners, one explicit initial stream, immutable views/results, owned upload and

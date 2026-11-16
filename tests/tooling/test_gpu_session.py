@@ -176,10 +176,9 @@ class SessionTests(unittest.TestCase):
             for binary in ['ntt_cuda_cli', 'ntt_openfhe_bench']:
                 (root / 'build' / binary).write_text('mock executable bytes')
             commands = []
-            names = module.OPENFHE_TESTS | {'cuda_constructor_preflight', 'cuda_host_validation',
-                                           'setup_ownership_host', 'measurement_host'}
+            names = module.OPENFHE_TESTS | module.HOST_TESTS | {'cuda_constructor_preflight', 'resident_cuda_preflight'}
             if mode == 'cpu':
-                names -= {'cuda_constructor_preflight'}
+                names -= {'cuda_constructor_preflight', 'resident_cuda_preflight'}
             if missing_openfhe:
                 names -= {'openfhe_exact_compat'}
             if not missing_gpu and mode != 'cpu':
@@ -290,6 +289,9 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(report['gpu_execution'], 'EXACT_TESTS_PASS')
         self.assertEqual(report['sanitizers'], 'SMOKE_MATRIX_PASS')
+        self.assertEqual(report['sanitizer_scopes'], ['baseline_smoke', 'matrix_smoke', 'resident_smoke'])
+        self.assertEqual(sum(len(c) > 1 and c[-1] == '--smoke' and
+                            c[-2].endswith('ntt_resident_cuda_tests') for c in commands), 4)
         self.assertEqual(report['benchmark_scopes'], ['gpu-public', 'events'])
         self.assertEqual(len(report['benchmark_summaries']), 8)
         self.assertFalse(any(c[0].endswith('ntt_openfhe_bench') for c in commands))

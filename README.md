@@ -122,6 +122,12 @@ GPU, use `-DCMAKE_CUDA_ARCHITECTURES=native` (CMake 3.24+).
 
 ## Design
 
+The [resident operation-chain prototype](docs/resident-operation-chain.md) adds
+immutable polynomial handles, one explicit stream, owned host staging and a
+bounded failure-aware journal. Its host transport passes exact OpenFHE tests;
+the CUDA adapter is compiled but not executed here. This experimental API does
+not replace the synchronous baseline or enable the production OpenFHE backend.
+
 Both backends use the same negacyclic transform convention:
 
 ```text

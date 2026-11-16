@@ -32,6 +32,7 @@
 #include "ntt/param_gen.hpp"
 #include "ntt/setup_resources.hpp"
 #include "ntt/measurement.hpp"
+#include "ntt/resident_driver.hpp"
 
 // Every cudaRuntime call funnels through this: a failed allocation,
 // launch, or copy must fail the gates loudly (nonzero exit + stderr),
@@ -283,40 +284,42 @@ namespace {
 // pass; inverse = tile pass, strided pass, n^-1 scale. Forward uses two
 // launches and inverse uses three (one fewer each when n <= 256).
 template <class Implementation>
-void launch_forward_transform(Implementation &impl, uint64_t *device_values) {
+void launch_forward_transform(Implementation &impl, uint64_t *device_values,
+                              cudaStream_t stream = nullptr) {
   if (impl.transform_length > kPassSplitWidth) {
     forward_strided_group_kernel<<<
         dim3(kPassSplitWidth, static_cast<unsigned>(impl.limb_count)),
-        impl.threads_per_block, impl.strided_group_length * sizeof(uint64_t)>>>(
+        impl.threads_per_block, impl.strided_group_length * sizeof(uint64_t), stream>>>(
         device_values, impl.device_twiddle_powers, impl.device_moduli,
         impl.transform_length, static_cast<uint32_t>(impl.strided_group_length));
     CHECK_CUDA(cudaGetLastError());
   }
   forward_contiguous_tile_kernel<<<
       dim3(impl.contiguous_tile_block_count, static_cast<unsigned>(impl.limb_count)),
-      impl.threads_per_block, impl.contiguous_tile_length * sizeof(uint64_t)>>>(
+      impl.threads_per_block, impl.contiguous_tile_length * sizeof(uint64_t), stream>>>(
       device_values, impl.device_twiddle_powers, impl.device_moduli,
       impl.transform_length, static_cast<uint32_t>(impl.contiguous_tile_length));
   CHECK_CUDA(cudaGetLastError());
 }
 
 template <class Implementation>
-void launch_inverse_transform(Implementation &impl, uint64_t *device_values) {
+void launch_inverse_transform(Implementation &impl, uint64_t *device_values,
+                              cudaStream_t stream = nullptr) {
   inverse_contiguous_tile_kernel<<<
       dim3(impl.contiguous_tile_block_count, static_cast<unsigned>(impl.limb_count)),
-      impl.threads_per_block, impl.contiguous_tile_length * sizeof(uint64_t)>>>(
+      impl.threads_per_block, impl.contiguous_tile_length * sizeof(uint64_t), stream>>>(
       device_values, impl.device_inverse_twiddle_powers, impl.device_moduli,
       impl.transform_length, static_cast<uint32_t>(impl.contiguous_tile_length));
   CHECK_CUDA(cudaGetLastError());
   if (impl.transform_length > kPassSplitWidth) {
     inverse_strided_group_kernel<<<
         dim3(kPassSplitWidth, static_cast<unsigned>(impl.limb_count)),
-        impl.threads_per_block, impl.strided_group_length * sizeof(uint64_t)>>>(
+        impl.threads_per_block, impl.strided_group_length * sizeof(uint64_t), stream>>>(
         device_values, impl.device_inverse_twiddle_powers, impl.device_moduli,
         impl.transform_length, static_cast<uint32_t>(impl.strided_group_length));
     CHECK_CUDA(cudaGetLastError());
   }
-  inverse_scale_kernel<<<impl.elementwise_block_count, impl.threads_per_block>>>(
+  inverse_scale_kernel<<<impl.elementwise_block_count, impl.threads_per_block, 0, stream>>>(
       device_values, impl.device_inverse_transform_lengths, impl.device_moduli,
       impl.transform_length, impl.limb_count);
   CHECK_CUDA(cudaGetLastError());
@@ -821,3 +824,5 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
 }
 
 } // namespace ntt::cuda
+
+#include "resident_adapter.inc"

@@ -1,6 +1,8 @@
 #pragma once
 // D9 proposed interface: compile-checked, with no runtime implementation or
-// factory. All records must be issued/validated by a future private registry.
+// factory for this abstract API. resident.hpp provides a separate bounded
+// experimental runtime; it does not promote this interface to production.
+// All records must be issued/validated by a private runtime registry.
 #include "ntt/backend_contract.hpp"
 
 namespace ntt::proposal {

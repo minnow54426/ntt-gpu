@@ -129,10 +129,18 @@ and dense patterns for the four Compute Sanitizer tools. This is a bounded smoke
 scope, not the complete production sanitizer/parameter matrix. All GPU cases are
 compiled but **unrun** in this workspace.
 
-The existing `cuda_oracle_crosscheck`, `cuda_matches_ref` and `cuda_verify` gates
-remain. Those four arithmetic gates carry the `gpu` label; the new setup fault
-probe is a fifth GPU-labelled gate, prepared but not yet run. The wrapper-constructor
-preflight is a separate host test and is safe without a driver.
+The current collector requires seven GPU-labelled gates: `cuda_verify`,
+`cuda_matches_ref`, `cuda_oracle_crosscheck`, `cuda_openfhe_exact`,
+`cuda_setup_fault_injection`, `cuda_benchmark_matrix_exact` and
+`resident_cuda_exact`. The last two cover the later benchmark matrix and
+[resident operation-chain prototype](resident-operation-chain.md). The wrapper
+constructor and resident factory preflights are separate host tests safe without
+a driver. Earlier native results do not validate these subsequent additions.
+
+Update 2026-11-16: the resident increment passes 24 CPU/OpenFHE CTests and
+26 host CTests in the CUDA-linked build. CUDA 13 compiles both sm_89 and sm_120;
+all seven current GPU gates remain unrun in this workspace. The original
+preparation counts above remain a historical record.
 
 ## 5. First session on real hardware
 
@@ -156,7 +164,7 @@ NTT_OPENFHE_PREFIX="$PWD/build/openfhe-compat/install" \
 The helper no longer performs an implicit git pull or package installation.
 It records the selected commit, hardware/driver/clocks/power data and toolchain,
 requires a native CUDA build plus all OpenFHE/GPU tests, probes the actual device,
-runs the exact suite and four sanitizer tools on legacy and matrix-smoke scopes,
+runs the exact suite and four sanitizer tools on legacy, matrix and resident smoke scopes,
 then collects the 30/50/55/60-bit N=4096–65536, K=1/3/8/16/24/32/40 GPU-only batch
 in two timing scopes (140 workloads, 280 jobs). The helper now defaults to
 `--benchmark-scope gpu`; request `--benchmark-scope all` for the previous

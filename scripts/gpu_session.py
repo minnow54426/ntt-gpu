@@ -13,9 +13,9 @@ from benchmark_batch import (DIMENSIONS, MAX_TOWERS, TOWER_COUNTS, SCOPE_GROUPS,
                              benchmark_scope, collect_batch, collect_profiles)
 
 ROOT = Path(__file__).resolve().parents[1]
-GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection', 'cuda_benchmark_matrix_exact'}
-OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph', 'openfhe_benchmark_protocol'}
-HOST_TESTS = {'cuda_host_validation', 'setup_ownership_host', 'measurement_host'}
+GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection', 'cuda_benchmark_matrix_exact', 'resident_cuda_exact'}
+OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph', 'openfhe_benchmark_protocol', 'resident_openfhe_host'}
+HOST_TESTS = {'cuda_host_validation', 'setup_ownership_host', 'measurement_host', 'resident_runtime_host'}
 
 
 def tool(name):
@@ -172,7 +172,7 @@ class Session:
             tests = {test['name']: test for test in registered['tests']}
             required = OPENFHE_TESTS | HOST_TESTS
             if args.mode != 'cpu':
-                required |= GPU_TESTS | {'cuda_constructor_preflight'}
+                required |= GPU_TESTS | {'cuda_constructor_preflight', 'resident_cuda_preflight'}
             missing = required - tests.keys()
             if missing:
                 raise RuntimeError('Required tests missing for ' + args.mode + ': ' + ', '.join(sorted(missing)))
@@ -217,7 +217,10 @@ class Session:
                             '--error-exitcode', '1', build / 'ntt_cuda_openfhe_tests', '--smoke'])
                         self.run('sanitizer-matrix-' + sanitizer, ['compute-sanitizer', '--tool', sanitizer,
                             '--error-exitcode', '1', build / 'ntt_cuda_openfhe_tests', '--matrix-smoke'])
+                        self.run('sanitizer-resident-' + sanitizer, ['compute-sanitizer', '--tool', sanitizer,
+                            '--error-exitcode', '1', build / 'ntt_resident_cuda_tests', '--smoke'])
                     self.report['sanitizers'] = 'SMOKE_MATRIX_PASS'
+                    self.report['sanitizer_scopes'] = ['baseline_smoke', 'matrix_smoke', 'resident_smoke']
                 else:
                     self.report['sanitizers'] = 'EXPLICITLY_SKIPPED'
                 if args.benchmark:

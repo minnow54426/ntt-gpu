@@ -36,6 +36,12 @@ correctness baseline. The proposed interfaces in
 or factory. `ntt::proposal` stays in place until implementation tests justify
 promotion. This ADR freezes behavioral invariants, not a stable public C++ ABI.
 
+Implementation update 2026-11-16: a separate
+[bounded resident-chain prototype](resident-operation-chain.md) exercises these
+ownership and operation rules with a deferred host transport and a compiled
+CUDA adapter. It does not implement the complete abstract `Backend`, enable
+the OpenFHE adapter, or establish native CUDA/runtime acceptance.
+
 ## 2. Freeze the representation and operation boundary
 
 Accept these rules without reinterpretation:

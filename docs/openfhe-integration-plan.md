@@ -17,7 +17,7 @@ Update this tracker only when a deliverable passes its gate.
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Prepare device-resident operation chains locally; verify the split collector on RTX 5090 |
+| Active task | Verify the resident-chain prototype and remaining P2 gates on RTX 5090 |
 | Next gate | P2: native CUDA/OpenFHE exactness and named-hardware baseline (D11–D15) |
 | Overall state | In progress; additional Ada hardware verified, primary-device and remaining P2 gates open |
 
