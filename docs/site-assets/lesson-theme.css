@@ -1,4 +1,5 @@
-/* Contrast repairs retained with the historical paper-and-ink lesson palette. */
+@import url('sunlit-paper.css');
+/* Contrast repairs retained with the shared paper-and-ink lesson palette. */
 /* Keep foregrounds paired with the light lesson panels in both layouts. */
 .definition{background:#fff;color:#221d16}
 .definition .eq,.definition .big,.definition p b{color:#221d16}

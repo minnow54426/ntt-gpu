@@ -290,6 +290,7 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
 {legacy_head}
 {math_head}
 <link rel="stylesheet" href="{prefix}/site.css">
+<link rel="stylesheet" href="{prefix}/sunlit-paper.css">
 <script defer src="{relative_url(current, 'search-index.js')}"></script>
 <script defer src="{prefix}/site.js"></script>
 </head>

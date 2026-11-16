@@ -55,6 +55,13 @@ Register new documents in `docs/site.json` with source, URL, title, group, and
 summary. Use relative links to documents and code; the builder converts them
 to HTML routes or revision-pinned GitHub links.
 
+The notebook shares the personal website's Sunlit Paper theme: warm paper,
+burnt-orange and forest-green accents, local Anton headings and Space Grotesk
+body text. Edit `docs/site-assets/sunlit-paper.css` for the shared presentation;
+keep the layout and lesson contrast rules in their existing stylesheets.
+Export from this repository instead of editing generated website HTML. Preserve
+readable math, code, section navigation and mobile table scrolling.
+
 When explaining an upstream OpenFHE behavior, link the function name at the
 claim to its actual implementation in the pinned commit, with GitHub `#Lx-Ly`
 line anchors. Verify the range against that revision. Label short literal
