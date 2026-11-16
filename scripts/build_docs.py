@@ -374,8 +374,8 @@ def page_directory(pages, entries):
                 f'<p>{escape(page["summary"])}</p></a>'
             )
         groups.append(
-            f'<details class="site-directory-group"{" open" if group == "Start here" else ""}>'
-            f'<summary>{escape(group)}</summary>' + "".join(links) + "</details>"
+            f'<div class="site-directory-group"><h3>{escape(group)}</h3>'
+            + "".join(links) + "</div>"
         )
     return '<div class="site-directory">' + "".join(groups) + "</div>"
 
