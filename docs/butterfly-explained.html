@@ -668,6 +668,7 @@ t &= \omega^k O_k \\[0.5em]
 
       <h4>1. Pick the group size</h4>
       <div class="math typeset">\[d=2^s,\qquad M=2d=2^{s+1}.\]</div>
+      <p><strong>Read the equation:</strong> \(N\) is the full array length and stays fixed. \(M\) is the width of one group in this stage. \(d\) is both the width of either half and the distance between the two input slots. The stage number runs from \(0\) to \(\log_2N-1\); at the last stage \(M=N\).</p>
       <p>Two completed \(d\)-point results sit side by side. The butterfly stage merges them into one \(M\)-point result. At \(s=0\), a single coefficient counts as a completed 1-point result; the group sizes then grow as 2, 4, 8, …, \(N\).</p>
 
       <h4>2. Read the same offset from both halves</h4>
@@ -677,7 +678,7 @@ U &= gM+j,\\
 V &= U+d.
 \end{aligned}
 \]</div>
-      <p>\(g\) is the zero-based group number, so \(gM\) is its first slot. The local offset \(j\) ranges from 0 to \(d-1\). Read the first half at \(U\), then move forward by \(d\) slots to read the same offset in the second half at \(V\). With \(N/M\) groups and \(d\) pairs per group, each stage has exactly \(N/2\) disjoint butterflies.</p>
+      <p><strong>Address comments:</strong> \(gM\) skips \(g\) complete groups. Adding \(j\) selects a slot in the first half; adding \(d\) reaches its partner at the same offset in the second half. The bounds \(0\le g&lt;N/M\) and \(0\le j&lt;d\) keep both addresses inside the array. With \(N/M\) groups and \(d\) pairs per group, each stage has exactly \(N/2\) disjoint butterflies.</p>
 
       <h4>3. Multiply once, then write both outputs</h4>
       <div class="math typeset">\[
@@ -688,7 +689,12 @@ X_U^{(s+1)} &= X_U^{(s)}+t,\\
 X_V^{(s+1)} &= X_U^{(s)}-t.
 \end{aligned}
 \]</div>
-      <p>All butterfly arithmetic is modulo \(q\). Both writes use the <em>old</em> upper value \(X_U^{(s)}\); an in-place implementation saves it before overwriting that slot. The outputs become inputs to the next stage only after the current stage finishes.</p>
+      <ol>
+        <li><strong>Select the weight:</strong> \(w_{s,j}\) depends on the stage and the offset, not the group number. The subscript \(N\) in \(\omega_N\) names the root's order; it is not an exponent.</li>
+        <li><strong>Compute the shared product:</strong> \(t\) is the old value at slot \(V\) times that weight. It is computed once and reused by both writes.</li>
+        <li><strong>Write the two results:</strong> slot \(U\) gets the old upper value plus \(t\); slot \(V\) gets the <em>same old upper value</em> minus \(t\). Save it before overwriting \(U\). Reduce both results modulo \(q\).</li>
+      </ol>
+      <p>The superscript changes from \((s)\) to \((s+1)\) after the writes. It labels the new array state, not a different address or a power.</p>
 
       <h4>Worked example: one pair at N = 8</h4>
       <p>Choose stage \(s=1\), group \(g=1\), and offset \(j=1\). Then \(M=4\) and \(d=2\). The second group starts at slot 4, so read \(U=4+1=5\) and \(V=5+2=7\). The exponent is \(j(N/M)=1(8/4)=2\). With \(q=17\) and \(\omega_8=2\) (of order 8), the twiddle is \(2^2=4\). Reduce both outputs modulo 17:</p>
@@ -811,6 +817,7 @@ b_3&=a_0+a_1\omega^3+a_2\omega^6+a_3\omega^9=(a_0-a_2)-\omega(a_1-a_3).
 \end{aligned}
 \]</div>
       <p>For any positive \(k&lt;M\), \(k(N/M)\) is strictly between 0 and \(N\), so \((\omega_M)^k\ne1\). Thus the smaller root has <em>exactly</em> order \(M\), not just a power that happens to equal 1.</p>
+      <p><strong>Example:</strong> with \(N=8\) and \(M=4\), the stride is 2. Instead of using all eight powers of \(\omega_8\), the four-point transform uses exponents \(0,2,4,6\). The next step reaches exponent 8 and returns to 1.</p>
 
       <h4>Take \(j\) steps in the smaller root's powers</h4>
       <p>The odd-index half of the merge is weighted by \(\omega_M^j\), as in the even/odd sum above. Its partner output at \(j+d\) uses the opposite sign because \(\omega_M^d=-1\). That is why one product feeds both the sum and the difference.</p>
@@ -822,6 +829,7 @@ w_{s,j} &= \omega_M^j\\
 \end{aligned}
 \]</div>
       <p>In the <a href="#cyclic-dit-stage">worked pair above</a>, \(N=8\), \(M=4\), and \(j=1\): the stride is 2, so the factor is \(\omega_8^2\). At \(j=0\), it is always 1. Changing \(g\) selects a different block of array slots but leaves the exponent unchanged in <em>this cyclic DIT schedule</em>.</p>
+      <p><strong>Read the equal signs:</strong> the first line chooses the \(j\)-th local power; the second expresses it in the global table by multiplying the step count \(j\) by the stride \(N/M\); the third replaces \(M\) with \(2^{s+1}\). These are three ways to name one weight, not three multiplications. Only the first half's offsets \(0\le j&lt;M/2\) need butterflies: each one also writes its partner at \(j+M/2\) within the group.</p>
       <div class="notes-table-scroll matrix-scroll" role="region" aria-label="Stage lengths and twiddle exponents" tabindex="0"><table class="notes-table"><thead><tr><th>N</th><th>s</th><th>M</th><th>ω<sub>N</sub> exponent</th></tr></thead><tbody>
         <tr><td>8</td><td>0</td><td>2</td><td>j=0: exponent 0, factor 1</td></tr>
         <tr><td>8</td><td>1</td><td>4</td><td>2j: 0, 2</td></tr>
