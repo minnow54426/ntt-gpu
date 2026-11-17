@@ -1,12 +1,17 @@
-# Modular arithmetic: bounds and exactness gates
+<div id="modular-arithmetic-bounds-and-exactness-gates" aria-hidden="true"></div>
 
-D6 connects the butterfly formulas to the integer operations they actually
-execute. The current target is **N=65536, with 50–60-bit prime towers stored
-in uint64_t**. This is a correctness contract, not a GPU performance result.
+# Keep every modular operation exact
 
-Read [the buffer/dataflow map](cuda-buffer-dataflow.md) first for where the
-arrays live. The implementation is in [mod_arith.hpp](../include/ntt/mod_arith.hpp),
-[ntt.hpp](../include/ntt/ntt.hpp), and [dev_core.hpp](../include/ntt/dev_core.hpp).
+For a prime q, a **canonical residue** is an integer from 0 to q−1. For example,
+−1 is stored as 16 modulo 17. Every butterfly in this implementation starts
+and ends with canonical values.
+
+The main target is N=65536 with 50–60-bit primes in `uint64_t`. A 60-bit
+value fits in that type; multiplying two such values does not. This page
+explains the temporary widths, input assumptions and independent checks.
+Read the [buffer map](cuda-buffer-dataflow.md) for where arrays live.
+Sources: [mod_arith.hpp](../include/ntt/mod_arith.hpp),
+[ntt.hpp](../include/ntt/ntt.hpp) and [dev_core.hpp](../include/ntt/dev_core.hpp).
 
 ## 1. What callers must supply
 
@@ -31,10 +36,11 @@ target N, \(2N=131072\) and q>N. Forward consumes canonical coefficients in
 natural order; inverse consumes canonical evaluations in bit-reversed order.
 There is no Montgomery representation or lazy residue format in this code.
 
-The constructor checks size shape, divisibility and \(\psi^N=q-1\), but **does not
-test primality or the advertised modulus-width limit**. Public array methods
-check length, not residue bounds. Trusted parameter selection and canonical
-input are caller obligations today, not rejection guarantees.
+The raw CPU `NegacyclicNtt` constructor checks size, divisibility and
+ψᴺ=q−1, but assumes primality and the documented width. Its array methods
+check length, not residue bounds. The [CUDA wrapper](cuda-buffer-dataflow.md)
+and resident runtime add their own validation; do not assume the raw hot
+arithmetic functions reject invalid inputs.
 
 ## 2. Why intermediates fit
 
@@ -94,7 +100,7 @@ native build/profile, not inferred as one hardware division instruction.
 
 ## 4. Executable adversarial coverage
 
-Two new gates run in the normal CPU CTest suite:
+Two gates run in the normal CPU CTest suite:
 
 | Gate | Inputs and comparison | What it establishes |
 |---|---|---|
@@ -135,7 +141,7 @@ Sources: [C++ probe and full-size tests](../tests/arithmetic_contract_tests.cpp)
 | Column/inverse/tile mapping checks | Exhaustive target-size index/twiddle probes of shared CPU/CUDA helpers | CPU execution; no CUDA barriers/races tested |
 | `device_schedule_check` | Exact simulator/reference arrays, including N=65536 fixtures | Current fixtures use 46-bit primes |
 | `openfhe_exact_compat` (opt-in) | N=65536 NativePoly forward/inverse arrays, including independent evaluation input; OpenFHE selects parameters via FirstPrime(50) and LastPrime(59) | Pinned OpenFHE 1.6.1 CPU comparison, not a CUDA/OpenFHE pipeline |
-| Native CUDA oracle/reference gates (when CUDA is available) | Actual kernel outputs versus reference/oracle | Must be run on named hardware; not verified on this Mac |
+| Native CUDA oracle/reference gates (when CUDA is available) | Actual kernel outputs versus reference/oracle | Run on named hardware; see the dated Ada report for exercised cases |
 
 The OpenFHE gate includes zero, all q-1, ramp, random coefficients and random
 evaluation arrays. Same q **and root** are essential: another valid root may
@@ -150,7 +156,7 @@ D6's review is complete; these are explicit later implementation gates:
 - **P2/P3, real GPU:** repeat the 50/55/60-bit patterns through actual kernels,
   compare each forward/inverse/pointwise result and canonical range, then run
   compute-sanitizer race/memory checks and test launch failures. CPU success
-  does not establish nvcc support, device reduction correctness, or timing.
+  does not establish device reduction correctness or timing for a new variant.
 - **API hardening:** D9/D10 define the contracts. Later
   [offline preparation](offline-gpu-preparation.md) adds baseline rejection of
   noncanonical residues, invalid roots, composite moduli, unsafe dimensions

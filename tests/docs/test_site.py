@@ -136,6 +136,25 @@ class RoutingTests(unittest.TestCase):
         self.assertNotIn('CUDA source exists', home)
         self.assertNotIn('Implementation sequence', home)
 
+    def test_reading_path_and_dated_records_have_useful_destinations(self):
+        pages = site.read_catalog()["pages"]
+        lesson = next(page for page in pages if page["url"] == "butterfly-explained.html")
+        body = site.concise_article(lesson, "<p>Full derivation</p>")
+        self.assertIn('href="gpu-ntt-explained.html"', body)
+        self.assertIn('Next: From CPU to CUDA', body)
+        entry = site.read_journal()[0]
+        body = site.concise_article(entry, "<p>Original record</p>")
+        self.assertIn('href="../openfhe-integration-plan.html"', body)
+        self.assertIn('This is a dated record', body)
+        self.assertIn('Original record', body)
+
+    def test_unknown_next_article_is_rejected(self):
+        catalog = site.read_catalog()
+        catalog["pages"][0]["next_page"] = "missing.html"
+        with patch.object(site.json, "loads", return_value=catalog):
+            with self.assertRaisesRegex(ValueError, "Unknown next page"):
+                site.read_catalog()
+
     def test_nested_journal_document_link_keeps_fragment(self):
         url = site.rewrite_url(
             "../openfhe-integration-plan.md#live-tracker",

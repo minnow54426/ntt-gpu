@@ -2,13 +2,14 @@
 
 **Date:** 2026-11-05  
 **Project target:** CKKS, OpenFHE 1.6.1, Hybrid RNS key switching, NVIDIA RTX 5090 (`sm_120`), ring dimension `65536`<br>
-**Current repository revision inspected:** `363f972`  
+**Historical source snapshot:** `363f972`; see the [current GPU report](batch40-native-analysis.md) for later measurements.<br>
 **Evidence policy:** implementation facts below come only from author papers, official repositories/source code, or NVIDIA documentation. Recommendations and inferences are explicitly labelled.
 
 ## Executive conclusions
 
-Keep exact OpenFHE array compatibility while replacing three bottlenecks:
-modular division, strided column accesses, and repeated host transfers.
+Preserve exact OpenFHE arrays while testing three potential costs: wide modular
+remainder, strided memory access and repeated host transfers. Profiling must
+establish which limits a given workload.
 
 - **Arithmetic:** Shoup for fixed twiddles; Barrett/Montgomery for variable products.
 - **Layout:** compare the baseline with a coalesced transpose/Four-Step path.
@@ -89,14 +90,7 @@ Its current 1D NTT uses CT butterflies for forward and GS butterflies for invers
 
 FIDESlib's Hybrid pipeline has dedicated decomposition/ModUp and ModDown kernels, per-device limb partitions, CUDA streams/events, and graph capture in its multi-GPU/scheduling layer. Its high-level RNS object tracks whether a polynomial is in the extended basis and exposes fused key-switch operations. See [`Conv.cu`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/CKKS/Conv.cu), [`LimbPartition.cu`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/CKKS/LimbPartition.cu), and [`RNSPoly.cpp`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/CKKS/RNSPoly.cpp).
 
-What to absorb:
-
-- Make exact OpenFHE ciphertext compatibility—not only decrypt-level CKKS tolerance—the integration acceptance target where the same algorithmic formulation is used.
-- Model transform state explicitly: coefficient/evaluation order, normal/extended RNS basis, level, and owning device/stream.
-- Create fusion points at transform boundaries. A generic `forward()` that always stores a complete intermediate is insufficient for high-performance key switching.
-- Use Shoup constants beside twiddle and key constants. Keep generic Barrett reduction for operands whose multiplier is not precomputed.
-- Test the complete Hybrid formulations. FIDESlib's compatibility record shows that two mathematically valid rotation/key-switch formulations need not produce bit-identical ciphertexts because rounding and noise enter in different orders.
-- Preserve full `QP` towers during export/import. FIDESlib documents a real compatibility bug caused by truncating extended-basis ciphertexts during materialization.
+**For this project:** Use FIDESlib to study exact OpenFHE interoperability and transform-boundary fusion. Preserve QP towers and compare the complete Hybrid operation, not only NTT latency.
 
 **Inference:** FIDESlib is both a design reference and a competitor baseline. Before designing a new OpenFHE patch layer, evaluate whether this project's intended contribution is (a) independent kernels integrated directly into stock OpenFHE, (b) an alternative backend with a stable ABI, or (c) improvements that can be contributed to FIDESlib/OpenFHE. Duplicating its entire compatibility layer without a differentiator is high effort.
 
@@ -108,13 +102,7 @@ The current official GPU-NTT repository supports 32- and 64-bit Barrett arithmet
 
 HEonGPU uses GPU-NTT inside a GPU-resident BFV/CKKS library. Its paper describes a GPU memory pool, pinned host pool, and multi-stream execution in addition to the NTT itself. See [HEonGPU](https://eprint.iacr.org/2024/1543) and the [official repository](https://github.com/enCRYPTON-labs/HEonGPU).
 
-What to absorb:
-
-- Compare at least two schedules: an improved two-pass/Merge path and a Four-Step or explicit transpose path. Do not assume the current fixed split is optimal.
-- Build a launch table for N=65536 across tower and batch counts; tune it on the 5090.
-- Treat batches as part of the NTT API, not a benchmark wrapper. CKKS naturally supplies many modulus towers and often multiple ciphertext components.
-- Report throughput as well as latency; the best shape changes when enough independent transforms exist to saturate the GPU.
-- Add an allocator and stream contract at the library boundary.
+**For this project:** Compare Merge and Four-Step schedules with matched modulus, order and batching. Tune N=65536 across tower counts rather than copying another GPU's launch table.
 
 ### 2.3 CKKS-GPU-CORE: memory-centric CKKS and 8-point-per-thread NTT
 
@@ -122,12 +110,7 @@ Jung et al.'s memory-centric CKKS work keeps up to eight NTT values per thread i
 
 The source implements two NTT phases, register arrays of eight coefficients per thread, Shoup butterflies, padded shared memory, batched ModUp, and fused ModDown/NTT epilogues. See [`NttImple.cu`](https://github.com/scale-snu/ckks-gpu-core/blob/1eb16b667fc27684d82957c52b09777a8e350c0e/src/public/NttImple.cu) and [`Context.cu`](https://github.com/scale-snu/ckks-gpu-core/blob/1eb16b667fc27684d82957c52b09777a8e350c0e/src/public/Context.cu).
 
-What to absorb:
-
-- Evaluate radix-8-per-thread as a direct evolution of this repository's two-pass structure: keep eight coefficients in registers, use shared memory only for cross-thread permutations, and reduce full-block barriers.
-- Add padding and profile bank conflicts rather than assuming the `[256]` shared tile is conflict-free for every access pattern.
-- Co-design basis conversion and NTT buffers. The same extended-basis layout should flow directly into forward NTT and evaluation-key multiplication.
-- Fuse inverse-transform epilogues and forward-transform prologues where the Hybrid formula permits.
+**For this project:** Test eight register-held values per thread, padded shared memory and conversion/NTT fusion as separate measured changes.
 
 ### 2.4 PhantomFHE: radix-8 NWT, lazy Shoup butterflies, and scheme-level fusion
 
@@ -135,21 +118,13 @@ Phantom implements BFV, BGV, and CKKS on CUDA. Its 1D path handles small transfo
 
 The Phantom paper describes intra-kernel fusion that reuses register temporaries and inter-kernel fusion across operations such as NWT plus scaling and ModDown plus correction. Its key-switch path connects ModUp, evaluation-key inner product, and ModDown on a supplied stream. See [Phantom: A CUDA-Accelerated Word-Wise Homomorphic Encryption Library](https://eprint.iacr.org/2023/049) and [`eval_key_switch.cu`](https://github.com/encryptorion-lab/phantom-fhe/blob/1f4a198443b3af77118e51f53d5b8f332154b875/src/eval_key_switch.cu).
 
-What to absorb:
-
-- Use CT forward and GS inverse so compatible orderings can eliminate explicit permutations between NTT, pointwise multiplication, and INTT.
-- Define and prove lazy ranges per butterfly. Reductions are removed only when the next consumer's bound remains safe.
-- Prefer register reuse and boundary fusion over simply increasing shared-memory tile size.
-- Expose the CUDA stream all the way through key switching.
+**For this project:** Study radix-8 staging and stream-aware key switching. Prove each lazy-residue range before removing reductions; a different butterfly convention is not automatically array-compatible.
 
 ### 2.5 TensorFHE: tensor-core NTT and operation-level batching
 
 TensorFHE maps a decomposed 32-bit NTT to tensor-core matrix multiplications and emphasizes throughput rather than single-operation latency. It batches CKKS operations and changes layout from `(batch, limb, N)` to `(limb, batch, N)` so equal-limb data from different operations is contiguous. It also assigns independent matrix multiplications to separate streams. See the author paper, [TensorFHE](https://arxiv.org/abs/2212.14191), especially Sections IV-C and IV-D.
 
-What to absorb:
-
-- Operation-level batching and a layout selectable between `[limb][batch][N]` and `[batch][limb][N]` are worth measuring for inference serving.
-- Throughput-oriented inference can benefit from batching several ciphertexts even if one ciphertext already batches all RNS towers.
+**For this project:** Measure operation batching and limb/batch layouts for throughput. Tensor arithmetic is a separate experiment with different width and exactness requirements.
 
 **Inference/caution:** do not make tensor-core NTT the first implementation path. TensorFHE's arithmetic decomposition and throughput objective differ from OpenFHE's usual 50–60-bit RNS towers and this project's immediate exact-compatibility goal. Establish a fast integer-core Shoup/Barrett backend first; treat tensor cores as a separate experimental backend.
 
@@ -157,12 +132,7 @@ What to absorb:
 
 ICICLE's official NTT API exposes stream, batch size, row/column batch layout, input/output ordering, device-resident flags, async execution, reusable per-device domains, fast-twiddle mode, and an explicit mixed-radix selection. See the [official NTT API](https://github.com/ingonyama-zk/icicle/blob/main/docs/versioned_docs/version-4.0.0/api/cpp/ntt.md).
 
-What to absorb:
-
-- Separate an algorithm-independent NTT contract from backend-specific tuning extensions.
-- Make ordering explicit in the type/configuration rather than relying on comments.
-- Initialize and cache a maximum-size domain once, then reuse it for smaller transforms where mathematically compatible.
-- Allow both row-batched and column-batched transforms and device-resident async operation.
+**For this project:** Borrow the API ideas: explicit order, batches, device state and readiness. Verify transform semantics and licensing before treating ICICLE as a CKKS backend.
 
 **Inference/caution:** ICICLE is primarily a proof-system field library, not an OpenFHE CKKS/Hybrid implementation. Its API concepts transfer; its field choices and transform semantics must not be assumed compatible. Its CUDA backend also has source-availability/licensing conditions that should be checked before any reuse.
 
@@ -170,9 +140,7 @@ What to absorb:
 
 cuFHE implements TFHE gates and credits cuHE's GPU NTT; its API supports CUDA streams and keeps a public bootstrapping key initialized on the GPU. See the [official cuFHE repository](https://github.com/vernamlab/cuFHE) and [official cuHE repository](https://github.com/vernamlab/cuHE).
 
-What to absorb:
-
-- Keep large evaluation/bootstrapping keys resident and permit concurrent independent operations through streams.
+**For this project:** Keep reusable keys resident and expose stream dependencies. TFHE gate bootstrapping is a different workload from CKKS Hybrid switching.
 
 **Inference/caution:** TFHE gate bootstrapping has different polynomial sizes, dataflow, and key-switch structure from CKKS Hybrid RNS. cuFHE is not a suitable algorithmic baseline for the OpenFHE integration; it is mainly historical evidence for GPU-resident keys and stream-level concurrency.
 
@@ -182,13 +150,7 @@ Theodosian profiles CKKS on RTX 5090 and reports that optimized NTT and basis-co
 
 The paper reports that batching can hurt after the footprint exceeds the 5090's effective L2 capacity, and that key switching benefits more from cache-aware multi-polynomial execution and graph scheduling than from additional local kernel fusion once the baseline is already heavily fused.
 
-What to absorb:
-
-- Profile L2 read/write throughput and SM-to-L2 traffic on the actual 5090, not only DRAM bandwidth and occupancy.
-- Generate high-volume twiddles on the fly when the arithmetic cost is cheaper than their cache traffic; retain a precomputed mode for low-volume stages.
-- Batch according to measured working-set size. “More batches” is not monotonic.
-- Capture stable key-switch/rotation/inference sequences in CUDA Graphs.
-- Pipeline stages with complementary DRAM/L2 behavior only after dependencies and cache interference are measured.
+**For this project:** Profile the actual RTX 5090's L2 traffic and working-set size. Test twiddle generation, cache-aware batching and graphs only after measuring their tradeoffs.
 
 
 </details>
@@ -316,27 +278,19 @@ Recommended API split:
 
 ### 6.1 Correctness ladder
 
-1. Arithmetic primitive versus `__uint128_t % q`, including adversarial bounds and every OpenFHE modulus.
-2. Butterfly and single-stage exact tests for CT/DIF and GS/DIT, including lazy-range invariants.
-3. Complete forward/inverse exact equality against the existing CPU and Python oracle for every `N` in `{65536}`.
-4. RNS batches across realistic CKKS tower counts, not only three limbs.
-5. Negacyclic polynomial multiplication exact equality.
-6. Basis conversion exact equality to the pinned OpenFHE 1.6.1 implementation.
-7. Hybrid relinearization and rotation: exact ciphertext comparison where formulation and code generation permit; decrypt-error comparison as a secondary semantic test.
-8. Long operation sequences and inference circuits, including level/scale/noise metadata and repeated rotations.
+Check primitives, butterflies, full transforms and polynomial products before
+composing basis conversion and Hybrid operations. Compare complete arrays with
+the same parameters and keys. [The arithmetic guide](modular-arithmetic-contract.md)
+explains the independent oracles; [the benchmark plan](benchmark-tuning-plan.md)
+defines the full matrix and required record.
 
 ### 6.2 Required performance views
 
-For each ring dimension, modulus bit-width, and tower count:
-
-- kernel-only forward and inverse latency using CUDA events;
-- end-to-end latency with pinned and pageable host transfer reported separately;
-- transforms/second for batches of towers, ciphertext components, and independent ciphertexts;
-- full polynomial multiply latency;
-- Hybrid key switch, relinearization, and rotation latency;
-- complete inference latency and peak device memory;
-- bytes read/written, achieved DRAM bandwidth, L2 read/write throughput, global load/store efficiency, bank conflicts, register count, occupancy, and launch count from Nsight Compute/Systems;
-- cold setup, warm steady state, and CUDA Graph replay as distinct measurements.
+Separate setup, resident-device events, transfer-inclusive calls and complete
+operations. Report latency and throughput across ring sizes, widths and tower
+counts. Retain raw samples, named hardware, peak memory and profiler counters;
+[the collector guide](offline-test-tooling.md) explains the implemented scopes.
+Kernel time must not be compared with another implementation's complete call.
 
 ### 6.3 Baselines
 
@@ -383,23 +337,20 @@ This section is informational, not legal advice.
 
 ## 9. Next implementation steps
 
-The survey supports the following immediate implementation sequence:
+Follow the [current roadmap](openfhe-integration-plan.md) and
+[backlog](implementation-backlog.md), rather than treating this November 5
+survey as the live tracker:
 
-1. Introduce arithmetic policies and implement `ShoupTwiddle` plus `BarrettVariable`, with exact tests.
-2. Add a device-buffer/stream API without removing the current host-vector facade.
-3. Instrument and benchmark the existing two-pass kernel on RTX 5090 using CUDA events and Nsight.
-4. Implement one radix-8, padded-shared-memory variant and one coalesced transpose/Four-Step variant.
-5. Select per-size/per-batch winners through a dispatch table.
-6. Build the `Q/QP` state/layout and OpenFHE 1.6.1 compatibility harness before implementing base conversion.
-7. Optimize and report the full Hybrid key-switch graph, with FIDESlib as the central GPU baseline.
+1. Validate the current source and resident chain on RTX 5090; collect profiling.
+2. Test Shoup/Barrett arithmetic and coalesced layouts independently against the
+   reference path. Compare radix-4/8 variants under the same timing boundary.
+3. Select measured configurations for real tower/batch counts.
+4. Extend resident buffers into exact base conversion and Hybrid key switching,
+   with FIDESlib as a relevant complete-operation comparison.
 
-Benchmarking and autotuning across GPU parameters and implementation variants
-are a permanent project workstream, not a one-time comparison. The concrete
-matrix, required counters, reproducibility record, dispatch rules, and
-acceptance gates are defined in
-[`benchmark-tuning-plan.md`](benchmark-tuning-plan.md).
-
-The HTML explainer should then be updated to show both the current correctness schedule and the selected production schedule. It should no longer imply that low nominal global byte count alone means efficient VRAM access; it should visualize coalescing, register-held radix-8 work, padded shared memory, and the complete `Q -> QP -> Q` Hybrid dataflow.
+Keep explanations tied to the selected implementation. Four logical array
+movements do not prove coalesced traffic, and more fusion or larger batches can
+hurt when they increase register pressure or exceed cache capacity.
 
 ## Primary sources
 

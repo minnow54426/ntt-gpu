@@ -1,18 +1,23 @@
-# OpenFHE Hybrid key switching: the exact operation graph
+<div id="openfhe-hybrid-key-switching-the-exact-operation-graph" aria-hidden="true"></div>
 
-D8 traces **OpenFHE 1.6.1**, commit
-`b59e1f291965f14fbee5172cd83a20f5b856204f`, with **N=65536** and the
-64-bit NativeInteger backend. It fixes the sequence of representation changes,
-CRT representatives, key addressing, accumulation, and reduction that a future
-backend must preserve. Read the [D7 representation contract](openfhe-representation-contract.md)
-for the NTT's exact array order.
+# How OpenFHE Hybrid key switching works
 
-The executable evidence is [openfhe_hybrid_tests.cpp](../tests/openfhe_hybrid_tests.cpp).
-It calls the actual OpenFHE PKE library and compares complete arrays with an
-independent unreduced-CRT formula and scalar arithmetic. These are CPU results.
+Key switching changes a ciphertext's key representation without decrypting
+its data. Hybrid key switching splits the input into digits, extends their
+prime basis from Q to QP, multiplies by evaluation-key arrays, then reduces
+the two accumulated outputs back to Q.
 
-Code excerpts © 2022 OpenFHE, reproduced under the [BSD 2-Clause license](site-assets/licenses/OpenFHE-BSD-2-Clause.txt). Click a code symbol or an excerpt’s file/line link to open the corresponding GitHub source.
+This page follows **OpenFHE 1.6.1**, commit
+`b59e1f291965f14fbee5172cd83a20f5b856204f`, at N=65536 with NativeInteger 64.
+Read the [representation guide](openfhe-representation-contract.md) first:
+a tower is one prime-modulus array, and its format determines whether it
+contains coefficients or NTT evaluations. Q is the active data basis; P is
+the auxiliary prime basis used during switching.
 
+[The CPU tests](../tests/openfhe_hybrid_tests.cpp) compare real OpenFHE PKE
+arrays with an independent unreduced-CRT formula. They establish this graph,
+not a GPU key-switch implementation. Source excerpts are © 2022 OpenFHE,
+under [BSD 2-Clause](site-assets/licenses/OpenFHE-BSD-2-Clause.txt).
 
 ## 1. Read the complete path
 

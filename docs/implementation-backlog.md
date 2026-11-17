@@ -1,17 +1,17 @@
-# Implementation backlog after D10
+<div id="implementation-backlog-after-d10" aria-hidden="true"></div>
 
-**Accepted by [ADR 0001](architecture-decision.md) · 2026-11-12 · N=65536**
+# Implementation tasks and acceptance checks
 
-P1's contracts are complete. The next working day is **D11**: provision and
-record the native GPU environment. B01–B04 now have
-[completed offline preparation](offline-gpu-preparation.md); their native
-acceptance gates remain open. B06 has bounded offline prototype preparation;
-B05 and B07–B12 production work is **NOT STARTED**. Design acceptance,
-compiler-only builds and portable CPU checks do not satisfy CUDA/runtime gates.
+The architecture is accepted; the production backend is still being built.
+Use this checklist to decide whether an implementation is ready. The
+[roadmap](openfhe-integration-plan.md) gives phase order; [ADR 0001](architecture-decision.md)
+defines the behavior each task must preserve.
 
-The [95-working-day roadmap](openfhe-integration-plan.md) retains its phase
-boundaries. Each item lists a deliverable, dependencies and acceptance criteria.
-Update its state with reproducible evidence.
+**Current state:** D11/P2 remains open. The temporary Ada baseline is measured;
+RTX 5090 acceptance and remaining native failure/profiling checks are pending.
+B01–B04 have offline preparation and partial native evidence. B06 has a bounded
+host-tested, CUDA-compiled prototype. B05 and B07–B12 production work has not
+started. Early preparation does not complete a later phase.
 
 ## 1. Deliverables and dependencies
 
@@ -63,13 +63,9 @@ compiler and driver queries. A CPU machine, toolkit version string alone, or PTX
 fallback without a native build does not complete B01/B02. This task does not
 provision or rent hardware as part of D10.
 
-Offline status: the compiler/toolchain record and collection scripts are ready.
-Actual GPU/driver discovery and native device execution are still pending.
-
-Native update 2026-11-14: [an additional Ada diagnostic](journal/2026-11-14.md)
-records actual hardware and passed native execution on a machine reporting
-RTX 4080 SUPER. The primary RTX 5090 gate remains open; this is not the
-planned RTX 4090 control.
+**Evidence so far:** the November 14 [Ada diagnostic](journal/2026-11-14.md)
+recorded native execution on a machine reporting RTX 4080 SUPER. It is neither
+the primary RTX 5090 nor the planned RTX 4090 control.
 
 ### B02 — native build and baseline safety
 
@@ -80,16 +76,12 @@ validate checked extents and supported canonical inputs before enqueue.
 Resolve compiler/architecture blockers exposed by the first native build.
 Keep the baseline arithmetic and transform convention intact.
 
-Offline status: unique ownership, device guards and checked host preflight are
-implemented; sm_89/sm_120 compilation and driverless invalid-constructor checks
-pass. Native allocation/upload fault injection and context-error cleanup remain
-required before B02 is complete.
-
-Offline tooling update 2026-11-14: [shared ownership tests](offline-test-tooling.md)
-cover all six allocations/four uploads with host adapters. A native pre-call
-injection probe is registered but uncompiled/unrun here; real CUDA/context
-failure behavior remains unverified. The old 19cc285 native run does not
-validate this ownership refactor.
+**Evidence so far:** unique ownership, device guards and input validation
+are implemented. Host tests cover six allocations and four uploads; the older
+Ada batch passed the native pre-call injection probe. That does not establish
+actual driver OOM, partial-transfer or failed-context cleanup safety. The
+[tooling guide](offline-test-tooling.md#shared-allocation-ownership-and-injected-failures)
+separates these scopes.
 
 **Acceptance:** native build and smoke run; injected failures at each allocation
 and constant upload unwind all prior allocations; invalid inputs submit no work;
@@ -99,14 +91,11 @@ match the actual fix. Static source checks alone cannot complete this item.
 
 ### B03 — exact CUDA matrix
 
-Offline status: `cuda_openfhe_exact` is compiled and registered with real
-50/55/60-bit OpenFHE and D8 level/basis fixtures. All native cases remain unrun.
-
-Native update 2026-11-14: the prepared matrix and four sanitizer smoke tools
-passed on the supplied Ada machine, including 169,279,488 direct CUDA-gate
-residue comparisons. See the [evidence and scope](journal/2026-11-14.md).
-Primary-device execution and broader production coverage remain pending;
-the offline paragraph above describes the earlier preparation state.
+**Evidence so far:** the older Ada batch passed the direct OpenFHE matrix,
+including 169,279,488 original-gate comparisons, the expanded benchmark matrix
+and bounded sanitizer smoke. [The report](batch40-native-analysis.md) records
+the tested workload and limitations. Repeat the current source on the primary
+device; older results do not validate the new resident runtime.
 
 Extend the native harness to import the exact OpenFHE fixture moduli, roots,
 input arrays and expected arrays. At N=65536 cover 50/55/60-bit primes, active
@@ -126,27 +115,16 @@ existing CPU/OpenFHE and small schedule-boundary gates green.
 
 ### B04 — timing and bottleneck report
 
-The [first-run offline analysis](first-native-analysis.md) audits the initial
-Ada sample and prioritizes measurement-protocol work before another session.
-Source-derived hypotheses are not profiler evidence; B04 remains open.
-Harness implementation is tracked separately from its native verification.
+**Evidence so far:** the [full-matrix report](batch40-native-analysis.md)
+compares measured public-call and resident-event timings. Raw samples,
+validated reports and a selected CUDA timeline are retained. Hardware counters
+were unavailable, so there is no accepted first bottleneck decision.
 
-Offline tooling update: the raw-sample/fixed-input host protocol and report
-validator are implemented with host checks. The collector prepares 30/50/55/60-bit
-public-call and resident-event/pinned-copy measurements at N=4096–65536,
-K=1/3/8/16/24/32/40,
-plus an OpenFHE NativeVector CRT-FTT CPU baseline. The CPU comparator passes
-the default matrix's local exact-result/protocol cases. Native CUDA compilation/execution and
-actual event/profile observations remain open; prepared tooling is not evidence.
-See [tooling status](offline-test-tooling.md).
-
-Collector update 2026-11-16: the normal runner now supports separate GPU-only
-and local CPU sessions with mode/scope-specific resume manifests. CPU mode
-builds with CUDA disabled and has real Linux host/OpenFHE execution evidence;
-macOS identity handling and GPU selection have control-flow tests. The rental
-helper defaults to GPU-only measurements while retaining native correctness
-and requested sanitizer gates. This is tooling completion, not a new RTX 5090
-run or a completed B04 bottleneck gate.
+The [collector](offline-test-tooling.md#collector-and-validation) now separates
+GPU-only and local CPU collection, with hash-checked resume. Host control-flow
+checks and a real Linux CPU run validate that split. Current GPU-only collector
+and resident-runtime execution still need native verification. Use the
+[first-run analysis](first-native-analysis.md) only for its earlier 46-bit sample.
 
 Separate construction/table upload, device-resident CUDA-event timings,
 transfer-inclusive wall time, and explicit synchronization. Add raw samples,
@@ -305,7 +283,7 @@ For example, after setting the install prefix for that machine:
 
 ```sh
 cmake -S . -B build/native-gpu -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CUDA_ARCHITECTURES=native \
+  -DNTT_REQUIRE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=native \
   -DNTT_ENABLE_OPENFHE_COMPAT=ON \
   -DCMAKE_PREFIX_PATH="$NTT_OPENFHE_PREFIX"
 cmake --build build/native-gpu -j2
@@ -314,8 +292,8 @@ ctest --test-dir build/native-gpu --output-on-failure
 
 CMake auto-detection can produce a CPU-only build. B02/B03 require an actual
 CUDA compiler, the CUDA targets and their registered CTests, a real GPU, and
-successful native execution. The commands above are a handoff, not an observed
-D10 GPU run or proof that the current source already compiles with nvcc.
+successful native execution. The commands above are a handoff, not evidence of execution on that GPU.
+Compiler-only builds are documented separately in the preparation guide.
 
 For each completed item, retain the source commit, parameter/fixture identifiers,
 hardware/toolchain record, exact commands, raw logs, failing-case diagnosis where

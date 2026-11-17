@@ -1,21 +1,20 @@
 # Keep the NTT chain on the device
 
-**Offline prototype · N=65536 exact host comparisons · CUDA execution pending**
-
-The prototype lets separate NTT operations share resident polynomial handles:
+Upload two inputs, compose their operations on the GPU and download the final
+result:
 
 ```text
 upload(a, b) → forward(a), forward(b) → pointwise multiply → inverse → download
 ```
 
-Inputs are copied into owned staging before submission. Intermediate arrays
-remain in the transport's buffers; only the final result needs a host download.
-The CPU test transport verifies the control logic and mathematical outputs.
-The real CUDA adapter compiles for sm_89 and sm_120 but has not run on a GPU.
+A session owns the stream and returns handles to immutable polynomial buffers.
+Queued work retains its inputs even if the caller drops a handle. Uploads copy
+caller data into owned staging before returning.
 
-This prepares [B06](implementation-backlog.md#b06-resident-runtime-and-registry).
-It does not close D11/P2, implement the full production backend, or establish
-a speedup. The existing synchronous CUDA interface remains available.
+**Status:** the host test transport passes exact OpenFHE and lifetime/failure
+checks at N=65536. The CUDA adapter compiles for sm_89/sm_120 but has not run
+on a GPU. This is bounded [B06 preparation](implementation-backlog.md#b06-resident-runtime-and-registry),
+not a production backend or a measured speedup; D11/P2 remains open.
 
 ## What is implemented
 
@@ -32,11 +31,10 @@ may declare coefficients in natural order or evaluations in the existing
 bit-reversed order. Data use canonical `uint64_t` residues. Whole-tower subviews
 retain the original allocation and readiness; transforms issue fresh outputs.
 
-The experimental API is separate from the accepted abstract
-[`ntt::proposal::Backend`](../include/ntt/backend_api.hpp). No production factory,
-OpenFHE adapter, cache or automatic CPU fallback is enabled by this change.
 Use one host thread per session, including handle access and destruction.
-Multiple streams and cross-device operations remain outside this prototype.
+The API is separate from the abstract [proposed Backend](../include/ntt/backend_api.hpp).
+It supplies no production OpenFHE adapter, cache, CPU fallback, cross-device
+operation or multi-stream execution.
 
 ## Compose a product
 
@@ -99,11 +97,10 @@ Measure those costs on named hardware before optimizing them.
 
 ## Ownership and failure rules
 
-Handles are issued by a private registry. Descriptor copies cannot create
-handles or mutate a live allocation's identity. Session IDs are unique, and
-allocation IDs are never reused within a session, preventing stale-token reuse.
-Wrong sessions, invalid layouts/domains, noncanonical inputs and invalid view
-extents fail during host preflight.
+A private registry issues handles and validates their allocation/session IDs,
+layout and view range. Session IDs are unique and allocation IDs are never
+reused within a session. Copying a descriptor cannot create a trusted handle.
+Wrong sessions, domains, extents and noncanonical uploads fail before enqueue.
 
 Every queued operation pins its inputs, output, staging and dependencies before
 calling the transport. Dropping a public handle or completion therefore cannot
@@ -116,8 +113,8 @@ even if no completion handle could be returned.
 | Preflight or admission refusal | Submit no command for that operation; report the error |
 | Pending work | Retain allocation, staging, event and dependency leases |
 | Successful completion | Release that prefix's in-flight pins; external handles keep their own storage |
-| Submission, query, wait or output-validation failure | Poison admission, retain the failure and attempt to drain |
-| Quiescence cannot be proved | Keep the driver and complete resource journal alive; do not free queued storage |
+| Submission, query, wait or output-validation failure | Reject new work, retain the failure and attempt to drain |
+| Cannot prove queued work has stopped | Keep the driver and complete resource journal alive; do not free queued storage |
 | Later successful drain | Reclaim pins; explicit close still reports the original failure |
 
 `Completion::query()` reports a failed outcome when a transport error is found;
@@ -126,9 +123,9 @@ invalidates polynomial handles. An already completed owned host result can
 outlive the session. Destruction is nonthrowing; call `close()` explicitly to
 observe errors.
 
-Unrecoverable quiescence failure deliberately retains resources until process
-exit if no later close can prove a drain. This conservative quarantine is not
-a finished recovery service. Final deallocation errors are best-effort in
+If work cannot be proved stopped, resources are deliberately retained until a
+later successful close or process exit. This is conservative failure handling,
+not a finished recovery service. Final deallocation errors are best-effort in
 destructors; prior recorded cleanup errors are checked during explicit close.
 Actual failed-context behavior still needs native verification.
 

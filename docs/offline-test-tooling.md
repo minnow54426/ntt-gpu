@@ -1,119 +1,50 @@
-# Prepare the next GPU session offline
+<div id="prepare-the-next-gpu-session-offline" aria-hidden="true"></div>
 
-**2026-11-14 · host checks complete; new CUDA code uncompiled/unrun locally**
+# Collect GPU and CPU measurements separately
 
-Freeze update: [compiler-only CI for f1ecff1](https://github.com/minnow54426/ntt-gpu/actions/runs/43599616970)
-now passes for **sm_89 and sm_120**, including driverless host checks. Local
-regression passes 18 standalone and 22 OpenFHE CPU CTests (140 workload cells).
-The batch is ready for the next rental's **native validation**, not accepted
-as a GPU result. CUDA/OpenFHE combined native gates, event measurements,
-sanitizers and profiler captures still need execution on a real device.
+Use the rental for GPU checks and timings; collect the OpenFHE CPU baseline
+locally. Both runs use the same polynomial parameters and seeded inputs, while
+retaining their own machine and build records.
 
-The [first-run analysis](first-native-analysis.md) identified measurement and
-failure-path gaps. This increment implements host-testable preparation for the
-next session. It does not reconnect to the stopped rental or close B02/B04.
+The [November 14 batch](batch40-native-analysis.md) exercised an earlier CUDA
+baseline. The November 16 collector and [resident runtime](resident-operation-chain.md)
+pass host tests and CUDA compilation; their remaining native checks are still
+open. The [preparation guide](offline-gpu-preparation.md) covers dependencies
+and hardware setup.
 
-## Raw measurement protocol
-
-### Rental GPU / local CPU split
-
-The later [November 14 session notes](journal/2026-11-14.md) supersede the
-pre-rental execution status above. Rental runs can now use:
-
-```sh
-ntt_cuda_cli gpu-bench-jsonl parameters.txt 5 100
-ntt_cuda_cli events-jsonl parameters.txt 5 100
-```
-
-`gpu-bench-jsonl` emits five GPU public operations under the distinct
-`host_wall_gpu_public_call` timing scope. It skips repeated scalar CPU
-timings, not the untimed reference preparation/checks needed to validate GPU
-outputs. The event command is unchanged. Run the four-operation
-`ntt_openfhe_bench` baseline separately on the local M1 Pro using identical
-N/q/roots/seed and repetition counts. Always retain separate machine/build
-identities: M1 CPU versus rental GPU is not a same-host acceleration factor.
-
-The legacy `gpu_session.py --benchmark` collector below still schedules
-mixed CPU/GPU work. Do not use it unchanged for a GPU-only rental. This session
-uses an independently archived split runner and manifests; integrating scope
-selection into the normal resumable collector remains follow-up work.
-
-The new `ntt_cuda_cli bench-jsonl <parameter-vector> [warmups samples]` path
-uses the vector file's exact N/q/root list; coefficients are generated from a
-fixed documented seed, not copied from that file. The batch covers N=4096,
-8192, 16384, 32768 and 65536. Every
-warm-up and timed call resets fixed inputs **before** the timer, including the
-inverse. Defaults are five warm-ups and 100 samples per operation.
-
-Six operations produce separate sample and summary records:
-
-- Scalar reference forward, with tower packing/reset outside timing.
-- Public GPU forward and independent inverse.
-- Public GPU pointwise multiply.
-- The complete four-public-call unfused product.
-- The complete fused public product.
-
-All GPU numbers are **host-wall public-call** time, including transfers,
-validation and guards, not CUDA-event/kernel time. Fused multiplication still
-includes its by-value left copy/output allocation; it retains the result and
-releases the previous result outside timing. This is explicitly different
-from the original benchmark's discarded result. Last results for each operation
-are checked against the reference outside timing; full exactness is a separate
-suite. This command's scalar CPU column is not OpenFHE; the new separate
-OpenFHE comparator below avoids conflating them.
-
-Workload metadata includes exact q/roots, GPU identity, driver/runtime API,
-input seed/policy, warm-ups, sample count and timing/setup scope. Raw samples
-survive in JSONL, with mean, median and p5/p95 using linear interpolation at
-`(count−1)*fraction`. Output ends with an explicit completion marker.
-
-The host-only [measurement helper](../include/ntt/measurement.hpp) is tested
-with a fake clock: reset occurs outside timing, each operation sees a reset
-input, warm-up calls are distinct, and percentile/JSON escaping checks pass.
-These tests are not performance observations.
-
-## Resident events and CPU baseline
-
-`ntt_cuda_cli events-jsonl <parameter-vector> [warmups samples]` uses the same
-q/roots and operands. Its six operations are resident forward, inverse,
-pointwise and fused ring product, plus one-buffer H2D and D2H pinned transfers.
-Setup, allocations, input reset/upload and validation/download are outside
-resident timing. Both copy directions use a preallocated pinned buffer and
-`cudaMemcpyAsync`; the public wrapper remains synchronous/pageable.
-
-Every warm-up/sample drains the default stream after reset, records a start
-event, enqueues the operation, records/synchronizes the stop event and reads
-elapsed milliseconds. Results are checked after every iteration outside events.
-Multi-launch event intervals can include submission gaps; they are not a sum
-of isolated per-kernel counters or pure device arithmetic. Event resources and
-pinned allocations have scoped cleanup. None of this CUDA path has compiled
-or run locally. The host external-clock protocol tests only ordering/error logic.
-
-The policy follows NVIDIA's [event API](https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__EVENT.html)
-and [timing/pinned-memory guidance](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html).
-Event results and pinned-copy results come from **separate experiments**, not
-an additive decomposition of pageable public-call time. There is no overlap,
-multi-stream throughput, per-pass event instrumentation or pinned public API yet.
-
-`ntt_openfhe_bench <parameter-vector> [warmups samples]` is built with the
-pinned OpenFHE compatibility targets. It times OpenFHE's preconditioned native
-CRT-FTT forward/inverse, NativeVector pointwise product and complete ring
-product, using sequential per-tower calls and the exact same seeded operands.
-Tables, packing, reset and reference checks are outside host-wall timing.
-Metadata records OpenFHE/compiler flags and OpenMP/native-optimization settings;
-the collector retains CPU identity and build flags. All four outputs are
-checked against our reference; the CPU protocol gate follows the default
-140-workload matrix described below.
-This is an optimized-arithmetic OpenFHE comparator, not a best-tuned DCRT/OpenMP,
-HEXL or end-to-end CKKS baseline. Library-internal allocations remain included;
-unlike GPU public multiplication it does not include a by-value return copy.
+<div id="rental-gpu-local-cpu-split" aria-hidden="true"></div>
 
 ## Collector and validation
 
-The November 16 collector update separates rental GPU measurements from local
-CPU collection. [gpu_session.py](../scripts/gpu_session.py) generates
-parameter vectors at **30, 50, 55 and 60 bits**, all five dimensions above,
-and K=1/3/8/16/24/32/40 towers: **140 workloads**. Select the measurement scopes:
+From a reviewed clean checkout with pinned OpenFHE installed, run on the GPU:
+
+```sh
+python3 scripts/gpu_session.py --mode gpu \
+  --cuda-root /path/to/cuda --openfhe-prefix /path/to/openfhe \
+  --architectures native --benchmark --benchmark-scope gpu \
+  --output-dir bench-results-gpu \
+  --benchmark-warmups 5 --benchmark-samples 100
+```
+
+On the local Linux or macOS CPU machine, use the same source revision:
+
+```sh
+python3 scripts/gpu_session.py --mode cpu \
+  --openfhe-prefix /path/to/local/openfhe \
+  --benchmark --output-dir bench-results-cpu
+```
+
+CPU mode configures CUDA off and never calls nvcc, a CUDA executable or a GPU
+profiler. Its successful report says `CPU_CHECKS_PASSED` and
+`gpu_execution: NOT_RUN`. This path is verified on Linux; the newer macOS
+collector path has control-flow tests but still needs a native M1 run.
+
+### Choose the measurement scopes
+
+A *workload* fixes N, the number of prime towers K, and the prime width.
+K counts primes in one polynomial, not ciphertexts. Defaults cover five ring
+sizes (4096–65536), four widths (30/50/55/60 bits), and
+K=1/3/8/16/24/32/40: **140 workloads**.
 
 <div class="site-table-scroll" role="region" aria-label="Benchmark collection modes and timing scopes" tabindex="0" markdown="1">
 <div style="min-width:42rem" markdown="1">
@@ -127,179 +58,170 @@ and K=1/3/8/16/24/32/40 towers: **140 workloads**. Select the measurement scopes
 </div>
 </div>
 
-Add `--benchmark` to collect measurements. Direct GPU collector commands default
-to `all` for compatibility. The rental helper `scripts/autodl_setup.sh` defaults
-to `gpu`; use `--benchmark-scope all` or `NTT_BENCHMARK_SCOPE=all` to request its
-previous combined behavior.
+Add `--benchmark` to collect timings. Direct GPU collector commands default to
+`all`; the rental helper `scripts/autodl_setup.sh` defaults to `gpu`.
+Set `--benchmark-scope all` or `NTT_BENCHMARK_SCOPE=all` for a combined rental run.
+GPU-only selection retains untimed reference checks, native exactness and
+requested sanitizers; it excludes only the separate CPU timing-protocol sweep.
 
-GPU-only collection invokes `gpu-bench-jsonl` with the distinct
-`host_wall_gpu_public_call` timing label and `*-gpu-public.log` filenames.
-Untimed CPU reference preparation/result checks remain necessary. All native
-GPU exactness gates and requested sanitizers still run. Only the separate CPU
-benchmark-protocol sweep is excluded from that session's CTest invocation.
+Use `--benchmark-dimensions 65536 --benchmark-towers 3 40` for a bounded
+batch. Any K from 1 through 40 is selectable; the default samples seven counts.
+Match dimensions, tower counts, widths, warmups and samples across machines.
+Different platforms are not a same-host acceleration comparison.
 
-CPU mode configures `NTT_ENABLE_CUDA=OFF` and `NTT_REQUIRE_CUDA=OFF` in its own
-`build/native-cpu` directory. It requires the pinned OpenFHE host gates and
-never calls `nvcc`, `nvidia-smi`, a CUDA executable or a GPU profiler. Omit
-`--cuda-root`, `--architectures` and other GPU-only flags. Its report says
-`CPU_CHECKS_PASSED` with `gpu_execution: NOT_RUN`; it cannot close a GPU gate.
+At 100 samples per operation, the default GPU selection records 154,000 timed
+samples; CPU records 56,000; combined records 224,000. These repeat fixed
+operands, not that many independent random inputs. Thirty-bit primes still use
+`uint64_t` buffers and arithmetic. Parameter files contain zero placeholders;
+the executables generate the seeded dense operands used for timings.
 
-Every scope must match the requested N/K/q/roots/seed
-and repetition counts. Thirty-bit parameters still use `uint64_t` storage;
-no `uint32_t` specialization or reduced transfer size is claimed.
-It retains `benchmark-n65536-k3-b30-public.log` and similarly named event/CPU
-JSONL logs, and adds regenerated summaries to `report.json`. The old `bench` command
-remains a legacy 46-bit path; the collector no longer uses it.
+### Validate and retain records
 
-[benchmark_report.py](../scripts/benchmark_report.py) rejects truncated output,
-missing operations/samples, wrong scope/width, duplicate indices, nonfinite or
-negative samples, and summaries inconsistent with raw observations. Collector
-failure remains nonzero even if the executable exited zero with malformed
-output. This validates the record, not GPU authenticity or mathematical
-correctness; those require the native gates and source provenance.
+[The collector](../scripts/gpu_session.py) keeps parameter files, raw JSONL,
+logs, hashes and `report.json`. [The report validator](../scripts/benchmark_report.py)
+rejects missing/truncated samples, duplicate indices, wrong parameters/scopes,
+nonfinite or negative times, and summaries inconsistent with the raw samples.
+A malformed record fails even if the executable exits zero.
 
-On the next compatible GPU host, from a reviewed clean checkout:
-
-```sh
-python3 scripts/gpu_session.py --mode gpu \
-  --cuda-root /path/to/cuda --openfhe-prefix /path/to/openfhe \
-  --architectures native --benchmark --benchmark-scope gpu --profile \
-  --output-dir bench-results-next \
-  --benchmark-warmups 5 --benchmark-samples 100
-```
-
-On the local Linux or macOS CPU host, from the same reviewed source revision:
-
-```sh
-python3 scripts/gpu_session.py --mode cpu \
-  --openfhe-prefix /path/to/local/openfhe \
-  --benchmark --output-dir bench-results-cpu
-```
-
-Use the same dimensions, tower counts, prime widths, warm-ups and sample counts
-on both machines. Retain separate record directories and machine/build identities;
-these are cross-platform measurements, not a same-host acceleration claim.
-The new CPU session path is verified locally on Linux. The macOS identity path
-has control-flow tests; a new native M1 run remains pending.
-
-Offline analysis after that future session:
+To recompute a saved summary:
 
 ```sh
 python3 scripts/benchmark_report.py /path/to/benchmark-n65536-k3-b30-public.log
 ```
 
-`--benchmark-dimensions 65536 --benchmark-towers 3 40` narrows a diagnostic batch
-while retaining all four prime widths. Defaults use five warm-ups and 100
-samples per operation. Any individual prime count from 1 through 40 can be
-selected with `--benchmark-towers`; the default is a representative sweep,
-not every integer count. At 100 samples per operation, GPU-only collection has
-154,000 timed samples, CPU-only collection has 56,000 and the legacy combined
-selection has 224,000. Samples reuse fixed seeded operands; they are not that
-many independent random inputs. New collector rental runtime remains unmeasured.
-Commands have a configurable timeout (default 1,800 seconds each).
-
-Here K means **RNS primes/towers in one polynomial**, not the number of
-ciphertexts or independent polynomials. Benchmark parameter files contain
-zero coefficient placeholders to avoid generating unused, huge CRT integers
-at K=40. The executables still generate the same seeded dense operands; real
-correctness fixtures retain their original nonzero input generation.
-
-The full suite requires `cuda_benchmark_matrix_exact`: all 140 default
-parameter cells, seven patterns, independent inverse, roundtrip and product
-comparisons directly against OpenFHE. This is prepared, not native evidence.
-Each sanitizer runs the historical `--smoke` and `--matrix-smoke`: the
-latter selects N=4096/65536, 30/60-bit K=3/40, zero/dense inputs, not the full matrix.
-Non-default integer tower counts get the benchmark's reference checks, but are
-not additional cells of this fixed direct-OpenFHE/sanitizer gate.
-
-Update 2026-11-16: the [resident-chain prototype](resident-operation-chain.md)
-adds `resident_runtime_host` and `resident_openfhe_host` to the CPU gates, plus
-`resident_cuda_preflight` and GPU-labelled `resident_cuda_exact` for CUDA builds.
-The collector also runs `ntt_resident_cuda_tests --smoke` (one dense N=65536,
-55/50/60-bit fixture) under each sanitizer: twelve runs across four tools and
-three scopes. Host transport checks and compiler-only CUDA builds pass; native
-resident execution and sanitizer results remain pending. This does not advance
-the roadmap's hardware gates.
+Record validation checks consistency; exactness tests establish arithmetic
+correctness. Hashes detect changes or corruption, not fabricated measurements.
+The source and hardware record are still required.
 
 ### Restart and preserve partial results
 
-Rerun the same CPU or GPU command with `--resume --output-dir <record-directory>`
-after an interrupted/failed attempt. Applicable environment probes, build,
-exactness and requested GPU sanitizers always rerun. Prior reports are archived and stage logs get unique
-retry names. Benchmark jobs resume only with the same clean source revision,
-selected scope group, measured executable and OpenFHE-library hashes, stable CPU
-identity, applicable GPU/driver identity and selection policy,
-matrix and repetition counts. Completed raw logs must pass SHA-256 and full
-record/parameter validation again. Different contexts require a fresh directory.
-Changing CPU/GPU mode or scope is rejected before the existing report is
-replaced. CPU resumes do not depend on unused CUDA binaries, GPU visibility or
-CUDA architecture settings. Clock/scaling readings are not CPU identity keys.
+Rerun the same command with `--resume --output-dir <record-directory>`.
+Environment probes, build, exactness and requested sanitizers rerun. Successful
+measurement jobs can be reused only when clean source, selected scope, binary
+and OpenFHE hashes, hardware identity, parameters and repetitions match.
+Their raw logs must pass hash and content validation again.
 
-Independent measurement jobs continue after a measurement failure, preserving
-successful logs/summary checkpoints; the overall batch still exits nonzero.
-Setup/exactness/sanitizer failures stop before benchmarks. An output hash
-detects corruption, not fabricated measurements. Attempt IDs identify reused
-results; they do not normalize thermal/clock differences between attempts.
-Do not run concurrent collectors in the same directory. Download the **entire
-record directory**, including manifest, raw logs, report histories, parameter
-files and profiler artifacts, and verify its archive hash before stopping rental.
+Changing CPU/GPU mode or scope requires a fresh directory. CPU resume ignores
+unused CUDA binaries, GPU visibility and architecture settings. Clock readings
+are not CPU identity keys. Old reports are archived; new stage logs have unique
+attempt names. Reused jobs retain their original attempt identity.
+
+Independent measurement failures preserve completed jobs, but the overall run
+fails. Setup, exactness or sanitizer failure stops before timing. The default
+per-command timeout is 1,800 seconds. Do not run concurrent collectors in one
+directory. Export the **entire record directory** and verify its archive hash
+before ending the rental.
 
 ### Optional selected profiling
 
-`--profile` requires both `nsys` and `ncu`, with usable GPU counter permissions.
-It runs a separate N=65536/K=3/60-bit workload at one warm-up/two samples:
-Nsight Systems captures a public-call timeline; Nsight Compute's basic set
-captures the **first eight kernel launches** of the event experiment, not all
-operations. Unique per-attempt artifact prefixes avoid overwriting prior data.
-Profiler-perturbed timings are not accepted as benchmark samples. Missing tools,
-permission failures or capture errors fail the requested profiling stage;
-otherwise omit the flag and keep profiling pending. Compiler `ptxas -v` resource
-output and line mappings are enabled in native builds and retained in build logs.
+Add `--profile` only when both `nsys` and `ncu` work and the host permits GPU
+counter access. The bounded capture uses N=65536/K=3/60-bit, one warmup and two
+samples. Nsight Systems records a public-call timeline; Nsight Compute's basic
+set records the first eight launches of the event experiment. Attempt-specific
+prefixes preserve earlier artifacts. Requested profiling fails if tools,
+permissions or capture fail; omit the flag to leave profiling pending.
 
-Measured bottleneck decisions, per-pass events, full memory-sector/bank/occupancy
-counter analysis, active telemetry, deep CKKS levels and ciphertext batch sweeps
-remain future work. Prepared collection commands do not close D14 or P2.
+Profiler timings are separate from benchmark samples. Native build logs retain
+`ptxas -v` resources and line mappings. Full per-pass counters, active telemetry,
+production CKKS batches and an evidence-backed bottleneck decision remain
+later work.
+
+## Raw measurement protocol
+
+The CLI protocols use a parameter file's exact N/q/root list and the same
+fixed seed. Reset and packing occur **before** every warmup/sample timer,
+including inverse. Output includes individual samples, summaries and an
+explicit completion marker. Percentiles use linear interpolation at
+`(count−1)*fraction`.
+
+| Command | Operations and timing boundary |
+|---|---|
+| `ntt_cuda_cli gpu-bench-jsonl parameters.txt 5 100` | GPU forward, inverse, pointwise, unfused product and fused product; host-wall public-call time |
+| `ntt_cuda_cli bench-jsonl parameters.txt 5 100` | The same GPU operations plus scalar reference forward; legacy combined public protocol |
+| `ntt_cuda_cli events-jsonl parameters.txt 5 100` | Resident forward, inverse, pointwise and product; separate pinned H2D/D2H copies |
+| `ntt_openfhe_bench parameters.txt 5 100` | Four OpenFHE NativeVector/CRT-FTT CPU operations |
+
+Public GPU calls include validation, guards, transfers and the multiply
+interface's by-value input allocation/copy. Result retention/destruction is
+outside the repeated timer. Last results are checked against the reference
+outside timing; the full exactness suite remains a separate check.
+`gpu-bench-jsonl` uses `host_wall_gpu_public_call`; legacy `bench-jsonl`
+retains its distinct protocol. The old `bench` command is a 46-bit legacy path
+and is no longer used by the collector.
+
+The [measurement helper](../include/ntt/measurement.hpp) has fake-clock tests
+for reset order, warmups, summaries and JSON escaping. They test control logic,
+not performance.
+
+## Resident events and CPU baseline
+
+The event experiment excludes setup, allocation, input upload/reset and output
+download/validation from resident timing. Each iteration drains the default
+stream after reset, records start/stop events and waits for the stop event.
+Results are checked afterward. Multi-launch intervals can include submission
+gaps; they are not isolated per-kernel instruction times.
+
+Pinned H2D and D2H copies use preallocated host memory and `cudaMemcpyAsync`.
+Their times are separate experiments, not an additive breakdown of the
+pageable public call. The public wrapper remains synchronous. There is no
+measured copy/compute overlap or multi-stream throughput here. See NVIDIA's
+[event API](https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__EVENT.html)
+and [timing guidance](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html).
+
+The OpenFHE comparator uses sequential per-tower preconditioned CRT-FTT and
+NativeVector arithmetic. Tables, packing, reset and reference checks are
+outside timing; internal library allocations remain included. It records
+compiler/OpenFHE flags and OpenMP/native-optimization settings. This is not a
+best-tuned DCRT/OpenMP/HEXL or complete CKKS baseline, and its multiplication
+allocation boundary differs from the GPU public API.
+
+## Exactness and sanitizer scopes
+
+`cuda_benchmark_matrix_exact` checks the 140 default parameter cells against
+OpenFHE with seven patterns, independent inverse, roundtrip and product.
+Custom K values also receive the benchmark's reference checks, but do not
+extend that fixed direct-OpenFHE gate.
+
+Each of memcheck, racecheck, initcheck and synccheck runs three scopes:
+
+- Legacy `--smoke`: N=65536, three widths, zero/dense patterns.
+- `--matrix-smoke`: N=4096/65536, 30/60-bit, K=3/40, zero/dense.
+- `ntt_resident_cuda_tests --smoke`: dense N=65536, unsorted 55/50/60-bit basis.
+
+That is twelve sanitizer runs in the current collector. The older Ada batch
+passed the first two scopes; it predates the resident scope. Host gates now
+include `resident_runtime_host` and `resident_openfhe_host`; CUDA builds add
+`resident_cuda_preflight` and GPU-labelled `resident_cuda_exact`.
+Host/compiler success does not close these native gates.
 
 ## Shared allocation ownership and injected failures
 
-[SetupResources](../include/ntt/setup_resources.hpp) owns the actual constructor's
-six allocations, registers ownership immediately after allocation succeeds,
-and releases acquired pointers in reverse order. Four constant uploads cross
-the same runtime adapter. Host tests use a host-memory adapter through this
-same owner; the CUDA adapter uses real allocation/upload/free calls. This keeps
-cleanup bookkeeping at one testable seam rather than copying the constructor
-algorithm into a fake test.
+[SetupResources](../include/ntt/setup_resources.hpp) registers each of the
+wrapper constructor's six allocations immediately and releases them in reverse
+order. Its four constant uploads use the same adapter boundary. Host tests
+exercise this actual ownership code with a host-memory adapter.
 
-`setup_ownership_host` injects at all ten operation positions in two ways:
-before the adapter call and as an adapter exception. It verifies acquired
-allocations, completed uploads, reverse release order, no surviving host
-allocations, and nonthrowing cleanup-failure accounting. These are 20 failure
-cases plus normal/cleanup-reporting paths, not actual CUDA failures.
+`setup_ownership_host` injects before and during each of ten adapter operations:
+20 failure cases, plus normal and cleanup-reporting paths. The GPU-labelled
+`cuda_setup_fault_injection` uses the real constructor at N=65536 with three
+50-bit towers and verifies successful CUDA frees after pre-call injection.
+That probe passed in the older Ada batch.
 
-The prepared `cuda_setup_fault_injection` GPU-labelled CTest uses the real
-constructor at N=65536 and three 50-bit towers. It runs one successful setup,
-then injects before each of six allocations and four uploads. It requires each
-acquired allocation to reach a successful real CUDA free. The collector now
-requires this gate, the new matrix gate and the host gates to be registered.
-
-This new CUDA probe has **not** been compiled or executed on this Mac. Native
-compilation/execution is mandatory before accepting the refactor. Even after
-it passes, a synthetic pre-call exception does not simulate a partially failed
-driver transfer, OOM state, wrong-device restore failure or destroyed context.
-Those remain separate failure tests. Ordinary destructor cleanup still cannot
-surface errors to the caller; the diagnostic trace is not a production lifecycle
-interface.
+Synthetic exceptions do not reproduce driver OOM, a partial DMA failure,
+wrong-device restoration or a destroyed context. Those tests remain open.
+Ordinary destructor cleanup is nonthrowing and cannot report errors to its
+caller; a diagnostic trace is not a production recovery interface.
 
 ## Verify without renting
 
 ```sh
 cmake -S . -B build -DNTT_ENABLE_CUDA=OFF
-cmake --build build -j 8
+cmake --build build -j2
 ctest --test-dir build --output-on-failure
 .venv/bin/python -m unittest discover -s tests/tooling -v
 ```
 
-These run real host ownership, timing/statistics and collector/report logic,
-not an emulated GPU arithmetic backend. Historical native results in the
-[session record](journal/2026-11-14.md) apply to source 19cc285, **not** the new
-unverified CUDA changes. Keep the primary-device and native failure gates open.
+These run host arithmetic, ownership, timing and collector/report checks.
+Use the [preparation guide](offline-gpu-preparation.md) for compiler-only CUDA
+checks. Native validation must identify the exact source revision and machine;
+older results cannot establish correctness of later runtime changes.

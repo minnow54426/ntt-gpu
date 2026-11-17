@@ -1,7 +1,8 @@
 # Choosing a GPU for CKKS
 
 Hardware assessment recorded on 2026-11-06. The RTX 5090 choice is provisional;
-production selection requires the benchmark gate below. Specifications and
+production selection requires the benchmark gate below. The working set means
+all arrays, keys and scratch that must stay resident together. Specifications and
 historical prices are reference values, not current quotes or kernel timings.
 
 ## Decision
@@ -16,7 +17,9 @@ historical prices are reference values, not current quotes or kernel timings.
 Use the 5090 for development. Select a production GPU only after measuring
 resident memory and end-to-end Hybrid key switching.
 
-## Why FP8 and FP16 marketing does not answer our question
+<div id="why-fp8-and-fp16-marketing-does-not-answer-our-question" aria-hidden="true"></div>
+
+## Measure integer arithmetic and memory
 
 These kernels perform exact modular `u32`/`u64` arithmetic and move RNS data.
 Tensor TOPS do not measure that workload. NVIDIA's
@@ -136,7 +139,10 @@ compare RTX PRO 6000 with H200 rental and deployment costs. Use profiling to
 separate memory-layout limits from modular-multiply limits before redesigning
 arithmetic or selecting hardware.
 
-## Bottom line
+<div id="bottom-line" aria-hidden="true"></div>
 
-RTX 5090 is the development choice. Production hardware remains an open,
-measured decision; FP8/FP16 Tensor figures do not settle it.
+## Decision to revisit
+
+Keep RTX 5090 as the development target. Revisit production hardware after
+measuring the complete workload, memory footprint and cost. Tensor throughput
+alone cannot rank exact modular arithmetic.

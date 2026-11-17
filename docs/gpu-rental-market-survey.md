@@ -14,8 +14,8 @@ the exact configuration and checkout total decide what a session will cost.
 
 ## What we are renting for
 
-Our first paid session verifies the environment and runs the prepared native
-CUDA checks. The [offline preparation](offline-gpu-preparation.md) is complete;
+The first primary-device session verifies the RTX 5090 environment and runs the
+current native CUDA checks. The [offline preparation](offline-gpu-preparation.md) is complete;
 the [D11 hardware gate](openfhe-integration-plan.md) remains open. Learning,
 documentation, host testing and most build preparation can continue on a CPU.
 
@@ -128,47 +128,29 @@ disk and driver; treat 4090D/5090D labels as distinct configurations rather than
 substituting them into a 4090/5090 result. Keep CNY and USD quotes separate until
 you have a dated exchange rate and payment fees.
 
-**Lambda** offers GPU instances, but its
+**Lambda** offered GPU instances, but its
 [public table](https://lambda.com/instances) explicitly takes effect
 **November 16, 2026 at 00:00 UTC**, three days after this survey. It directs users
 to their account for the current price. The table also defaults to eight-GPU
 instances while quoting **per GPU-hour**: multiply by the actual GPU count.
-Future rates are not used in today's cost comparison.
+Those future-effective rates were excluded from the November 13 comparison;
+this article has not rechecked them since.
 
 ## Provider fit and tradeoffs
 
-**RunPod — convenient first candidate.** Community's 5090 card is an affordable
-starting point with a documented environment workflow. Secure costs more;
-compare its specific location and service offering against your needs. Confirm
-the selected Pod's resources and profiling support before paying.
+Start by comparing a **RunPod Community RTX 5090** with a suitable **verified
+Vast.ai host**. Match the complete resources, region, driver and profiling
+permissions; the lowest advertised compute rate may not be the lowest usable
+session cost.
 
-**Vast.ai — price-sensitive alternative.** The observed 5090 compute floor was
-lower than RunPod's public Community card, while the sample median was higher.
-Select an individual host, not just a GPU label. A low floor does not establish
-the cheapest usable session after disk, transfer and setup time.
+TensorDock is a 4090 VM option, but its advertised floor is not a live cart.
+AutoDL is a regional candidate if access and CNY payment suit the user; no
+current offer or counter permission was verified here. Jarvislabs' 96 GB card
+and Lambda's data-center GPUs become relevant when measured capacity or
+performance justifies them. Check the actual product/GPU count before comparing.
 
-**TensorDock — 4090 VM candidate.** Its model page describes on-demand KVM VMs
-with root access and GPU passthrough, and explicitly allows 1–8 GPUs. The page
-also retains old Q1 2024 wording; its $0.37 floor is not a verified live cart.
-Get a whole-VM quote with sufficient build resources.
-
-**AutoDL — conditional regional candidate.** Consider it if access and payment
-are convenient. Verify a specific market offer and profiler permissions; this
-survey establishes neither a current hourly GPU price nor Nsight availability.
-
-**Jarvislabs — later capacity comparison.** Its 96 GB RTX PRO card is a concrete
-option if our measured working set outgrows 32 GB. Its
-[VM product](https://jarvislabs.ai/products/vm) documents SSH and root access;
-confirm that the selected product and region match the quoted configuration.
-
-**Lambda — later data-center comparison.** Useful when the experiment requires
-HBM or a named data-center GPU. Obtain the current one-GPU or multi-GPU quote;
-do not pay for eight devices to run a single-device correctness check.
-
-AWS, Azure and Google Cloud also belong in an enterprise procurement comparison.
-Their region, quota, instance size and attached-resource pricing need a separate
-matched quote. This shortlist targets our first small CUDA session, rather than
-claiming complete coverage or a global cheapest provider.
+This is a shortlist for one small CUDA session, not a global price ranking.
+Enterprise clouds need separate matched region, quota and instance quotes.
 
 ## The cost beyond GPU-hours
 
@@ -267,8 +249,9 @@ from timing-only runs.
 5. **Export evidence and end billing.** Save logs and cost records, then stop or
    delete according to the provider's resource rules. Perform analysis offline.
 
-The next evidence we need is one successful, reproducible native GPU session.
-Keep D11 open until that evidence exists. Revisit 96 GB cards or H100/H200/B200
+The next primary-device evidence is a reproducible RTX 5090 session on the
+current source. The later [Ada run](batch40-native-analysis.md) does not close
+that gate. Keep D11 open until its required evidence exists. Revisit 96 GB cards or H100/H200/B200
 after measuring residency and complete-workload performance.
 
 ## Sources and freshness

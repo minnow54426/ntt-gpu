@@ -1,46 +1,32 @@
 # Before renting a GPU
 
-**D11 preparation complete · hardware verification still pending · N=65536**
+Do the builds, host tests and documentation on a CPU machine. Rent a GPU when
+ready to run native CUDA checks and collect measurements. The main target is
+RTX 5090 at N=65536; RTX 4090 is the planned control.
 
-Update 2026-11-14: the [first native diagnostic](journal/2026-11-14.md) passed
-on the supplied machine reporting RTX 4080 SUPER. The offline observations
-below remain the original preparation record. RTX 5090 acceptance, native
-failure injection and full profiling remain open; do not treat the diagnostic
-as the primary-device baseline.
-
-Later on 2026-11-14, [offline test tooling](offline-test-tooling.md) adds raw
-sample collection and shared constructor ownership/fault tests. Those new CUDA
-changes have not been compiled or executed on this Mac; do not transfer the
-earlier native success onto them. The table below records the original preparation.
-
-The compiler, host checks and first-session collection path can be prepared
-without paying for a GPU. That preparation is now complete on this Linux
-workspace. D11 itself remains open because its final deliverable includes an
-actual GPU/driver environment record.
-
-Rent or borrow a GPU when ready to verify that environment and run the prepared
-native checks. The [roadmap](openfhe-integration-plan.md) working-day numbers
-are engineering milestones, not continuous rental days.
-
-Use the [GPU rental market survey](gpu-rental-market-survey.md) to compare
-providers, estimate a short session's cost and check profiling access before
-choosing a machine. Market research does not complete the hardware gate.
+A [November 14 Ada run](batch40-native-analysis.md) passed its selected native
+tests. The current source includes later changes, especially the resident
+runtime, that still need native verification. D11/P2 remains open on the
+[roadmap](openfhe-integration-plan.md); working days are milestones, not rental days.
 
 ## 1. What is ready
 
-| Work | Observed result |
-|---|---|
-| CUDA build | Stock CUDA 13.0.88 compiler builds and links sm_89 and sm_120 targets without a driver |
-| Host tests | 19 host CTests pass; four registered GPU tests are explicitly excluded |
-| CPU build | All 15 CTests pass with CUDA disabled |
-| Reports | Eleven control-flow tests cover false success, missing coverage, stage failures and record preservation |
-| GPU tests | Compiled against real OpenFHE, with full-size 50/55/60-bit and D8 level/tower fixtures; not executed on a GPU |
-| GPU probe | Correctly refuses this driverless environment; no GPU arithmetic result is claimed |
+Observed on the November 16 source increment, in a driverless Linux workspace:
 
-The local preparation report is `bench-results-offline-final/report.json`,
-with status `OFFLINE_READY` and GPU execution `NOT_RUN`. Generated toolchains,
-binaries and reports stay in ignored directories; source and instructions are
-published. CI also compiles CUDA without a GPU and runs only the host gates.
+| Check | Result |
+|---|---|
+| CPU/OpenFHE suite | 24 CTests pass with CUDA disabled |
+| CUDA-linked host suite | 26 CTests pass; GPU-labelled tests excluded |
+| CUDA compilation | Stock nvcc 13.0.88 builds sm_89 and sm_120 |
+| Resident prototype | Host ownership/failure tests and exact OpenFHE comparisons pass |
+| Native execution of this increment | Pending; compilation is not GPU execution |
+
+The original offline collector record, `bench-results-offline-final/report.json`,
+reported `OFFLINE_READY` and `gpu_execution: NOT_RUN`. Its older test counts are
+preserved in the [November 12 journal](journal/2026-11-12.md).
+Toolchains, binaries and generated reports remain in ignored directories.
+Use the [rental survey](gpu-rental-market-survey.md) for dated provider evidence,
+then recheck the actual offer and profiling permissions.
 
 ## 2. Reproduce the offline preparation
 
@@ -65,50 +51,42 @@ and deliberately builds CPU reference tests with CUDA disabled. Its parallelism
 defaults to two jobs; set `NTT_BUILD_JOBS` if the machine supports more.
 The session runner selects project-local CMake/CTest from `.venv/bin` when present.
 
-The [toolkit lock](../scripts/cuda-toolkit-lock.json) records exact upstream
-components from NVIDIA's CUDA 13.0.2 redistributable manifest. The compiler's
-component version is 13.0.88. Existing matching installs are reused; conflicting
-or incomplete destinations and checksum mismatches fail visibly.
+The [toolkit lock](../scripts/cuda-toolkit-lock.json) pins NVIDIA components
+and SHA-256 values. CUDA 13.0.2 contains compiler version 13.0.88. Matching
+installs are reused; incomplete installs or checksum mismatches fail.
 
-On this host, CUDA 12.8.93 failed its compiler-identification build because its
-math headers conflict with glibc 2.41's `sinpi`/`cospi` declarations. Stock CUDA
-13.0 compiles successfully here; no vendor-header patch was applied. A rental
-image may use a different supported OS/toolkit combination. Match its driver,
-CUDA toolkit and host compiler rather than assuming that this compiler-only
-installation establishes driver compatibility.
+<details markdown="1">
+<summary>Compiler and dependency portability notes</summary>
 
-OpenFHE libraries and build directories are not universally portable between
-machines. Reuse binaries only with compatible OS, glibc, architecture and
-compiler settings; otherwise build the pinned dependency on a matching CPU
-machine/image before the paid session, or rebuild it on the GPU machine.
+On this host, CUDA 12.8.93 conflicts with glibc 2.41's `sinpi`/`cospi`
+declarations. Stock CUDA 13 compiles without vendor-header patches. A rental
+may use another supported OS/toolkit combination; match its driver, toolkit
+and host compiler. Offline compilation does not establish driver compatibility.
+
+Reuse OpenFHE binaries only across compatible OS, glibc, architecture and
+compiler settings. Otherwise build the pinned dependency on a matching image
+before the session, or rebuild it on the GPU machine.
+
+</details>
 
 ## 3. Fixes made before rental
 
-The first real nvcc compilation exposed a missing closing namespace in the CUDA
-source. The launch helpers also named a private nested implementation type from
-free functions; they now deduce that internal type without exposing it publicly.
-The shared schedule and modular arithmetic algorithms are unchanged.
+The [synchronous wrapper](cuda-buffer-dataflow.md) now owns partial allocations
+through RAII: resources are released when their owner is destroyed. It selects
+the owning device for operations and cleanup, validates dimensions/moduli/roots,
+and rejects wrong-length or noncanonical input before upload. The first nvcc
+build also repaired a namespace closure and private-type launcher issue;
+transform arithmetic and stage order were retained.
 
-The synchronous wrapper now:
+Host tests and CUDA-linked invalid-constructor tests pass without allocating
+device memory. Native pre-call setup-failure checks passed in the older Ada
+batch. Actual driver OOM, partial-transfer errors, wrong-device restoration
+and cleanup under a failed context remain separate open tests. A nonthrowing
+destructor cannot report cleanup errors to its caller.
 
-- owns `Impl` through `unique_ptr`, so constructor exceptions destroy partial state;
-- captures the owning device and selects/restores it around operations and cleanup;
-- checks prime moduli below 2⁶³, canonical primitive roots, checked buffer sizes,
-  nonempty matching tower lists and power-of-two N in [2,65536] before CUDA calls;
-- rejects wrong-length or noncanonical operands before upload;
-- rejects unsafe benchmark exponents/counts before shifting or allocating;
-- reports device information through `ntt_cuda_cli info` when a usable GPU exists.
-
-The [D5 map](cuda-buffer-dataflow.md) reflects the updated ownership. Host tests
-exercise validation, including three invalid constructors linked against the
-real CUDA-compiled wrapper. They do not allocate device memory. Device selection,
-partial allocation/upload failures, launch errors and cleanup under a failed
-context still need native fault-injection tests. Cleanup selection/free errors
-cannot be reported by the nonthrowing destructor; this remains a production
-lifecycle limitation, not an accepted asynchronous backend implementation.
-
-The compiler-only checks do not implement the [D9 backend](device-backend-contract.md),
-its caches, or the transactional OpenFHE host adapter.
+These fixes do not implement the full [backend proposal](device-backend-contract.md),
+cache or transactional OpenFHE adapter. The separate
+[resident prototype](resident-operation-chain.md) has its own scope and limits.
 
 ## 4. Prepared native exactness matrix
 
@@ -135,12 +113,8 @@ The current collector requires seven GPU-labelled gates: `cuda_verify`,
 `resident_cuda_exact`. The last two cover the later benchmark matrix and
 [resident operation-chain prototype](resident-operation-chain.md). The wrapper
 constructor and resident factory preflights are separate host tests safe without
-a driver. Earlier native results do not validate these subsequent additions.
-
-Update 2026-11-16: the resident increment passes 24 CPU/OpenFHE CTests and
-26 host CTests in the CUDA-linked build. CUDA 13 compiles both sm_89 and sm_120;
-all seven current GPU gates remain unrun in this workspace. The original
-preparation counts above remain a historical record.
+a driver. The older Ada batch exercised the benchmark matrix and setup probe;
+it predates the new resident path and cannot validate it.
 
 ## 5. First session on real hardware
 
@@ -205,8 +179,8 @@ named stage logs after every run.
 
 The legacy `bench` command still uses 46-bit primes and public-call wall time.
 The collector now separates `bench-jsonl` public calls, `events-jsonl` resident
-work/pinned copies and `ntt_openfhe_bench` CPU arithmetic. The new CUDA paths
-remain uncompiled/unrun here; the CPU comparator is locally verified.
+work/pinned copies and `ntt_openfhe_bench` CPU arithmetic. The current CUDA paths compile offline; the new resident path still needs native
+execution. The CPU comparator is locally verified.
 Optional `--profile` needs working `nsys` and `ncu` plus counter permissions;
 it prepares a bounded capture, not a completed D14 bottleneck report.
 See the [protocol and limits](offline-test-tooling.md).

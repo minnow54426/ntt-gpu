@@ -106,7 +106,7 @@
 
   <section id="whole-job">
     <div class="section-title"><span class="section-number">01</span><h2>Start with the data</h2></div>
-    <p>Consider one polynomial modulo one prime: <code>a[0], a[1], …, a[65535]</code>. Each residue uses 8 bytes, so one RNS limb occupies 512 KiB.</p>
+    <p>A tower is one polynomial modulo one prime: a[0] through a[65535]. Each residue uses 8 bytes, so an N=65536 tower needs 512 KiB. Several towers represent the same polynomial under different primes.</p>
     <div class="facts"><div><strong>65536</strong><span>coefficients per modulus</span></div><div><strong>16</strong><span>stages · 32768 butterflies each</span></div><div><strong>524,288</strong><span>butterflies · two kernel launches</span></div></div>
     <p>Imagine the same array as <strong>256 rows × 256 columns</strong>. This is an index view; the stored array stays flat.</p>
     <div class="layout-rule"><code>global_index = row × 256 + column</code></div>
@@ -123,7 +123,7 @@
 
   <section id="larger-polynomial">
     <div class="section-title"><span class="section-number">03</span><h2>Resources &amp; memory access</h2></div>
-    <p>The split width is 256: <strong>256 rows × 256 columns</strong>. Each column and each row contains 256 values. The algorithm uses two launches, each handling eight stages.</p>
+    <p>The two launches use different views of the same flat array: 256 columns, then 256 rows. Each block owns 256 values and runs eight stages locally.</p>
     <div class="matrix-scroll"><table><caption>Forward schedule per modulus · all blocks launch 256 threads</caption><thead><tr><th scope="col">Task / resource</th><th scope="col">N = 65536</th></tr></thead><tbody>
       <tr><th scope="row">Polynomial storage</th><td>512 KiB</td></tr>
       <tr><th scope="row">Stages / total butterflies</th><td>16 / 524,288</td></tr>
@@ -169,7 +169,7 @@
     <p>The CPU starts w at 1 for each global group and multiplies it by \(\psi^{N/d}\) after each offset. At offset J it therefore uses \(w=\psi^{(N/d)J}\). Substitution gives:</p>
     <div class="math derivation">\[c=\psi^d,\qquad E=\frac Nd(256j+r),\qquad w=\psi^E.\]</div>
     <p>This is precisely the stage helper: if <code>ℓ = log2(δ)</code>, then <code>δ &lt;&lt; 8 = d</code>, <code>N &gt;&gt; (8 + ℓ) = N/d</code>, and <code>(j &lt;&lt; 8) | r = 256j + r</code>. The OR equals addition because r occupies only the low eight bits. Also <code>0 ≤ E ≤ N − N/d &lt; N</code>, so the power-table access is in range.</p>
-    <p class="note">A subtle point: thread 0 in column 3 has J = 3, not 0. Its w is generally not 1. Only J = 0 gives exponent 0. The ladder c and w are distinct: the negacyclic ladder remains even when w = 1.</p>
+    <p class="note">Column 3, thread 0 has J=3, so its w is generally not 1. Only J=0 gives exponent 0. Even then the separate negacyclic ladder factor c remains.</p>
     <h3>4. Worked pairs at N=65536</h3>
     <p class="note">All examples use column r = 3. The ladder exponent is d; E is the exponent for the other multiplier. These are indices/exponents, not numeric residues.</p>
     <div class="matrix-scroll"><table><caption>First, intermediate, and final column stages</caption><thead><tr><th scope="col">N</th><th scope="col">d / δ</th><th scope="col">p</th><th scope="col">g / j</th><th scope="col">U ↔ V</th><th scope="col">J</th><th scope="col">E</th></tr></thead><tbody>
@@ -245,7 +245,7 @@ ctest --test-dir build -R 'column_mapping_check|inverse_column_check|device_sche
     <h3 style="margin-top:24px">4. Why block-local stage fusion is safe</h3>
     <p>During all far stages, every dependency stays inside the same column; during all near stages, every dependency stays inside the same tile. A block may therefore finish all its stages before another block finishes its first: those blocks do not consume each other's intermediate values within that pass. This reorders independent operations without changing the CPU result.</p>
     <p>Each tile loads <code>values[Lb+t]</code> into <code>shared[t]</code>. All threads reach the load barrier and every stage barrier. Threads 0…127 compute butterflies at L=256, while all 256 threads participate in loading/storing and synchronization. The block stores its tile once after the last stage. Within a stage, pair endpoints do not overlap; between stages, the shared-memory barrier makes the preceding writes visible.</p>
-    <p>The dependency rule changes between passes. Results must be scattered before the next pass gathers them; our same-stream kernel sequence provides that boundary. Thus gather/scatter is a change in block ownership, <strong>not a transpose or extra arithmetic transform</strong>. Together with D2/D3's identical pair arithmetic, exact ordered stage coverage establishes equivalence to the CPU transform.</p>
+    <p>Between passes, scatter must finish before the next gather. Same-stream kernel order provides that boundary. Gather/scatter changes block ownership; it does not transpose the stored array or perform another transform.</p>
     <h3 style="margin-top:24px">5. Executable evidence</h3>
     <p><a href="../tests/tile_mapping_tests.cpp">tile_mapping_check</a> runs the actual row-stage helpers on CPU, comparing against independent CPU group/offset enumeration. At N=65536 it checks every row, stage and pair in both directions, using two tagged-table input probes per pair, plus inactive-thread checks. That is <strong>262,144 pairs per direction and 1,048,576 active probes in total</strong>.</p>
     <p>The same test checks forward and inverse stage lists and per-stage global endpoint coverage at N=65536, plus the small-size boundaries. Existing real-root schedule and inverse-normalization gates remain complementary checks. This is not a CUDA compile, barrier/race check, or GPU performance measurement.</p>

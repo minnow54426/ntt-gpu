@@ -2,13 +2,15 @@
 
 **2026-11-14 · offline analysis · source 19cc285 · N=65536**
 
-The supplied Ada machine passed the prepared correctness tests. This makes the
-current CUDA code a verified baseline **for the executed cases**, not a
+The supplied Ada machine passed the prepared correctness tests. This establishes a
+CUDA baseline **for the executed cases**, not a
 production backend or a measured RTX 5090 implementation. Prepare better
 measurement and failure-path tooling offline before paying for another session.
 
-The user reports the rental is stopped. This analysis uses only exported logs
-and pinned source; no reconnection, new GPU execution or implementation changes.
+This is the historical analysis of source `19cc285`, using exported logs.
+The later [full-matrix report](batch40-native-analysis.md) adds raw samples and
+a separate OpenFHE CPU baseline. Read that report for the newer measurements.
+No reconnection or new GPU run was made for this analysis.
 See the [session record](journal/2026-11-14.md) for environment, commands,
 archive checksum and local report paths.
 

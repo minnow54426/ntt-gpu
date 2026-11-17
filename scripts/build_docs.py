@@ -107,6 +107,11 @@ def read_catalog():
     routes = [page["url"] for page in pages]
     if len(set(sources)) != len(sources) or len(set(routes)) != len(routes):
         raise ValueError("Duplicate source or URL in the catalog")
+    titles = {page["url"]: page["title"] for page in pages}
+    for page in pages:
+        if page.get("next_page") not in titles:
+            raise ValueError(f"Unknown next page: {page['source']}")
+        page["next_title"] = titles[page["next_page"]]
     discovered = {
         str(path.relative_to(ROOT))
         for pattern in ("*.md", "*.html")
@@ -411,6 +416,15 @@ def home_content(pages, entries):
   <div><span class="site-evidence-label">Still pending</span><strong><span class="site-pending-dot"></span> RTX 5090 validation</strong><p>Base conversion and key switching come later.</p></div>
   <div><span class="site-evidence-label">Current record</span><strong>{escape(latest)}</strong><p>Latest published journal entry.</p></div>
 </div>
+<section class="site-article" aria-labelledby="reading-path">
+<h2 id="reading-path">New to the project?</h2>
+<p>CKKS supports computation on encrypted data. OpenFHE is the cryptography library we aim to integrate with. The NTT is the polynomial transform this project accelerates first.</p>
+<ol>
+<li><a href="butterfly-explained.html">Learn the NTT and butterflies</a> with small numerical examples.</li>
+<li><a href="gpu-ntt-explained.html">See how the GPU divides the work</a>, then trace one thread in the <a href="ntt-65536-work-distribution.html">65536-point explorer</a>.</li>
+<li><a href="batch40-native-analysis.html">Read the measured results</a> or <a href="project.html">build the project</a>.</li>
+</ol>
+</section>
 <div class="site-section-heading" id="all-pages"><h2>All pages</h2></div>
 <p class="site-directory-note">Choose a lesson, reference, plan, or dated journal entry.</p>
 {page_directory(pages, entries)}
@@ -470,9 +484,18 @@ def concise_article(page, full_content):
         f'<p>{escape(points[0])}</p>' if len(points) == 1 else
         '<ul>' + ''.join(f'<li>{escape(point)}</li>' for point in points) + '</ul>'
     )
+    if journal:
+        next_url = relative_url(page["url"], "openfhe-integration-plan.html")
+        next_label = "Current roadmap"
+        brief += '<p>This is a dated record. Test counts and next steps describe that day.</p>'
+    else:
+        next_url = relative_url(page["url"], page["next_page"])
+        next_label = "Next: " + page["next_title"]
+    following = f'<p class="site-article site-read-next"><a href="{escape(next_url, quote=True)}">{escape(next_label)} →</a></p>'
     return (
         f'<section class="site-article site-brief"><h1>{title}</h1>{brief}</section>'
         f'<details class="site-full-notes"><summary>{label}</summary>{full_content}</details>'
+        f'{following}'
     )
 
 
@@ -521,6 +544,9 @@ def build():
             else:
                 body, toc, _ = render_markdown(text)
                 body = rewrite_links(body, page["source"], page["url"], routes, repository, revision)
+                # The brief supplies the page h1; keep the source title and anchor
+                # as a subordinate heading inside the optional reference text.
+                body = re.sub(r"<h1\b([^>]*)>([\s\S]*?)</h1>", r"<h2\1>\2</h2>", body, count=1)
                 content = concise_article(page, '<article class="site-article">' + body + "</article>")
                 if page["group"] == "Daily journal":
                     content = f'<div class="site-journal-banner"><time datetime="{page["date"]}">{page["date"]}</time><span>{escape(page["phase"])}</span><a href="../journal.html">← All entries</a></div>' + content
@@ -534,7 +560,7 @@ def build():
                    "summary": "Dated outcomes, reasoning, verification, and next steps.",
                    "group": "Daily journal"}
         write_page(journal, f"""
-<div class="site-journal-intro"><h1>Daily journal</h1><p>What changed, what passed, and what comes next.</p></div>
+<div class="site-journal-intro"><h1>Daily journal</h1><p>What changed and what was checked on each date. Older entries keep their original evidence and intermediate status; use the <a href="openfhe-integration-plan.html">roadmap</a> for the current milestone.</p></div>
 <section><h2>Entries</h2><div class="site-journal-list">{entry_cards(entries, 'journal.html')}</div></section>""")
         (output / "search-index.json").write_text(json.dumps(search, ensure_ascii=False))
         (output / "search-index.js").write_text(

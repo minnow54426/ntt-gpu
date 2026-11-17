@@ -1,16 +1,18 @@
-# Device buffers and the backend boundary
+<div id="device-buffers-and-the-backend-boundary" aria-hidden="true"></div>
 
-**D9 · API proposal with executable metadata checks · N=65536**
+# What a GPU polynomial handle must know
 
-A polynomial on the GPU needs more than a pointer and a length. Its ordered
-primes, roots, active level, representation, producing operation, and lifetime
-must travel together. D9 defines that boundary and proposes an opt-in OpenFHE
-format-conversion adapter as the first integration seam.
+A pointer and a length cannot tell us which primes an array uses, whether it
+contains coefficients or evaluations, or whether its producer has finished.
+This design keeps those facts with the buffer's owner and completion state.
+A **layout** describes an array's meaning and order; a **completion** records
+whether queued work has succeeded.
 
-Read [D7's representation contract](openfhe-representation-contract.md) for the
-array convention and [D8's Hybrid graph](openfhe-hybrid-operation-graph.md) for
-Q/P transitions. The [D5 buffer map](cuda-buffer-dataflow.md) describes the
-existing synchronous implementation.
+This is the D9 design reference at N=65536. [D7](openfhe-representation-contract.md)
+defines the arrays, [D8](openfhe-hybrid-operation-graph.md) defines Hybrid
+operations, and [the ADR](architecture-decision.md) accepts the design.
+The separate [resident prototype](resident-operation-chain.md) implements a
+bounded subset; the full backend, cache and OpenFHE adapter remain proposed.
 
 ## 1. What D9 delivers
 
@@ -22,25 +24,16 @@ existing synchronous implementation.
 | CUDA allocations, streams, events, asynchronous copies and cache eviction | Proposed lifecycle; not implemented by these headers |
 | OpenFHE adapter and device dispatch | Proposed first seam; implementation follows acceptance and native GPU gates |
 
-The prototype lives in [backend_contract.hpp](../include/ntt/backend_contract.hpp),
-with interfaces in [backend_api.hpp](../include/ntt/backend_api.hpp) and tests in
-[backend_contract_tests.cpp](../tests/backend_contract_tests.cpp). The
-`ntt::proposal` namespace makes its status explicit. These headers introduce
-no CUDA or OpenFHE dependency into the standalone build. The current CUDA
-wrapper and its algorithms were unchanged by D9. Later
-[offline preparation](offline-gpu-preparation.md) adds baseline ownership and
-preflight fixes without implementing this proposed resident backend.
+The portable rules live in [backend_contract.hpp](../include/ntt/backend_contract.hpp),
+the abstract interfaces in [backend_api.hpp](../include/ntt/backend_api.hpp),
+and their tests in [backend_contract_tests.cpp](../tests/backend_contract_tests.cpp).
+`ntt::proposal` marks these as design interfaces, with no complete runtime factory.
+They add no CUDA or OpenFHE dependency to the standalone build.
 
-Update 2026-11-16: a separate [bounded resident-chain prototype](resident-operation-chain.md)
-now implements a single-stream runtime and CUDA transport. Its host checks pass
-and CUDA builds compile; native execution remains pending. It does not implement
-the full abstract backend, cache or OpenFHE adapter proposed in this article.
-
-**D10 accepted this design in [ADR 0001](architecture-decision.md); P1 is complete.**
-The article records the D9 proposal and its implementation limits. The ADR adds
-fixed initial budgets, admission rules and partial-submission cleanup, with an
-[implementation backlog](implementation-backlog.md). A metadata check cannot
-prove a physical allocation, an event wait, or native GPU correctness.
+The [existing wrapper](cuda-buffer-dataflow.md) has separate ownership/input
+fixes. The [resident prototype](resident-operation-chain.md), added November 16,
+has host checks and compiled CUDA transport, with native verification pending.
+Neither promotes this full proposal to a production backend.
 
 ## 2. Carry the complete polynomial identity
 
@@ -167,7 +160,8 @@ fabricated record does not create a CUDA event or prove synchronization.
 
 ## 5. Keep resources alive through completion
 
-Each submitted operation pins its input allocations, output allocation,
+A lease is an ownership reference that keeps a resource alive; a pin is a
+lease retained by queued work. Each submitted operation pins its input allocations, output allocation,
 stream, plans, keys, host staging, and scratch leases. The backend retains these
 pins even when the caller drops the returned completion. Dropping a handle is
 not cancellation. Private scratch is reusable only after every operation that

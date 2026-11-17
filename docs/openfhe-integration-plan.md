@@ -1,15 +1,20 @@
-# CKKS GPU-to-OpenFHE integration plan
+<div id="ckks-gpu-to-openfhe-integration-plan" aria-hidden="true"></div>
 
-**Target:** OpenFHE 1.6.1 CKKS with Hybrid key switching  
-**Primary arithmetic:** 30/50/55/60-bit RNS benchmark primes stored in `uint64_t`, with
-`uint32_t` indexing/control paths where safe  
-**Ring dimension:** primary `65536`; baseline sweep `4096`–`65536`<br>
-**Estimate:** 95 planned working days + 15 risk-reserve days  
-**Last updated:** 2026-11-16 (Asia/Shanghai)
+# Roadmap to OpenFHE integration
 
-Follow the live tracker, then open the phase you need from the section sidebar.
-The sequence is NTT → base conversion → Hybrid key switching → OpenFHE.
-Update this tracker only when a deliverable passes its gate.
+Build in this order: **NTT → base conversion → Hybrid key switching → OpenFHE**.
+NTT accelerates polynomial multiplication. Base conversion changes the set of
+prime moduli; Hybrid key switching combines those operations to change a
+ciphertext's key representation.
+
+The estimate is **95 working days plus 15 reserve days**. D labels a working-day
+milestone and P labels a phase; neither is a calendar date or a continuous
+rental period. Preparation may happen early, but a phase closes only after its
+acceptance checks pass.
+
+Target OpenFHE 1.6.1, N=65536, RTX 5090 primary and RTX 4090 control. Baseline
+benchmarks also span N=4096–65536 and 30/50/55/60-bit primes in `uint64_t`.
+Last reviewed: 2026-11-17 (Asia/Shanghai).
 
 ## Live tracker
 
@@ -65,7 +70,7 @@ Every production kernel must pass, in order:
 - [x] Exact public OpenFHE 1.6.1 transform compatibility for all target `N`.
 - [x] RTX 4090/5090 build targets and rented-GPU setup script.
 - [x] Benchmark and tuning methodology.
-- [ ] Execution of CUDA gates on real hardware; this belongs to P2.
+- [ ] Primary-device native acceptance; tracked separately in P2.
 
 ## P1 — contract and architecture freeze (D1–D10)
 
@@ -85,91 +90,21 @@ and implementation backlog; native runtime gates remain in later phases.
 | D9 | Design buffer views and backend seam | Device buffer/stream/cache API proposal |
 | D10 | Architecture review | Accepted ADR and implementation backlog |
 
-D1 complete: the [interactive work-distribution map](ntt-65536-work-distribution.html)
-covers N=65536, gather/scatter and shared-memory indices, launch geometry,
-active thread ranges, and requested memory-access patterns. This is a source
-analysis and CPU-schedule check, not evidence of real-GPU correctness or speed.
+Completed evidence is documented in the linked lessons and dated journal:
 
-D2 complete: the same page's [column proof](ntt-65536-work-distribution.html#column-proof)
-derives CPU group/offset equivalence, both global exponents, coverage, bounds,
-and three worked examples. `column_mapping_check` runs the production stage
-body with two tagged-table probes for every column butterfly at N=65536;
-the separate schedule gate checks real-root arrays. Real-GPU validation is
-still a P2 deliverable.
+- D1–D4: [block/thread mapping and stage proofs](ntt-65536-work-distribution.html),
+  with exhaustive CPU probes of shared CUDA stage helpers.
+- D5–D6: [buffer/copy map](cuda-buffer-dataflow.md) and
+  [integer bounds](modular-arithmetic-contract.md), including bigint tests.
+- D7: [OpenFHE roots, formats and tower packing](openfhe-representation-contract.md).
+- D8: [Hybrid graph](openfhe-hybrid-operation-graph.md), with 18 CPU cases and
+  117,571,584 residue comparisons.
+- D9–D10: [checked backend metadata](device-backend-contract.md), the
+  [accepted ADR](architecture-decision.md) and [implementation tasks](implementation-backlog.md).
 
-D3 complete: the [inverse proof](ntt-65536-work-distribution.html#inverse-proof)
-derives the factor of 2 per butterfly and final N-inverse normalization,
-documents row→column→scale ordering, and provides worked examples.
-`inverse_column_check` probes every inverse column pair and inactive thread
-at N=65536, then checks real-root stage composition and full normalization
-for two 46-bit primes. These are CPU-side checks of shared helpers,
-not actual GPU execution.
-
-D4 complete: the [row-kernel and coverage proof](ntt-65536-work-distribution.html#tile-proof)
-derives tile-local/global group equivalence and global twiddle exponents,
-proves the far/near stage partition and legal block-local stage fusion, and
-provides worked examples. `tile_mapping_check` probes every near-stage pair
-in both directions at N=65536 and checks stage/endpoint coverage
-for N=65536 plus N=2,64,256,512. Hardware races and CUDA
-launch behavior remain P2 work.
-
-D5 complete: [CUDA buffers and dataflow](cuda-buffer-dataflow.md) maps the
-constructor, all six device allocations, normal destruction, per-method
-copies, launch composition, representation ownership and missing integration
-contracts. Static source checks pin this map and byte-count arithmetic; they
-are not CUDA-runtime tests. D5 identified a raw-Impl constructor exception gap.
-Later [offline preparation](offline-gpu-preparation.md) changes it to unique
-ownership, adds device guards and checks host inputs, and compiles the wrapper.
-Native failure-path verification and the production resident runtime remain open.
-
-D6 complete: [Arithmetic bounds and tests](modular-arithmetic-contract.md)
-records canonical-range induction, integer-width bounds, parameter preconditions,
-the exactness ladder and deferred adversarial cases. Two CPU gates compare
-14,956 primitive results against Python big integers and exercise six patterns
-in both transform directions plus a closed-form negacyclic product at N=65536
-with 50/55/60-bit primes. The multiplication-count comment is corrected;
-arithmetic algorithms are unchanged. Native GPU and invalid-input hardening
-remain explicit later gates, not evidence claimed by this review.
-
-D7 complete: the [OpenFHE representation contract](openfhe-representation-contract.md)
-traces pinned NativePoly/DCRTPoly format conversion, exact odd-root evaluation
-indices, minimum-root selection and its cache constraint, canonical residues,
-ordered tower packing/import, and active-prefix behavior. A new opt-in core-only
-gate checks full-size formulas and three-tower operations with 50/55/60-bit
-primes against OpenFHE 1.6.1. The OpenFHE-enabled Release suite passes 14 tests
-on this Linux CPU environment. No CUDA execution or Hybrid rounding graph is
-claimed by that D7 result. D8 and D10's later architecture acceptance are documented below.
-
-D8 complete: the [Hybrid operation graph](openfhe-hybrid-operation-graph.md)
-traces digit splitting, partial partitions, coefficient/evaluation transitions,
-noncanonical approximate CRT, full-key P offsets at reduced levels, B/A MAC
-ordering, exact CKKS ModDown, wrapper updates, and delayed QP operations.
-`openfhe_hybrid_graph` checks 18 full-size cases and 117,571,584 residue
-comparisons against independent unreduced-CRT and scalar formulas, including
-real generated keys and negative alternatives. The opt-in Release suite now
-has 15 CPU tests. Rotation automorphisms and higher-degree relinearization are
-source-traced but remain later end-to-end gates; production matrix coverage,
-GPU execution and performance are not claimed.
-
-D9 complete: the [device backend contract](device-backend-contract.md) proposes
-immutable parameter snapshots, checked whole-tower views, device/session and
-generation identities, explicit stream/event dependencies, pinned resource
-lifetimes, cache identities, and an opt-in transactional DCRT format adapter.
-The portable metadata prototype is checked by `backend_contract_check` and a
-bridge to actual D8 OpenFHE output/key parameters. The opt-in Release suite
-has 16 CPU tests. Abstract interfaces compile without a CUDA dependency;
-CUDA resource management, event execution, caches and the adapter are not
-implemented. D10's acceptance is recorded below.
-
-D10 complete: [ADR 0001](architecture-decision.md) accepts the D7–D9 behavioral
-contracts and the [dependency-ordered implementation backlog](implementation-backlog.md).
-It freezes the explicit DCRT adapter, validated no-op and preflight-only fallback,
-immutable outputs, registry/lease ownership, partial-submission quarantine,
-separate configurable memory budgets and fail-fast admission. The review accepts
-P1's architecture; it does not promote the abstract API to a runtime backend.
-The existing CUDA constructor gap, native build, exactness, profiling and all
-later implementation gates remain open backlog items. D11 is next; P2 has not
-started because a native GPU environment has not been provisioned here.
+These complete P1's design work. They do not replace native CUDA lifetime,
+failure, exactness or performance checks. Historical test counts and intermediate
+tracker states remain in the [journal](journal/2026-11-12.md).
 
 P1 exit gate:
 
@@ -185,27 +120,22 @@ P1 exit gate:
 
 ## P2 — first real GPU baseline (D11–D15)
 
-[First native diagnostic, 2026-11-14](journal/2026-11-14.md): the supplied
-machine reports RTX 4080 SUPER/compute 8.9. All 23 native CTests and four
-sanitizer smoke tools passed, with a saved 46-bit transfer-inclusive sample.
-This is additional Ada evidence, not the planned RTX 5090 primary or RTX 4090
-control. D11's primary-device gate and B02/B04's failure/profiling gates remain
-open; the working-day tracker does not advance automatically.
+The [November 14 temporary Ada batch](batch40-native-analysis.md) passed 29
+native CTests, eight sanitizer runs and 280 GPU timing jobs. A separate M1 Pro
+baseline covered 140 CPU jobs. The reported GPU was RTX 4080 SUPER/compute 8.9,
+not the primary RTX 5090 or planned RTX 4090 control. Hardware counters were
+blocked by the provider.
 
-[Offline analysis](first-native-analysis.md) audits this sample's exactness
-scope and measurement limitations. Next prepare raw samples, matched input
-protocols and failure injection before another rental. No measured bottleneck
-or completed B04/D15 acceptance is claimed from the existing averaged row.
+Later [offline preparation](offline-gpu-preparation.md) and the
+[resident-chain prototype](resident-operation-chain.md) pass host tests and
+sm_89/sm_120 compilation. Native execution of the new runtime, primary-device
+acceptance, actual driver/context failure handling and full profiling remain
+open. Existing results establish only their recorded source and workload.
 
-[Offline tooling](offline-test-tooling.md) now implements the host protocol,
-strict JSONL validation and shared ownership failure tests. New CUDA code and
-the native setup probe remain uncompiled/unrun locally; existing native evidence
-applies only to 19cc285. B02/B04 and the working-day gate remain open.
-
-[Offline preparation is complete](offline-gpu-preparation.md): stock nvcc builds
-sm_89/sm_120 binaries, 19 host/OpenFHE CTests pass with GPU tests excluded, and
-the native fixture/collection path is prepared. This starts P2 preparation but
-does not complete D11's actual GPU environment record or any later native gate.
+Next session: run the current native checks, resident sanitizer scope and
+per-pass profiling on an actual RTX 5090. Use the
+[split collector](offline-test-tooling.md#collector-and-validation) for GPU-only
+measurements and collect the CPU baseline locally.
 
 | Day | Work | Required output |
 |---:|---|---|
@@ -215,12 +145,10 @@ does not complete D11's actual GPU environment record or any later native gate.
 | D14 | Profile with CUDA events and Nsight | Kernel, L2, DRAM, occupancy, and register data |
 | D15 | Analyze and publish baseline | Raw samples, summary table, first bottleneck decision |
 
-Follow [backlog B01–B04](implementation-backlog.md#2-p2-establish-the-native-baseline).
-Constructor RAII, device ownership and input-validation blockers must be fixed
-and fault-tested before the native baseline is accepted. The updated collector
-requires CUDA/OpenFHE coverage and propagates stage failures. Its 46-bit
-transfer-inclusive benchmark still does not replace 50–60-bit performance,
-CUDA-event timing or Nsight collection.
+[B01–B04](implementation-backlog.md#2-p2-establish-the-native-baseline) define
+the acceptance criteria. Native ownership/failure tests and exact arrays must
+pass before accepting timings. Event timings and a captured timeline are useful,
+but do not replace the missing memory-sector, L2/DRAM and occupancy evidence.
 
 Minimum cases: zero, one, `q-1`, alternating bounds, deterministic random,
 forward, inverse, round-trip, evaluation-domain inverse, and polynomial
@@ -401,6 +329,10 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 
 ## Progress log
 
+<details markdown="1">
+<summary>Dated milestones and their original evidence</summary>
+
+
 | Date | Day | Change | Evidence/commit |
 |---|---:|---|---|
 | 2026-11-06 | D1 | Created tracked integration plan; began line-by-line CUDA forward-column review; completed primary-source GPU selection survey | dbf06cd |
@@ -418,3 +350,5 @@ rotations, graph scheduling, accuracy, and end-to-end latency.
 | 2026-11-12 | D10 → D11 | Accepted ADR 0001 and the implementation backlog; P1 is DONE. P2 awaits native GPU provisioning. | [ADR](architecture-decision.md); [backlog](implementation-backlog.md); [daily review](journal/2026-11-12.md#d10-accept-architecture-and-close-p1) |
 | 2026-11-12 | D11 preparation | Completed stock CUDA sm_89/sm_120 compilation, baseline ownership/preflight fixes, native fixture compilation and tested failure-aware session collection. P2 preparation is in progress; D11 hardware acceptance and native gates remain open. | [Preparation guide](offline-gpu-preparation.md); 19 host/OpenFHE CTests; [daily entry](journal/2026-11-12.md#offline-preparation-before-gpu-rental) |
 | 2026-11-14 | D11 diagnostic | Supplied RTX 4080 SUPER reports compute 8.9; clean native run passed 23 CTests, 169279488 CUDA-gate comparisons and four sanitizer smoke tools. Exported reports and initial 46-bit latency sample. Primary RTX 5090 and remaining P2 gates stay open. | [Native session](journal/2026-11-14.md); local `report.json`: `GPU_CHECKS_PASSED` |
+
+</details>

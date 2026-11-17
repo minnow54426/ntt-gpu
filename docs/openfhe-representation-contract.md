@@ -1,17 +1,21 @@
-# OpenFHE representation contract — D7
+<div id="openfhe-representation-contract-d7" aria-hidden="true"></div>
 
-This freezes the NTT/DCRT boundary for **OpenFHE 1.6.1**, commit
-`b59e1f291965f14fbee5172cd83a20f5b856204f`, at **N=65536**. This contract uses the **64-bit NativeInteger backend**. It covers
-coefficient/evaluation format, exact array order, per-tower parameters, and
-packing into the current CUDA interface. The [D8 Hybrid operation graph](openfhe-hybrid-operation-graph.md) builds on this boundary.
+# Match OpenFHE's polynomial representation
 
-The executable evidence is [openfhe_representation_tests.cpp](../tests/openfhe_representation_tests.cpp).
-It uses the real OpenFHE core library on CPU. No native CUDA result is claimed.
+A GPU result must match both the values and their positions in OpenFHE's
+arrays. This page defines that boundary for OpenFHE 1.6.1, NativeInteger 64,
+at N=65536. The pinned commit is `b59e1f291965f14fbee5172cd83a20f5b856204f`.
 
-Code excerpts © 2022 OpenFHE, reproduced under the [BSD 2-Clause license](site-assets/licenses/OpenFHE-BSD-2-Clause.txt). Click a code symbol or an excerpt’s file/line link to open the corresponding GitHub source.
+A `NativePoly` stores one polynomial modulo one prime. A `DCRTPoly` stores
+several such arrays, called towers, with different primes. **Format** says
+whether an array contains coefficients or NTT evaluations. Preserve each
+tower's prime, root, format and position when moving it to the GPU.
 
-The public [NativePoly/DCRTPoly aliases][aliases] resolve to `PolyImpl` and
-`DCRTPolyImpl`; those are the class names you will see in the implementation.
+[The executable checks](../tests/openfhe_representation_tests.cpp) use the real
+OpenFHE core library on CPU. Read [the Hybrid graph](openfhe-hybrid-operation-graph.md)
+after this contract. OpenFHE's [public aliases][aliases] resolve to `PolyImpl`
+and `DCRTPolyImpl` in the source. Linked excerpts are © 2022 OpenFHE, under
+[BSD 2-Clause](site-assets/licenses/OpenFHE-BSD-2-Clause.txt).
 
 ## 1. The boundary in one table
 

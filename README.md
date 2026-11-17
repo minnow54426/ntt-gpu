@@ -1,14 +1,16 @@
 # ntt-gpu
 
-Exact GPU kernels for CKKS: NTT first, then base conversion, Hybrid key
-switching, and OpenFHE integration. The target workload is N=65,536 on RTX 5090,
-with RTX 4090 as the compatibility control.
+This project builds exact GPU polynomial operations for CKKS, an encryption
+scheme that supports computation on encrypted data. Start with the Number
+Theoretic Transform (NTT), then add base conversion, Hybrid key switching and
+integration with the OpenFHE cryptography library.
 
-**Current state:** the CPU reference, Python oracle, portable GPU-schedule
-simulator, and OpenFHE transform/representation/Hybrid graph gates are implemented.
-CUDA binaries compile for `sm_89` and `sm_120` with a compiler-only toolkit;
-execution on a real GPU remains the next hardware gate. CPU simulation does
-not validate GPU barriers or launch behavior.
+**What works:** the CPU reference and tested CUDA baseline agree with OpenFHE.
+A [temporary Ada GPU run](docs/batch40-native-analysis.md) passed its selected
+native checks. The newer [resident-chain prototype](docs/resident-operation-chain.md)
+passes host tests and compiles for CUDA; it has not run on a GPU.
+**Next:** validate the current source on RTX 5090. RTX 4090 remains the planned
+control. The main workload has 65,536 coefficients.
 
 ## Build & test
 
@@ -21,20 +23,15 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-The portable checks cover vector generation at N=64/1024/65536, unit
-tests, the independent Python oracle, the shared device schedule, column and
-tile index/twiddle proofs in both directions, arithmetic exactness and
-full-size adversarial transforms, backend metadata, host CUDA preflight, session
-failure reporting, and the N=8 debug example. Small fixtures keep the
-quadratic oracle and schoolbook multiplication practical.
+This runs arithmetic, transform, schedule, ownership and reporting checks on
+CPU. Small fixtures keep the independent quadratic oracle practical; full-size
+fixtures exercise N=65536. To follow one butterfly, use the
+[N=8 debugging example](docs/vscode-debugging.md).
 
-With nvcc, three GPU gates compare CUDA with the same oracle and CPU
-reference. Enabling OpenFHE adds a fourth direct CUDA/OpenFHE gate. A separate
-compiled-wrapper constructor check requires no GPU. A fifth GPU-labelled setup
-fault probe is prepared for native execution. Array ordering,
-forward/inverse results, round trips, and polynomial
-multiplication must agree exactly. See [run and debug](docs/vscode-debugging.md)
-to step through the N=8 example.
+CUDA builds register additional tests labelled `gpu`. Run those on actual
+hardware; a passing CPU simulation or CUDA compilation cannot validate device
+barriers, driver failures or GPU speed. The [preparation guide](docs/offline-gpu-preparation.md)
+lists the current native checks.
 
 ### Exact OpenFHE compatibility
 
@@ -45,34 +42,19 @@ The optional gate pins OpenFHE 1.6.1 at
 bash scripts/openfhe_setup.sh
 ```
 
-It compares N=65536 [`NativePoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474) coefficient/evaluation conversions with our
-reference, including bit-reversed evaluation order. Its [`FirstPrime(50, ...)`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/nbtheory-impl.h#L336-L354)
-and [`LastPrime(59, ...)`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/nbtheory-impl.h#L357-L380) fixtures are 51- and 59-bit primes. Cases include zero,
-maximum, ramp, random coefficients, and independent random inverse inputs.
+The optional CPU suite compares complete arrays with real OpenFHE operations:
 
-A second gate, `openfhe_representation_contract`, checks exact evaluation
-indices, format-changing APIs, root selection, and three-tower DCRT packing at
-50/55/60-bit primes. Read the [D7 contract](docs/openfhe-representation-contract.md)
-for the integration boundary and remaining scope.
+| Check | Read more |
+|---|---|
+| Forward and independent inverse through [`NativePoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474) | [Representation, roots and tower packing](docs/openfhe-representation-contract.md) |
+| Hybrid digit extension, key multiplication and reduction | [Exact operation graph](docs/openfhe-hybrid-operation-graph.md) |
+| Buffer metadata and resident-chain host behavior | [Backend contract](docs/device-backend-contract.md) and [prototype](docs/resident-operation-chain.md) |
 
-A third gate, `openfhe_hybrid_graph`, traces the exact Hybrid digit extension,
-key MAC, ModDown, and ciphertext wrapper graph at N=65536. It checks full and
-reduced levels with deterministic diagnostic keys and actual generated keys,
-using independent unreduced-CRT formulas. It requires the PKE library and the
-64-bit, non-reduced-noise build; see the [D8 graph](docs/openfhe-hybrid-operation-graph.md).
-
-The normal CPU build also runs `backend_contract_check`, which checks D9's
-buffer/layout metadata, stream dependencies, cache identities and preflight
-fallback policy. The [D9 backend proposal](docs/device-backend-contract.md)
-includes compile-checked abstract interfaces; it does not implement a CUDA
-runtime backend or OpenFHE adapter.
-
-D10 accepts the behavioral design in [ADR 0001](docs/architecture-decision.md)
-and tracks the remaining native GPU/runtime work in the
-[implementation backlog](docs/implementation-backlog.md). P1 is complete;
-the current task is D11's primary GPU environment record. The supplied Ada
-machine has a [passing native diagnostic](docs/journal/2026-11-14.md), not
-RTX 5090 acceptance or production-backend validation.
+Hybrid tests require OpenFHE PKE, NativeInteger 64 and reduced-noise OFF.
+Agreement with approximate CKKS decryption alone is insufficient: the arrays,
+ordering and roots must match exactly. Architecture decisions and remaining
+runtime work are tracked in the [ADR](docs/architecture-decision.md) and
+[backlog](docs/implementation-backlog.md).
 
 To reuse an installation, configure with `-DNTT_ENABLE_OPENFHE_COMPAT=ON`
 and set `CMAKE_PREFIX_PATH` to its install prefix. OpenFHE is not required
@@ -87,23 +69,17 @@ GPU image, use the selected clean checkout and an existing pinned OpenFHE prefix
 bash scripts/autodl_setup.sh
 ```
 
-The script records hardware/toolchain details, requires CUDA and OpenFHE test
-registration, builds, runs exact tests and sanitizer smoke checks, and collects
-raw 30/50/55/60-bit samples over N=4096–65536 and 1/3/8/16/24/32/40 RNS towers using the
-[offline-prepared protocol](docs/offline-test-tooling.md). The new CUDA changes
-still require native compilation/execution; the saved first session predates
-them. The batch separates public-call wall time, resident CUDA events/pinned
-copies and the OpenFHE NativeVector CPU baseline. The rental helper now selects
-GPU-only measurements by default (280 jobs); direct collector commands retain
-the previous combined default (420 jobs). Select `--benchmark-scope all` to
-request that combined batch explicitly. Optional `--profile` captures
-Nsight data; `--resume --output-dir <previous-record>` reruns gates and reuses
-only matching, hash-verified completed benchmark jobs. Each session writes logs and
-`report.json` under an ignored `bench-results-*` directory. Any failed stage
-returns nonzero. It does not update source, install packages or change drivers.
-Select paths with `NTT_REPO_DIR`, `NTT_CUDA_ROOT`, and `NTT_OPENFHE_PREFIX`;
-`NTT_CUDA_ARCH` defaults to `native`. See the preparation guide for full commands
-and the remaining P2 gates.
+The helper records the environment, builds, runs exactness and sanitizer checks,
+then collects 280 GPU measurement jobs. The matrix spans N=4096–65536,
+30/50/55/60-bit primes and 1–40 RNS towers. A tower is one copy of the polynomial
+modulo one prime. Public-call and device-event timings stay separate.
+
+Use `NTT_REPO_DIR`, `NTT_CUDA_ROOT` and `NTT_OPENFHE_PREFIX` for machine-specific
+paths. `--resume --output-dir <record>` reruns checks and reuses only matching,
+hash-verified measurements. `--profile` requests Nsight captures. The helper
+does not pull source, install dependencies or change drivers. Failed stages
+return nonzero; retain the complete record directory. See the
+[collector guide](docs/offline-test-tooling.md) for timing scopes and options.
 
 Collect the matching 140-job CPU baseline locally without a CUDA installation:
 
@@ -113,9 +89,10 @@ python3 scripts/gpu_session.py --mode cpu \
   --benchmark --output-dir bench-results-local-cpu
 ```
 
-CPU and GPU sessions retain separate machine/build identities. Scope or mode
-changes require a fresh record directory; CPU measurements never satisfy native
-GPU gates. Use the same workload and repetition options for comparisons.
+Match workload and repetition options across CPU and GPU sessions. Their
+machine/build identities remain separate. Direct GPU collector commands default
+to the combined 420-job selection; choose `--benchmark-scope gpu` for GPU-only
+work. Changing modes or scopes requires a new record directory.
 
 The default build targets `sm_89` and, with CUDA 12.8+, `sm_120`. For one known
 GPU, use `-DCMAKE_CUDA_ARCHITECTURES=native` (CMake 3.24+).

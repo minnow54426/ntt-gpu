@@ -525,8 +525,8 @@
         </div>
         <div class="w-note">dashed diameters: opposite points sum to 17 = q — each is the other's negative (property iii, halfway = minus)</div>
       </div>
-      <p>Eight <b>different</b> numbers, then the ninth step lands back on 1. The powers of 2 form a closed loop of exactly 8 points — a <b>wheel</b>. Such a number is a <b>root of unity</b> ("unity" just means 1): <span class="m">\(ω^N = 1\)</span>, and <b>primitive</b> if no earlier power comes home. Everything the NTT relies on is a property of this wheel:</p>
-      <p class="dim">Nothing sacred about 2 — mod 17 offers four primitive 8th roots: 2, 8, 9, 15. Each walks the <i>same</i> eight points in a different order; 2 just gives the easiest multiplication table.</p>
+      <p>A <b>root of unity</b> satisfies \(ω^N=1\). It is primitive when no smaller positive power is 1. Here the eight powers of 2 modulo 17 give eight distinct evaluation points.</p>
+      <p class="dim">Modulo 17, 2, 8, 9 and 15 are all primitive eighth roots. They visit the same points in different orders; choosing the same root matters when comparing arrays.</p>
       <details class="deep-dive">
         <summary>Optional: why these points make the NTT fast</summary>
       <div class="reasons">
@@ -537,7 +537,7 @@
       </div>
       <div class="callout">
         <h4>Why not just any N distinct numbers?</h4>
-        <p>Any N distinct points make chapter 3's trick <i>correct</i>. Only wheel points make it <i>fast</i>: the shared brackets of chapter 5 are this wheel's symmetries showing up as algebra. The speed of the NTT <b>is</b> wheel symmetry.</p>
+        <p>Distinct points make polynomial evaluation reversible. Roots of unity also let smaller transforms share work, which gives the butterfly algorithm.</p>
       </div>
       </details>
     </section>
@@ -581,9 +581,9 @@
         <div class="w-row" style="margin-top:18px;">
           <span class="equals-badge" id="agree">✓ the two roads agree</span>
         </div>
-        <div class="w-note">Road 1 costs four multiplies and still knows the product at only one point. Road 2 costs <b>one</b> multiply — and the equation below runs Road 2 at every wheel point at once.</div>
+        <div class="w-note">At a single point, multiplying the evaluated values avoids expanding all coefficient products. The NTT repeats this idea at a structured set of points.</div>
       </div>
-      <p>To pin the product down we need its values at <b>N different points</b> — chapter 2's wheel supplies them.</p>
+      <p>N values determine the product after reduction modulo the chosen degree-N ring polynomial. This example leads to the cyclic rule; chapter 9 introduces the negacyclic rule used by CKKS.</p>
       <div class="definition">
         <div class="kicker">the definition · the whole transform in one line</div>
         <div class="eq typeset">\[A_j = a_0+a_1\omega^j+a_2\omega^{2j}+a_3\omega^{3j}+\cdots \pmod{q}\]</div>
@@ -592,7 +592,7 @@
       </div>
       <div class="callout teal">
         <h4>Why "NTT" and not "FFT"?</h4>
-        <p>The FFT does this with decimals — but decimals round, and rounding errors compound. The NTT does the <b>same idea with whole numbers mod a prime</b>: exact forever. Its wheels exist whenever N | q−1 — checked at <code class="inline">ntt.hpp:61</code>.</p>
+        <p>FFT implementations usually use floating-point complex values and incur rounding error. This NTT uses exact integers modulo a prime. A cyclic length-N transform needs N to divide q−1; our negacyclic form needs 2N to divide q−1.</p>
       </div>
     </section>
 
@@ -690,13 +690,13 @@ X^{(s+1)}_U=X^{(s)}_U+t,\qquad X^{(s+1)}_V=X^{(s)}_U-t.
         <div class="w-row" style="margin-top:10px;"><span class="equals-badge" id="s5agree"></span></div>
         <div class="w-note">Change any coefficient: level 1 feeds level 2, four butterflies total — and the result is checked against the direct definition.</div>
       </div>
-      <p><b>One multiply, one add, one subtract; two values in, two out.</b> That is the fast algorithm's only moving part. At N = 8 it simply nests one level deeper — chapter 7's machine, where we go next.</p>
+      <p>The cyclic butterfly reuses one multiply, one add and one subtract. The network below repeats that small operation; the repository's negacyclic version adds the folded factor derived next.</p>
     </section>
 
     <span id="手稿推导-递归拆分与旋转因子" aria-hidden="true"></span>
     <section id="handwritten-derivation" class="notes-derivation" lang="en">
       <div class="sec-head"><div class="sec-num">05+</div><h2 id="recursive-decomposition">Recursive decomposition and twiddle factors</h2></div>
-      <p>This derivation follows the handwritten notes from the even/odd split through a second recursion, a four-point network, and the twiddle exponent at every stage. It then connects those results to this repository's negacyclic DIF implementation.</p>
+      <p>Optional derivation: follow the even/odd split through a second recursion, an N=4 network and the stage twiddle formula. Then compare cyclic DIT with the repository's negacyclic DIF.</p>
       <div class="callout teal"><h4>Notation</h4><p>In the ordinary NTT portion of the notes, φ denotes a <b>primitive N-th root of unity</b>; here we write ω<sub>N</sub>, with ω<sub>N</sub><sup>N/2</sup> = −1. This repository uses ψ, a <b>primitive 2N-th root of unity</b>, with ψ<sup>N</sup> = −1 and ω<sub>N</sub> = ψ². The ordinary NTT requires N to divide q−1 and works modulo x<sup>N</sup>−1; the negacyclic form requires 2N to divide q−1 and works modulo x<sup>N</sup>+1. All arithmetic below is modulo a prime q, and N is a power of two.</p></div>
 
       <h3>1. Split one N-point NTT into two half-length NTTs</h3>
@@ -710,7 +710,7 @@ b_j&=\sum_{i=0}^{N-1}a_i\omega_N^{ij}\\
  +\omega_N^j\underbrace{\sum_{r=0}^{N/2-1}a_{2r+1}(\omega_N^2)^{rj}}_{B_j}.
 \end{aligned}
 \]</div>
-      <p>A is the N/2-point NTT of the even-index coefficients; B is the N/2-point NTT of the odd-index coefficients. Both use the root ω<sub>N</sub>² = ω<sub>N/2</sub>. Both are periodic in j with period N/2, so only 0 ≤ j &lt; N/2。</p>
+      <p>A is the N/2-point NTT of the even-index coefficients; B is the N/2-point NTT of the odd-index coefficients. Both use the root ω<sub>N</sub>² = ω<sub>N/2</sub>. Both are periodic in j with period N/2, so only 0 ≤ j &lt; N/2.</p>
       <div class="math typeset">\[
 \begin{aligned}
 A_{j+N/2}&=A_j,\qquad B_{j+N/2}=B_j,\\
@@ -812,7 +812,7 @@ w_{s,j}&=\omega_M^j=\left(\omega_N^{N/2^{s+1}}\right)^j
       <div class="notes-table-scroll matrix-scroll" role="region" aria-label="Exponents in a four-bit reversed root table" tabindex="0"><table class="notes-table"><thead><tr><th>Table index k</th><th>rev₄(k)</th></tr></thead><tbody>
         <tr><td>1</td><td>8</td></tr><tr><td>2, 3</td><td>4, 12</td></tr><tr><td>4…7</td><td>2, 10, 6, 14</td></tr><tr><td>8…15</td><td>1, 9, 5, 13, 3, 11, 7, 15</td></tr>
       </tbody></table></div>
-      <p>If a root table is defined as T[k]=r<sup>rev₄(k)</sup>, the table above lists its exponents. These numbers alone do not define the order of r, the transform direction, or the butterfly schedule. They <b>are not a universal cyclic DIT twiddle list</b>. In particular, this repository's natural power table and OpenFHE's bit-reversed root table are distinct. See <a href="openfhe-representation-contract.md#5-roots-prime-widths-and-the-transform-cache">D7's root and cache contract</a>。</p>
+      <p>If a root table is defined as T[k]=r<sup>rev₄(k)</sup>, the table above lists its exponents. These numbers alone do not define the order of r, the transform direction, or the butterfly schedule. They <b>are not a universal cyclic DIT twiddle list</b>. In particular, this repository's natural power table and OpenFHE's bit-reversed root table are distinct. See <a href="openfhe-representation-contract.md#5-roots-prime-widths-and-the-transform-cache">D7's root and cache contract</a>.</p>
 
       <h3>6. Connect the derivation to the forward negacyclic loop</h3>
       <p>The repository's forward transform is DIF. Stage t starts at zero, and distance d=N/2<sup>t+1</sup> decreases. For group length M=2d and local offset J:</p>
@@ -823,7 +823,7 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
 \end{aligned}
 \]</div>
       <p>The change-of-root rule still raises the global root to N/M, but stages run in the opposite direction and include c to fold the negacyclic twist. At N=65536 the first forward stage has d=32768 and w=ω<sub>N</sub><sup>J</sup>=ψ<sup>2J</sup>. In the final stage d=1, J must be 0 and w=1. DIT stage 0 is not the first stage of the repository's forward DIF.</p>
-      <p>The inverse uses reciprocal w and c, reverses the stage order, and finally multiplies by N⁻¹. For the exact coefficient indices, bit-reversed output order, and CUDA groups, see the <a href="ntt-65536-work-distribution.html">forward and inverse work distribution</a>。</p>
+      <p>The inverse uses reciprocal w and c, reverses the stage order, and finally multiplies by N⁻¹. For the exact coefficient indices, bit-reversed output order, and CUDA groups, see the <a href="ntt-65536-work-distribution.html">forward and inverse work distribution</a>.</p>
     </section>
     <script id="handwritten-twiddle-script">
 (() => {
@@ -977,9 +977,9 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
     <!-- ============================ 9. NEGACYCLIC ============================ -->
     <section id="s9">
       <div class="sec-head"><div class="sec-num">09</div><h2>CKKS uses the negacyclic form</h2></div>
-      <p>One loose end from chapter 1: the operation there was "multiply two lists, <b>get back a list of the same length N</b>." But plain multiplication lengthens the list:</p>
+      <p>A product of two N-coefficient polynomials can have more than N coefficients. To keep fixed-size arrays, reduce it using a ring rule:</p>
       <div class="math typeset">\[(2+x)(3+2x)=6+7x+2x^2\]</div>
-      <p>If every multiplication grew the list, nothing could chain. The fix is one fold rule, in exactly two flavors:</p>
+      <p>The two rules used here are:</p>
       <div class="math typeset" style="display:block;">\[
 \begin{aligned}
 x^N &= +1 && \text{cyclic: wrap with a plus} \\
@@ -991,7 +991,7 @@ x^N &= -1 && \text{negacyclic: wrap with a minus}
 6+7x+2x^2 \;\longmapsto\; (6-2)+7x
 \;\equiv\; 4+2x \pmod{5}
 \]</div>
-      <p class="dim">All numbers live mod some prime (here mod 5) — only the remainder after dividing survives, so numbers stay tiny forever.</p>
+      <p class="dim">All coefficients are also reduced modulo the prime q. The ring rule controls where high-degree terms go; reduction modulo q controls their values.</p>
       <p>Which points respect the <b>minus</b> fold? Those with <span class="m">\(x^N = -1\)</span> — the roots of <span class="m">\(x^N + 1\)</span>. They are the <b>odd steps</b> of a doubled wheel: a number ψ with <span class="m">\(ψ^N = -1\)</span> closes after 2N points, and <span class="m">\((ψ^{\mathrm{odd}})^N = (-1)^{\mathrm{odd}} = -1\)</span>. Mod 17, ψ = 6, and <span class="m">\(ψ^{2} = ω\)</span> — its even steps are chapter 2's wheel:</p>
       <div class="widget">
         <div class="w-title">The doubled wheel · ψ = 6, a 16-th root of unity mod 17 (ψ⁸ = −1, ψ² = ω)</div>
@@ -1106,7 +1106,7 @@ w_{d,j} &= \psi^{\frac{N}{d}j} = \omega^{\frac{N}{2d}j} \\[0.5em]
     }
   }
 }</pre>
-      <p>Three nested loops, one idea: for every butterfly in every stage — u+v, u−v. The CUDA port assigns independent pairs to threads and fuses several stages inside a shared-memory block. At N=65536, one forward transform uses two launches; it does not launch a separate kernel for every stage.</p>
+      <p>The loops visit stages, groups and pairs. Each pair uses the weighted sum/difference above. CUDA assigns independent pairs to threads and groups stages in shared memory; N=65536 forward uses two launches.</p>
     </section>
 
     <!-- ============================ SUMMARY ============================ -->

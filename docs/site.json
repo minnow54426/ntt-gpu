@@ -3,28 +3,281 @@
   "repository": "https://github.com/minnow54426/ntt-gpu",
   "public_base_url": "https://minnow54426.github.io/systems/ntt-gpu/",
   "pages": [
-    {"source": "README.md", "url": "project.html", "title": "Project & setup", "group": "Start here", "summary": "Build, test, and understand the correctness-first CKKS GPU project.", "takeaways": ["Start with the CPU build and exactness tests; no CUDA device is needed.","CUDA accelerates the NTT baseline. Base conversion, Hybrid key switching and OpenFHE integration are later milestones."]},
-    {"source": "docs/butterfly-explained.html", "url": "butterfly-explained.html", "title": "NTT & butterflies", "group": "Learn", "summary": "Direct sums, recursive butterflies, handwritten derivations, and an interactive stage/twiddle calculator.", "takeaways": ["The NTT evaluates a polynomial at roots of unity; butterflies reuse smaller sums.","Negacyclic evaluation uses odd powers of the primitive 2N-th root. Open the lesson to try the twiddle and stage controls."]},
-    {"source": "docs/gpu-ntt-explained.html", "url": "gpu-ntt-explained.html", "title": "From CPU to CUDA", "group": "Learn", "summary": "Threads, blocks, shared memory, and this repository's two-pass GPU schedule.", "takeaways": ["A block cooperates on one strided group or contiguous tile; its threads share the local butterfly work.","The two passes reorganize the same NTT stages without changing the output order."]},
-    {"source": "docs/ntt-65536-work-distribution.html", "url": "ntt-65536-work-distribution.html", "title": "65536: work distribution", "group": "Learn", "summary": "Explore the 65536-point forward/inverse polynomial, two-pass blocks, threads, and global access patterns.", "takeaways": ["At N=65,536, the forward transform uses eight strided and eight contiguous stages.","Inverse reverses the pass order and finishes with normalization. Use the explorer to follow one block and thread."]},
-    {"source": "docs/cuda-buffer-dataflow.md", "url": "cuda-buffer-dataflow.html", "title": "CUDA buffers & dataflow", "group": "Learn", "summary": "D5: constructor lifecycle, buffer ownership, host/device copies, fused operations, and integration gaps.", "takeaways": ["Host-facing calls validate, upload, launch and download.","The fused ring product keeps its intermediate arrays on the device, avoiding repeated host roundtrips."]},
-    {"source": "docs/modular-arithmetic-contract.md", "url": "modular-arithmetic-contract.html", "title": "Arithmetic bounds & tests", "group": "Learn", "summary": "D6: canonical residues, overflow proofs, bigint checks, full-size adversarial cases, and remaining exactness gates.", "takeaways": ["Keep residues canonical and prove overflow bounds before changing a reduction routine.","Check arithmetic against a bigint oracle and compare transforms exactly."]},
-    {"source": "docs/openfhe-representation-contract.md", "url": "openfhe-representation-contract.html", "title": "OpenFHE representation", "group": "Learn", "summary": "D7: exact coefficient/evaluation ordering, root selection, DCRT tower packing, format APIs, and executable compatibility checks.", "takeaways": ["Match OpenFHE’s roots, tower order and evaluation layout, not just roundtrip behavior.","Compare coefficient and evaluation arrays residue by residue."]},
-    {"source": "docs/openfhe-hybrid-operation-graph.md", "url": "openfhe-hybrid-operation-graph.html", "title": "Hybrid operation graph", "group": "Learn", "summary": "D8: exact digit extension, Q/P tower addressing, key MAC, ModDown, delayed operations, and full-size OpenFHE checks.", "takeaways": ["Hybrid key switching extends digits to QP, accumulates key products and reduces back to Q.","This page documents the operation graph and CPU checks, not a completed GPU key-switch implementation."]},
-    {"source": "docs/device-backend-contract.md", "url": "device-backend-contract.html", "title": "Device backend contract", "group": "Learn", "summary": "D9: checked buffer views, stream dependencies, resource leases, cache identities, and the proposed OpenFHE adapter.", "takeaways": ["Device buffers need explicit format, basis, ownership and ordering rules.","Use the same exactness contract across the adapter and its fallback."]},
-    {"source": "docs/resident-operation-chain.md", "url": "resident-operation-chain.html", "title": "Resident operation chain", "group": "Learn", "summary": "A bounded single-stream prototype: owned handles, queued dependencies, exact OpenFHE host checks, failure quarantine and compiled CUDA transport.", "takeaways": ["Upload once, queue transforms and multiplication, then download the result.","Host and compiler checks do not establish native execution or performance for the new resident path."]},
-    {"source": "docs/vscode-debugging.md", "url": "vscode-debugging.html", "title": "Run & debug", "group": "Learn", "summary": "Run the N=8 example and step through each butterfly in VS Code.", "takeaways": ["Start with the N=8 debug example and step through one butterfly.","Use the existing VS Code launch configuration; the full instructions are below."]},
-    {"source": "docs/gpu-ntt-survey.md", "url": "gpu-ntt-survey.html", "title": "GPU NTT implementations", "group": "Research", "summary": "Primary-source survey, performance limits, and techniques to evaluate.", "takeaways": ["Prioritize reducing data movement and test arithmetic and layout changes independently.","Compare candidates under the same inputs, timing scope and correctness checks."]},
-    {"source": "docs/gpu-selection-survey.md", "url": "gpu-selection-survey.html", "title": "Choosing the GPU", "group": "Research", "summary": "Compare hardware for exact u32/u64 modular arithmetic and CKKS workloads.", "takeaways": ["Select hardware for integer modular arithmetic, memory behavior and profiling access.","RTX 5090 is the target; the temporary Ada run does not rank it against other GPUs."]},
-    {"source": "docs/gpu-rental-market-survey.md", "url": "gpu-rental-market-survey.html", "title": "GPU rental market", "group": "Research", "summary": "November 2026 provider comparison, verified public rates, a live offer sample, session budgets and CUDA profiling access.", "takeaways": ["Verify the rental’s device, CUDA toolkit and profiler permissions before starting paid work.","Treat recorded prices and offers as dated evidence, not current availability."]},
-    {"source": "docs/openfhe-integration-plan.md", "url": "openfhe-integration-plan.html", "title": "Integration roadmap", "group": "Plans", "summary": "The tracked 95-working-day plan through exact OpenFHE Hybrid integration.", "takeaways": ["The sequence is NTT → base conversion → Hybrid key switching → OpenFHE integration.","Keep the temporary Ada baseline separate from the pending RTX 5090 acceptance gate."]},
-    {"source": "docs/architecture-decision.md", "url": "architecture-decision.html", "title": "Architecture decision", "group": "Plans", "summary": "D10: accepted representation, backend ownership, adapter/fallback policy, resource budgets and P1 review.", "takeaways": ["Match OpenFHE’s representation exactly and keep a CPU fallback.","Keep device ownership and synchronization explicit across the adapter."]},
-    {"source": "docs/implementation-backlog.md", "url": "implementation-backlog.html", "title": "Implementation backlog", "group": "Plans", "summary": "D10: dependency-ordered native GPU, resident runtime, cache, conversion, Hybrid and adapter acceptance gates.", "takeaways": ["Work through verification, residency, conversion, key switching and integration in dependency order.","Use the full checklist when accepting an implementation milestone."]},
-    {"source": "docs/offline-gpu-preparation.md", "url": "offline-gpu-preparation.html", "title": "Before renting a GPU", "group": "Plans", "summary": "Completed compiler-only preparation, baseline safety fixes, tested session reporting and the first real-GPU handoff.", "takeaways": ["Build and verify what you can offline; use rented time for native CUDA checks and timings.","Confirm exactness, sanitizers and profiling access before collecting performance data."]},
-    {"source": "docs/benchmark-tuning-plan.md", "url": "benchmark-tuning-plan.html", "title": "Benchmarks & tuning", "group": "Plans", "summary": "Workload matrix, profiling evidence, and per-device kernel selection.", "takeaways": ["Benchmark dimensions 4,096–65,536, up to 40 prime towers and 30/50/55/60-bit primes.","Keep public-call, resident-device, transfer and CPU timing scopes separate."]},
-    {"source": "docs/first-native-analysis.md", "url": "first-native-analysis.html", "title": "First GPU run: analysis", "group": "Research", "summary": "Saved native evidence, exactness scope, benchmark caveats, transfer accounting, bottleneck hypotheses and next offline experiments.", "takeaways": ["The first native run established exactness on the tested temporary GPU cases.","Its limited timing sample could not isolate kernel arithmetic from transfer and wrapper costs."]},
-    {"source": "docs/batch40-native-analysis.md", "url": "batch40-native-analysis.html", "title": "Full GPU matrix: analysis", "group": "Research", "summary": "140-workload results through 40 primes: exactness, public versus resident timings, fusion, transfers, 30-bit behavior and the separate M1 Pro baseline.", "takeaways": ["Fused polynomial multiplication beat the unfused chain in all 140 workloads (2.36× median ratio).","Results are from the temporary GPU and a separate M1 Pro CPU baseline, not RTX 5090 or end-to-end CKKS measurements."]},
-    {"source": "docs/offline-test-tooling.md", "url": "offline-test-tooling.html", "title": "Offline test tooling", "group": "Plans", "summary": "Raw timing samples, strict report validation and shared constructor ownership tests prepared for the next native GPU session.", "takeaways": ["Run GPU timings on the rental and CPU timings locally.","Keep fixed inputs, validated raw samples and separate platform provenance."]},
-    {"source": "docs/README.md", "url": "contributing-docs.html", "title": "Writing & publishing", "group": "Contribute", "summary": "Preview the site, add a daily journal entry, and publish the HTML documentation.", "takeaways": ["Edit source documents, then rebuild and validate links before publishing.","Record dated engineering outcomes in the journal; keep generated HTML out of the source workflow."]}
+    {
+      "source": "README.md",
+      "url": "project.html",
+      "title": "Project & setup",
+      "group": "Start here",
+      "summary": "Build the project and understand what has been tested.",
+      "takeaways": [
+        "Build and run the CPU checks first; a GPU is optional for getting started.",
+        "The tested CUDA baseline works on the recorded Ada workload. The newer resident runtime still needs native GPU validation."
+      ],
+      "next_page": "vscode-debugging.html"
+    },
+    {
+      "source": "docs/butterfly-explained.html",
+      "url": "butterfly-explained.html",
+      "title": "NTT & butterflies",
+      "group": "Learn",
+      "summary": "Learn why polynomial evaluation can be built from repeated butterflies.",
+      "takeaways": [
+        "An NTT evaluates a polynomial at special points modulo a prime. Butterflies share work between those evaluations.",
+        "Start with the small examples, then follow the negacyclic form used by this project at N=65536."
+      ],
+      "next_page": "gpu-ntt-explained.html"
+    },
+    {
+      "source": "docs/gpu-ntt-explained.html",
+      "url": "gpu-ntt-explained.html",
+      "title": "From CPU to CUDA",
+      "group": "Learn",
+      "summary": "See how threads, blocks and shared memory execute the same transform.",
+      "takeaways": [
+        "Threads compute independent butterfly pairs. A block keeps one group in shared memory across several stages.",
+        "At N=65536, columns handle far pairs and rows handle near pairs. Barriers and kernel order preserve the dependencies."
+      ],
+      "next_page": "ntt-65536-work-distribution.html"
+    },
+    {
+      "source": "docs/ntt-65536-work-distribution.html",
+      "url": "ntt-65536-work-distribution.html",
+      "title": "65536: work distribution",
+      "group": "Learn",
+      "summary": "Trace one block and thread through the 65536-point forward and inverse NTT.",
+      "takeaways": [
+        "View one tower as a 256×256 array. Columns own the first eight forward stages; rows own the last eight.",
+        "Try block 3 and thread 5 in the explorer. Inverse reverses the passes and scales by the modular inverse of N."
+      ],
+      "next_page": "cuda-buffer-dataflow.html"
+    },
+    {
+      "source": "docs/cuda-buffer-dataflow.md",
+      "url": "cuda-buffer-dataflow.html",
+      "title": "CUDA buffers & dataflow",
+      "group": "Learn",
+      "summary": "Follow inputs, device buffers and transfers through the synchronous CUDA wrapper.",
+      "takeaways": [
+        "A tower stores one polynomial modulo one prime. At N=65536 it takes 512 KiB in the current uint64 format.",
+        "Fused multiplication uploads two inputs and downloads one result. Separate public calls repeat transfers between operations."
+      ],
+      "next_page": "resident-operation-chain.html"
+    },
+    {
+      "source": "docs/modular-arithmetic-contract.md",
+      "url": "modular-arithmetic-contract.html",
+      "title": "Arithmetic bounds & tests",
+      "group": "Learn",
+      "summary": "Understand safe integer ranges and the tests that check exact arithmetic.",
+      "takeaways": [
+        "Canonical means a value from 0 to q−1. Each current butterfly keeps that range.",
+        "A 60-bit value fits in uint64_t, but its product needs a wider temporary. Independent bigint checks test these operations."
+      ],
+      "next_page": "openfhe-representation-contract.html"
+    },
+    {
+      "source": "docs/openfhe-representation-contract.md",
+      "url": "openfhe-representation-contract.html",
+      "title": "OpenFHE representation",
+      "group": "Learn",
+      "summary": "Match OpenFHE primes, roots, array positions and format labels.",
+      "takeaways": [
+        "OpenFHE stores one prime-modulus array per tower. Copy them in their original order, with their exact roots.",
+        "Forward changes coefficients to bit-reversed evaluations. Changing a format label alone does not convert the values."
+      ],
+      "next_page": "openfhe-hybrid-operation-graph.html"
+    },
+    {
+      "source": "docs/openfhe-hybrid-operation-graph.md",
+      "url": "openfhe-hybrid-operation-graph.html",
+      "title": "Hybrid operation graph",
+      "group": "Learn",
+      "summary": "Follow digit extension, key products and reduction in pinned OpenFHE code.",
+      "takeaways": [
+        "Hybrid key switching extends digit arrays from Q to QP, accumulates two key products, then reduces them to Q.",
+        "The order and integer representatives matter. This page has exact CPU comparisons; GPU key switching is still future work."
+      ],
+      "next_page": "device-backend-contract.html"
+    },
+    {
+      "source": "docs/device-backend-contract.md",
+      "url": "device-backend-contract.html",
+      "title": "Device backend contract",
+      "group": "Learn",
+      "summary": "Specify what a GPU handle, dependency and buffer owner must preserve.",
+      "takeaways": [
+        "A GPU polynomial needs its primes, format, array order, owner and readiness—not only a pointer.",
+        "This is the full design proposal. The separate resident prototype implements a bounded subset; the cache and OpenFHE adapter remain planned."
+      ],
+      "next_page": "resident-operation-chain.html"
+    },
+    {
+      "source": "docs/resident-operation-chain.md",
+      "url": "resident-operation-chain.html",
+      "title": "Resident operation chain",
+      "group": "Learn",
+      "summary": "Compose NTT operations without downloading their intermediate arrays.",
+      "takeaways": [
+        "Upload two inputs, run forward transforms and pointwise multiplication, then inverse-transform and download the result.",
+        "The runtime owns queued resources and preserves inputs. Host tests and CUDA compilation pass; native GPU execution of this new path is pending."
+      ],
+      "next_page": "implementation-backlog.html"
+    },
+    {
+      "source": "docs/vscode-debugging.md",
+      "url": "vscode-debugging.html",
+      "title": "Run & debug",
+      "group": "Learn",
+      "summary": "Run a small CPU example and inspect one butterfly at a time.",
+      "takeaways": [
+        "The N=8 example prints coefficients, evaluations and a recovered input. No CUDA device is needed.",
+        "Use a terminal on any supported CPU platform, or follow the supplied macOS VS Code debugger setup."
+      ],
+      "next_page": "butterfly-explained.html"
+    },
+    {
+      "source": "docs/gpu-ntt-survey.md",
+      "url": "gpu-ntt-survey.html",
+      "title": "GPU NTT implementations",
+      "group": "Research",
+      "summary": "Compare published GPU NTT techniques and choose experiments to measure.",
+      "takeaways": [
+        "Study integer reduction, coalesced memory access, register staging and keeping data on the device.",
+        "Published techniques suggest experiments. They do not establish a speedup for this implementation."
+      ],
+      "next_page": "benchmark-tuning-plan.html"
+    },
+    {
+      "source": "docs/gpu-selection-survey.md",
+      "url": "gpu-selection-survey.html",
+      "title": "Choosing the GPU",
+      "group": "Research",
+      "summary": "Choose hardware using modular arithmetic, memory and complete-workload measurements.",
+      "takeaways": [
+        "RTX 5090 is the primary target and RTX 4090 the planned control. Larger cards need a measured capacity or performance reason.",
+        "Peak bandwidth and Tensor throughput cannot predict this exact integer workload. Compare matched operations on named hardware."
+      ],
+      "next_page": "gpu-rental-market-survey.html"
+    },
+    {
+      "source": "docs/gpu-rental-market-survey.md",
+      "url": "gpu-rental-market-survey.html",
+      "title": "GPU rental market",
+      "group": "Research",
+      "summary": "Compare dated rental rates, whole-session costs and profiling requirements.",
+      "takeaways": [
+        "The November 13 snapshot favors comparing a suitable RunPod RTX 5090 with a verified Vast.ai offer. Recheck the live quote.",
+        "Confirm tools and profiler permissions, include storage and setup time, then export the complete evidence before ending billing."
+      ],
+      "next_page": "offline-gpu-preparation.html"
+    },
+    {
+      "source": "docs/openfhe-integration-plan.md",
+      "url": "openfhe-integration-plan.html",
+      "title": "Integration roadmap",
+      "group": "Plans",
+      "summary": "Track completed evidence, the current native gate and later integration phases.",
+      "takeaways": [
+        "The order is NTT → base conversion → Hybrid key switching → OpenFHE. Working-day labels are milestones, not calendar dates.",
+        "D11/P2 remains open: the temporary Ada baseline is measured, while primary RTX 5090 and remaining runtime/profiling acceptance are pending."
+      ],
+      "next_page": "implementation-backlog.html"
+    },
+    {
+      "source": "docs/architecture-decision.md",
+      "url": "architecture-decision.html",
+      "title": "Architecture decision",
+      "group": "Plans",
+      "summary": "Read the accepted ownership, integration and failure-handling rules.",
+      "takeaways": [
+        "Keep inputs immutable, return fresh results and retain resources until queued work has safely finished.",
+        "The proposed OpenFHE adapter replaces its host object only after success. CPU fallback is an explicit choice before GPU submission."
+      ],
+      "next_page": "implementation-backlog.html"
+    },
+    {
+      "source": "docs/implementation-backlog.md",
+      "url": "implementation-backlog.html",
+      "title": "Implementation backlog",
+      "group": "Plans",
+      "summary": "Choose the next task and its observable acceptance checks.",
+      "takeaways": [
+        "Verify the native baseline, then build resident NTT, conversion, key switching and the adapter in dependency order.",
+        "Each task records evidence and a completion criterion. Host preparation alone does not complete a native GPU milestone."
+      ],
+      "next_page": "offline-gpu-preparation.html"
+    },
+    {
+      "source": "docs/offline-gpu-preparation.md",
+      "url": "offline-gpu-preparation.html",
+      "title": "Before renting a GPU",
+      "group": "Plans",
+      "summary": "Prepare dependencies locally, then run the current native checks on a GPU.",
+      "takeaways": [
+        "Use CPU time for builds and host checks. Spend rental time on the actual device, exactness, sanitizers and measurements.",
+        "Older Ada results apply to their recorded source. Run the current checks, including the new resident chain, before accepting new timings."
+      ],
+      "next_page": "offline-test-tooling.html"
+    },
+    {
+      "source": "docs/benchmark-tuning-plan.md",
+      "url": "benchmark-tuning-plan.html",
+      "title": "Benchmarks & tuning",
+      "group": "Plans",
+      "summary": "Design fair comparisons before changing kernels or publishing speedups.",
+      "takeaways": [
+        "Match inputs, widths, tower counts and hardware. Separate setup, public-call, device-event and CPU timing boundaries.",
+        "Tune one major cost at a time, then accept a variant only with exact results and complete-workload measurements."
+      ],
+      "next_page": "offline-test-tooling.html"
+    },
+    {
+      "source": "docs/first-native-analysis.md",
+      "url": "first-native-analysis.html",
+      "title": "First GPU run: analysis",
+      "group": "Research",
+      "summary": "Audit the first diagnostic run and understand its limited timing sample.",
+      "takeaways": [
+        "The first Ada run passed its selected native checks and saved one averaged 46-bit timing row.",
+        "That row cannot isolate kernels, transfers or variability. The later full-matrix report adds raw samples and a separate OpenFHE CPU baseline."
+      ],
+      "next_page": "batch40-native-analysis.html"
+    },
+    {
+      "source": "docs/batch40-native-analysis.md",
+      "url": "batch40-native-analysis.html",
+      "title": "Full GPU matrix: analysis",
+      "group": "Research",
+      "summary": "Read the measured Ada baseline and the limits of its GPU/CPU comparison.",
+      "takeaways": [
+        "Fused multiplication was faster than the unfused public chain in all 140 workloads, with a 2.36× median ratio.",
+        "Device-event time excludes uploads/downloads. The separate M1 CPU and temporary GPU results are not RTX 5090 or end-to-end CKKS measurements."
+      ],
+      "next_page": "resident-operation-chain.html"
+    },
+    {
+      "source": "docs/offline-test-tooling.md",
+      "url": "offline-test-tooling.html",
+      "title": "Offline test tooling",
+      "group": "Plans",
+      "summary": "Run separate GPU and CPU collections with validated samples and safe resume.",
+      "takeaways": [
+        "Use GPU-only measurements on the rental and collect the OpenFHE CPU timings locally with matching parameters.",
+        "The collector keeps raw samples, provenance and failures. Resume reuses only matching, hash-checked records and reruns the required gates."
+      ],
+      "next_page": "batch40-native-analysis.html"
+    },
+    {
+      "source": "docs/README.md",
+      "url": "contributing-docs.html",
+      "title": "Writing & publishing",
+      "group": "Contribute",
+      "summary": "Edit source, check the notebook and export it to the personal website.",
+      "takeaways": [
+        "Write the purpose and result first; define unfamiliar terms and keep long evidence in labelled notes.",
+        "Build, validate links and inspect desktop/phone pages before exporting. A source push alone does not publish the personal website."
+      ],
+      "next_page": "project.html"
+    }
   ]
 }

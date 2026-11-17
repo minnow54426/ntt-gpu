@@ -1,7 +1,8 @@
 # Run and debug the NTT in VS Code
 
-Run the N=8 CPU example on macOS, then step through its butterflies in VS Code.
-CUDA hardware is not required.
+Use the N=8 CPU example to watch coefficients become evaluations and return
+to the original values. No CUDA hardware is needed. The terminal commands work
+on supported CPU platforms; the supplied VS Code debugger setup targets macOS.
 
 ## One-time setup
 
@@ -15,6 +16,15 @@ CUDA hardware is not required.
 The workspace uses Xcode's `lldb-dap`; check that Xcode command-line tools are installed.
 
 ## Run the small example
+
+From a terminal:
+
+```sh
+cmake -S . -B build -DNTT_ENABLE_CUDA=OFF
+cmake --build build --target ntt_debug_example
+./build/ntt_debug_example
+```
+
 
 Open the command palette with `Cmd+Shift+P`, choose **Tasks: Run Task**, then
 choose **Run: NTT debug example**.
@@ -39,15 +49,9 @@ roundtrip passed
 7. Press `F11` to step into `NegacyclicNtt::forward` in `include/ntt/ntt.hpp`.
 8. Use `F10` to advance one source line at a time.
 
-Useful values to add to the **Watch** panel:
-
-- `stage_pair_distance`
-- `group_start_index`
-- `pair_offset`
-- `upper_index`
-- `lower_index`
-- `twiddle_power`
-- `values`
+Watch `values`, `upper_index`, `lower_index` and `twiddle_power` first.
+Add `stage_pair_distance`, `group_start_index` and `pair_offset` when tracing
+how a pair is chosen.
 
 For `N=8`, the forward transform has three stages with pair distances
 `4`, `2`, and `1`. Expand `values` after each butterfly to see the array
@@ -65,7 +69,13 @@ CUDA build is available.
 
 ## CodeLLDB crash on current macOS/Xcode
 
+<details markdown="1">
+<summary>Recorded workaround for CodeLLDB 1.11.4</summary>
+
+
 The recorded CodeLLDB 1.11.4 / LLDB 19.1.7 setup crashed with `SIGBUS` on
 AppleClang symbols. Xcode `lldb-dap` stopped correctly at `main`. If an old
 `lldb` configuration appears, run **Developer: Reload Window** and select
 the `lldb-dap` configuration.
+
+</details>

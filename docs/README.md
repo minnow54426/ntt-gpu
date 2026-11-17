@@ -1,7 +1,10 @@
-# Writing and publishing the project notebook
+<div id="writing-and-publishing-the-project-notebook" aria-hidden="true"></div>
 
-Edit Markdown and the three interactive HTML lessons in `docs/`. Build the site
-locally, then export it to the personal website. Generated HTML is not source.
+# Write and publish the notebook
+
+Edit Markdown or the three interactive HTML lessons in this repository.
+Build and check the notebook, then export it to the personal website.
+The exported HTML is generated output; edit its source here.
 
 ## Preview locally
 
@@ -12,70 +15,79 @@ python3 -m venv .venv
 python3 -m http.server 8000 --bind 127.0.0.1 --directory build/docs-site
 ```
 
-Open `http://127.0.0.1:8000/`. Rebuild and refresh after editing.
-The interactive source HTML also works independently.
+Open `http://127.0.0.1:8000/`. Rebuild after each edit. The interactive source
+HTML also works as a standalone page.
 
 ## Read the site
 
-The left sidebar switches pages. **On this page** lists the current page's
-sections and highlights your reading position. On smaller screens, use
-**Menu** for pages and **Sections** for headings. Search opens from the top bar
-or `Ctrl+K` / `Cmd+K`.
+Use the left menu to change pages and search with `Ctrl+K` / `Cmd+K`.
+Each page starts with its main idea. Expand the notes for explanations,
+commands, evidence or an interactive lesson. A link to a specific section
+opens any collapsed notes automatically.
 
-Learn pages explain the mathematics and code; Research records evidence;
-Plans track gates; the Daily journal records dated results. Calendar dates and
-roadmap working days are separate: publishing a note does not complete a gate.
+Learn explains concepts; Research reports evidence; Plans lists remaining
+work. The journal records what happened on each calendar date. Its dates
+are separate from the roadmap's working-day milestones.
 
 ## Add a daily entry
 
 ```sh
-python3 scripts/new_journal.py --date 2026-11-10 --title "Describe the outcome"
+python3 scripts/new_journal.py --date 2026-11-17 --title "Describe the outcome"
 ```
 
-The helper creates a draft without overwriting an existing entry. Append to an
-existing day. Keep the `title`, `date`, `summary`, `phase`, and `status` metadata.
-Fill all six required sections:
+The helper creates a draft and never overwrites an existing entry. Append new
+work to the existing day. Keep the metadata fields `title`, `date`, `summary`,
+`phase` and `status`, and complete these six sections:
 
-| Section | Record |
+| Section | What to write |
 |---|---|
-| Outcome | What changed |
-| Reasoning | Evidence behind the decision |
-| Changes | Links to code and documents |
-| Verification | Observed checks, hardware, and limits |
-| Open questions | What remains unresolved |
+| Outcome | The result |
+| Reasoning | Why the change was needed |
+| Changes | What changed, with source links |
+| Verification | Checks actually run, their environment and limits |
+| Open questions | What is unresolved |
 | Next step | The next deliverable |
 
-Use `status: published` when complete; drafts stay off the site. Label
-reconstructed history and cite commits. Update the [integration plan](openfhe-integration-plan.md)
-when a gate changes. Its tracker supplies the homepage checkpoint.
+Set `status: published` when ready. Drafts stay off the website. Label
+reconstructed history and cite commits. Update the [roadmap](openfhe-integration-plan.md)
+only when a milestone's acceptance checks pass.
 
 ## Add or edit an article
 
-Register new documents in `docs/site.json` with source, URL, title, group, and
-summary. Use relative links to documents and code; the builder converts them
-to HTML routes or revision-pinned GitHub links.
+Register an article in `docs/site.json` with its source, URL, title, group,
+summary, one to three takeaways and a `next_page` route. Keep its route and existing heading anchors
+stable. Relative source links become HTML routes or revision-pinned GitHub links.
 
-The notebook shares the personal website's Sunlit Paper theme: warm paper,
-burnt-orange and forest-green accents, local Anton headings and Space Grotesk
-body text. Edit `docs/site-assets/sunlit-paper.css` for the shared presentation;
-keep the layout and lesson contrast rules in their existing stylesheets.
-Export from this repository instead of editing generated website HTML. Preserve
-readable math, code, section navigation and mobile table scrolling.
+Lead with the page's purpose and main result. Define unfamiliar terms before
+using abbreviations. Put commands beside their expected outcome; keep long
+source excerpts and historical evidence in labelled expandable sections:
 
-When explaining an upstream OpenFHE behavior, link the function name at the
-claim to its actual implementation in the pinned commit, with GitHub `#Lx-Ly`
-line anchors. Verify the range against that revision. Label short literal
-excerpts with the source file/lines and retain the upstream license; distinguish
-upstream implementation from our proposed APIs. Keep general project links
-for navigation rather than using them as evidence for a specific algorithm.
+```html
+<details markdown="1">
+<summary>Source and verification details</summary>
 
-Use `##` headings for main sections and `###` for subsections. Main headings
-populate the section sidebar automatically, including headings in HTML lessons.
-Existing anchors are preserved. Tables scroll inside the article.
+Reference material goes here.
 
-Write inline math as `\(...\)` and display math as `\[...\]`. KaTeX is bundled
-locally. Put long reference material in `<details markdown="1">` with a clear
-`<summary>`; keep the main conclusion visible. Search includes collapsed text.
+</details>
+```
+
+Use `##` for main headings and `###` for subsections. Write inline math as
+`\(...\)` and display math as `\[...\]`; KaTeX is bundled locally. Search
+includes collapsed text. Keep wide tables scrollable inside the page.
+
+For OpenFHE behavior, link the function name to the actual implementation at
+the pinned commit, with GitHub line anchors. Verify the cited lines and retain
+the BSD license for literal excerpts. Distinguish existing upstream code from
+our proposed GPU interfaces.
+
+Preserve the Sunlit Paper theme: warm paper, orange/green accents, Anton
+headings and Space Grotesk body text. Its source is
+`docs/site-assets/sunlit-paper.css`; layout and lesson contrast rules stay in
+their existing stylesheets.
+
+<div id="openfhe-representation-gate" aria-hidden="true"></div>
+
+<div id="device-backend-contract-gate" aria-hidden="true"></div>
 
 ## Validate before publishing
 
@@ -85,87 +97,28 @@ locally. Put long reference material in `<details markdown="1">` with a clear
 node --test tests/docs/*.test.cjs
 ```
 
-The build validates catalog coverage, journal metadata, and local links,
-assets, and heading fragments. The site supports project subpaths.
-The Node checks run the pages' actual inline scripts. The work-distribution
-checks cover N=65536 in both directions, stage controls, boundary selections,
-and complete per-stage index coverage. The handwritten-derivation checks compare
-DIT and negacyclic DIF butterfly results with independent direct NTT sums and
-check full-size twiddle/index boundaries. Node.js 22+ is required; no packages
-are needed. These checks do not replace browser inspection or CUDA execution.
+The build checks catalog coverage, metadata, routes, local links and fragments.
+The Node tests run the actual lesson scripts and require Node.js 22+.
+Inspect changed pages in a browser at desktop and phone widths, including
+expanded notes, math, controls, search and long tables.
 
-The separate C++ column proof executes the production stage helper on CPU:
+Documentation checks do not establish CUDA correctness. For implementation
+checks, use the relevant guide:
 
-```sh
-cmake -S . -B build
-cmake --build build --target ntt_column_mapping_tests ntt_device_sim
-ctest --test-dir build -R 'column_mapping_check|inverse_column_check|device_schedule_check' --output-on-failure
-```
+| Area | Instructions and scope |
+|---|---|
+| Stage indices and twiddles | [Work-distribution proofs](ntt-65536-work-distribution.html): CPU execution of shared stage helpers |
+| Modular arithmetic | [Arithmetic contract](modular-arithmetic-contract.md): bigint and full-size CPU checks |
+| OpenFHE arrays and formats | [Representation contract](openfhe-representation-contract.md): pinned core-library comparisons |
+| Hybrid key switching | [Operation graph](openfhe-hybrid-operation-graph.md): intermediate CPU arrays and actual keys |
+| Runtime ownership | [Resident-chain prototype](resident-operation-chain.md): host lifetime/failure tests; native CUDA pending |
+| Native CUDA session | [Preparation guide](offline-gpu-preparation.md): actual GPU exactness, sanitizers and measurements |
 
-The column check executes the real shared stage helper with tagged power
-tables at N=65536. It probes the input pair, ladder multiplier,
-and twiddle selection for every column butterfly. This is CPU verification,
-not a native CUDA build or a GPU race check.
-The inverse gate additionally checks reciprocal-table selection, the factor
-of two from one forward/inverse stage pair, and full N-inverse normalization
-with valid roots for two primes at N=65536.
+<div id="add-the-notebook-to-the-personal-website" aria-hidden="true"></div>
 
-For D4, run:
-
-```sh
-cmake --build build --target ntt_tile_mapping_tests
-ctest --test-dir build -R tile_mapping_check --output-on-failure
-```
-
-It probes every row butterfly at
-N=65536 in both directions and checks the two-pass stage lists
-and global endpoint coverage at N=65536 and small-size
-boundaries. Run a full build and `ctest --test-dir build --output-on-failure`
-to include the D3 and D4 gates together.
-
-The Python documentation suite also includes D5 source-contract checks for
-the allocation/copy/API map. These inspect C++ source text and pin byte-count
-arithmetic; they do not compile CUDA, inject failures, or validate runtime
-resource cleanup. See [CUDA buffers and dataflow](cuda-buffer-dataflow.md).
-
-The D6 [arithmetic contract](modular-arithmetic-contract.md) has two CPU gates:
-
-```sh
-cmake --build build --target ntt_arithmetic_contract_tests
-ctest --test-dir build -R 'arithmetic_' --output-on-failure
-```
-
-They check compiled primitives against Python big integers and run full-size
-50/55/60-bit transform patterns. They are not native CUDA tests.
-
-### OpenFHE representation gate
-
-The optional OpenFHE build registers both `openfhe_exact_compat` and
-`openfhe_representation_contract`. The [D7 contract](openfhe-representation-contract.md)
-explains the pinned source, exact array convention, and test command. These are
-CPU tests against OpenFHE 1.6.1; GPU execution remains a separate gate.
-
-### Device backend contract gate
-
-The normal build registers `backend_contract_check`. Read the
-[D9 proposal](device-backend-contract.md) for buffer layouts, stream dependencies,
-cache identities and fallback. These are host metadata checks, with abstract
-interfaces compiled by the test. The optional `openfhe_hybrid_graph` also checks
-the proposed active QP metadata and key offsets against actual OpenFHE objects.
-Neither gate implements a CUDA resource manager or OpenFHE device adapter.
-
-D10's [ADR](architecture-decision.md) accepts the design and its limits.
-The [backlog](implementation-backlog.md) records dependencies and runtime
-acceptance criteria; update it alongside the roadmap and journal as work passes.
-
-The [offline preparation guide](offline-gpu-preparation.md) covers compiler-only
-CUDA builds, host checks and native session collection. GPU tests use the `gpu`
-label: `ctest --test-dir build/cuda-offline13 -LE gpu --output-on-failure`
-excludes them. Such a passing host suite is not a GPU correctness result.
+<div id="standalone-project-pages-deployment" aria-hidden="true"></div>
 
 ## Publish with GitHub Pages
-
-### Add the notebook to the personal website
 
 From this repository:
 
@@ -173,17 +126,13 @@ From this repository:
 .venv/bin/python scripts/export_website.py --website-root /path/to/minnow54426.github.io
 ```
 
-Review, commit, and push the generated `systems/ntt-gpu/` files in the website
-repository. Its Pages workflow publishes the site. Open
-[the notebook](https://minnow54426.github.io/systems/ntt-gpu/index.html).
+Review, commit and push the generated `systems/ntt-gpu/` files in the website
+repository. Its Pages workflow publishes [the notebook](https://minnow54426.github.io/systems/ntt-gpu/index.html).
+The exporter refreshes only its managed files and retains the return link to
+the personal website.
 
-The exporter refreshes managed files only and adds a return link to the personal
-website. Navigation, search, and math also work in local previews.
-
-### Standalone project Pages deployment
-
-Ordinary pushes to `ntt-gpu` build a preview artifact; they do not publish the
-personal website. For an optional standalone site, set repository **Settings →
-Pages → Source → GitHub Actions**, then manually run the Documentation workflow
-with `deploy_standalone` enabled. Its URL is
+Ordinary pushes to `ntt-gpu` create a documentation preview artifact; they do
+not publish the personal website. For a separate project Pages site, choose
+**Settings → Pages → Source → GitHub Actions**, then run the Documentation
+workflow with `deploy_standalone` enabled. That optional site lives at
 [minnow54426.github.io/ntt-gpu](https://minnow54426.github.io/ntt-gpu/).

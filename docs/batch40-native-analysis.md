@@ -2,10 +2,10 @@
 
 **Measured on November 14, 2026 · temporary sm_89 GPU · M1 Pro CPU baseline**
 
-The current NTT implementation passes the executed correctness checks.
-Keeping intermediate data on the GPU already helps substantially. The next
-priority is to reduce repeated host transfers and validation—not to claim a
-finished OpenFHE accelerator.
+The tested NTT baseline passes its executed correctness checks. Keeping
+intermediate arrays on the GPU reduces the measured multiplication time.
+Next, validate the newer resident API and measure the remaining public-call
+costs before adding base conversion or key switching.
 
 The rental reports **RTX 4080 SUPER, compute capability 8.9**. These are
 **not RTX 5090 results**.
@@ -16,7 +16,8 @@ The rental reports **RTX 4080 SUPER, compute capability 8.9**. These are
 - All **280 GPU measurement jobs** and **140 M1 CPU jobs** passed.
 - The matrix covers N=4096–65536, 1–40 RNS prime towers, and 30/50/55/60-bit primes.
 
-K counts prime towers of one polynomial, not independent ciphertexts. Exact
+A tower stores the polynomial modulo one prime. K counts those towers, not
+independent ciphertexts. Exact
 comparisons use the pinned OpenFHE 1.6.1 path. GPU base conversion, Hybrid key
 switching and encrypted inference are **not implemented or validated by this run**.
 

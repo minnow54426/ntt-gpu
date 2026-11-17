@@ -1,12 +1,17 @@
-# CUDA buffers and host/device dataflow — D5
+<div id="cuda-buffers-and-hostdevice-dataflow-d5" aria-hidden="true"></div>
 
-This is a map of the current implementation, not a proposed device-resident
-API. Read it alongside the [public interface](../include/ntt/cuda_ntt.hpp),
-[implementation and launchers](../src/cuda/ntt_kernels.cu), and
-[kernel schedule](ntt-65536-work-distribution.html).
+# Where the CUDA wrapper stores and moves data
 
-Updated after [offline GPU preparation](offline-gpu-preparation.md): ownership,
-validation and device guards now compile with nvcc; real GPU behavior is pending.
+The synchronous `CudaNttTransform` accepts host vectors. Each call uploads
+inputs, runs kernels and downloads the result. Its fused `multiply()` keeps
+intermediate operations on the device; separate public calls repeat transfers.
+
+This page maps the [interface](../include/ntt/cuda_ntt.hpp) and
+[implementation](../src/cuda/ntt_kernels.cu). It describes the baseline wrapper,
+not the newer [resident-handle API](resident-operation-chain.md).
+Use the [work-distribution explorer](ntt-65536-work-distribution.html) for the
+kernel schedule. The [Ada report](batch40-native-analysis.md) records native
+baseline evidence; later runtime changes need their own verification.
 
 ## The big picture: N=65536, three towers
 
@@ -32,27 +37,18 @@ does **not** preserve a transfer-free pipeline.
 
 ## Constructor: what happens, in order
 
-1. Create `Impl` with `make_unique`; all six CUDA pointers start as null and the
-   owning-device sentinel is −1. Constructor exceptions destroy this partial state.
-2. Validate N in [2,65536], matching nonempty tower lists, prime q<2⁶³,
-   canonical primitive roots and checked buffer extents. Store N and limb count K.
-3. Set tile length `min(256,N)` and column length `N/256`.
-4. For every limb, construct a `NegacyclicNtt` CPU reference and build powers
-   of ψ and ψ-inverse for exponents **0 through N inclusive**. Compute N-inverse.
-5. Capture the current CUDA device, then allocate the six persistent buffers. Host allocations
-   have already occurred; parameter checks precede **device** allocation.
-6. Upload both power tables, the moduli, and inverse lengths: four H2D copies.
-7. Record row-grid count `max(1,N/256)` and elementwise-grid count
-   `ceil(K*N/256)`. All kernels launch 256 threads per block.
+1. Create the uniquely owned `Impl`; pointers start null. Validate the supported
+   size, prime/root pairs and checked buffer extents before CUDA calls.
+2. Build CPU references, powers of ψ and ψ-inverse for exponents 0…N, and
+   N-inverse for each tower. Set tile length `min(256,N)` and column length `N/256`.
+3. Capture the current device, allocate six persistent buffers and upload four
+   constant arrays. Record launch geometry: 256 threads per block,
+   `max(1,N/256)` row blocks per tower and `ceil(K*N/256)` elementwise blocks.
 
-The CPU constructor checks power-of-two N≥2, `(q−1) % (2N) == 0`,
-`ψ^N mod q == q−1`, and q>N. It assumes prime q; it does not itself run a
-primality test. The wrapper now adds that prime/range/extent validation in
-[cuda_validation.hpp](../include/ntt/cuda_validation.hpp) before any CUDA call.
-
-After construction, temporary host power-table/inverse-length vectors are
-released. `Impl` retains the moduli vector and per-limb CPU references, not a
-second permanent host copy of every power table.
+The raw CPU NTT constructor assumes prime q. The CUDA wrapper adds prime/range,
+root and extent checks in [cuda_validation.hpp](../include/ntt/cuda_validation.hpp).
+Temporary host power tables are released after setup; the moduli and CPU
+references remain.
 
 ## Persistent allocation and ownership map
 
@@ -77,14 +73,12 @@ copy assignment are deleted. No move operations are declared; this class is
 not currently movable either. Do not use one instance concurrently: public
 operations share and overwrite A/B and there is no locking or per-call scratch.
 
-On normal destruction or constructor unwinding, `unique_ptr` destroys `Impl`.
-The allocation owner releases acquired pointers in reverse order. Its CUDA
-adapter selects/restores the owning device around each release. Host-preflight
-failure has no acquired pointers and skips CUDA cleanup entirely. A diagnostic
-trace counts releases/failures; the ordinary nonthrowing destructor still cannot
-report them to its caller. Failed device selection skips that free rather than
-using another device. Do not
-infer safe concurrent destruction or synchronization with unrelated GPU work.
+On destruction or constructor failure, the allocation owner releases acquired
+pointers in reverse order while selecting/restoring their owning device.
+Preflight rejection has no allocations to free. A cleanup trace records
+failures, but the nonthrowing destructor cannot report them to its caller.
+Failed device selection skips the free. Concurrent use or destruction is not
+supported.
 
 ### Exact byte counts (requested allocations, not measured device usage)
 
@@ -208,7 +202,8 @@ timing.
   evaluation-key cache, or OpenFHE Q/P base-switch integration exists in this
   interface. Reusable allocations are not the final integration API.
 - The wrapper compiles and links for sm_89/sm_120 with stock CUDA 13.0.
-  Launch/barrier, arithmetic and driver behavior remain unverified on hardware.
+  The older Ada baseline passed its selected native checks; current source and
+  failed-context behavior still require the recorded native acceptance gates.
 
 [D9's backend proposal](device-backend-contract.md), accepted by
 [D10's ADR](architecture-decision.md), specifies these ownership/API decisions;

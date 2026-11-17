@@ -1,16 +1,23 @@
-# ADR 0001: accept the device backend architecture
+<div id="adr-0001-accept-the-device-backend-architecture" aria-hidden="true"></div>
 
-**D10 · Accepted for implementation · 2026-11-12 (Asia/Shanghai)**
+# ADR 0001: the accepted backend design
 
-Use an explicit, device-resident backend with immutable polynomial handles,
-checked representation metadata, and owned completion dependencies. Integrate
-OpenFHE first through an opt-in DCRT format-conversion adapter with transactional
-host updates and preflight-only CPU fallback.
+**Accepted November 12, 2026 · D10/P1 design decision**
 
-This decision accepts the D7–D9 contracts and the
-[implementation backlog](implementation-backlog.md). **P1 is complete. D11 is
-next: provision the native GPU environment.** Acceptance establishes the design;
-it does not establish CUDA correctness, runtime failure safety, or performance.
+Keep polynomial data on the device behind immutable handles: inputs stay
+unchanged and operations return fresh results. Each handle carries checked
+representation and ownership metadata; queued work retains the resources it
+needs until completion.
+
+Integrate OpenFHE first through an opt-in DCRT format-conversion adapter.
+Build a private host result and replace the original only after success.
+An explicitly allowed CPU route may be selected before GPU submission, never
+as an automatic retry after partial submission.
+
+This accepts the D7–D9 contracts and [backlog](implementation-backlog.md).
+It accepts a design, not native safety or speed. See the
+[roadmap](openfhe-integration-plan.md) for current progress and the
+[resident prototype](resident-operation-chain.md) for the implemented subset.
 
 ## 1. Review scope and evidence
 
@@ -233,8 +240,9 @@ unit tests, interactive mathematics, route/fragment checks, and desktop/mobile
 browser checks. Exact observed results are appended to the
 [daily journal](journal/2026-11-12.md#d10-accept-architecture-and-close-p1).
 At D10 acceptance, no CUDA compiler or GPU was available in the review environment.
-A compiler-only toolkit was installed during later
-[offline preparation](offline-gpu-preparation.md); real GPU evidence is still pending.
+Later [offline preparation](offline-gpu-preparation.md) added compiler checks,
+and the [Ada batch](batch40-native-analysis.md) supplied native baseline evidence.
+Primary-device and current resident-runtime acceptance remain open.
 
 Any later change to residue encoding, root conventions, public aliasing,
 submission/fallback boundaries, ownership, or resource-accounting semantics

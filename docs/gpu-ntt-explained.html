@@ -275,7 +275,7 @@
         <tr><td>global memory</td><td>Device-wide memory holding coefficients, moduli, and twiddle tables.</td><td class="ours">the whole polynomial, all limbs</td></tr>
         <tr><td>kernel</td><td>A function launched across a grid of threads.</td><td class="ours">six kernels in ntt_kernels.cu</td></tr>
       </table></div>
-      <p class="dim">A <b>barrier</b> (<code class="inline">__syncthreads()</code> in code) is the station's roll call: every cook in the block must arrive before anyone leaves. Chapter 7 is about the one way to misuse it.</p>
+      <p class="dim">A <b>barrier</b> (<code class="inline">__syncthreads()</code>) makes threads wait until the whole block reaches the same point. The diagrams use a kitchen analogy: a cook is a thread, a station is a block, and its counter is shared memory.</p>
       <div class="widget">
         <div class="w-title">how the pieces nest · one picture</div>
         <div class="svg-wrap">
@@ -353,8 +353,8 @@
     <!-- ============================ 3 ============================ -->
     <section id="s3">
       <div class="sec-head"><div class="sec-num">03</div><h2>One stage has independent pairs</h2></div>
-      <p>Recall the NTT's shape: at every stage, the list is chopped into pairs, and each pair goes through one butterfly. At N = 16, one stage has eight disjoint pairs. Follow both the indices and the values:</p>
-      <p>Follow all four stages at N=16 below. Every stage has eight independent pairs; stage boundaries carry dependencies. The two worked groups show how the first two stages stay inside strided columns and the last two stay inside contiguous rows.</p>
+      <p>A stage contains N/2 disjoint butterfly pairs. At N=16, eight pairs can run independently; the next stage must wait for their results.</p>
+      <p>The example follows all four N=16 stages. The first two fit inside strided columns; the last two fit inside contiguous rows.</p>
       <div data-lesson-sixteen></div>
       <details><summary>Earlier 8-point pairing animation</summary>
       <div class="widget">
@@ -371,16 +371,16 @@
         <div class="coef-label" id="pairCaption"></div>
         <div class="w-note">Every element belongs to exactly one pair per stage — the four butterflies share <b>nothing</b>. Four cooks, zero talking, any order. The fourth button is pass 1 of the real port in miniature (chapter 4).</div>
       </div>
-      <p>That "share nothing" is the entire secret. Because the pairs are <b>disjoint</b>, the four butterflies of a stage can run simultaneously, interleaved, in any order, on any cook — the final list is <b>identical every time</b>. A GPU stage is just: hand each pair to a cook, let them all fly at once, wait for the slowest, next stage.</p>
-      <p>Disjointness also buys <b>locality</b>: a stage with distance d only ever pairs values inside one 2d-wide group, so a group of 2<sup>k</sup> values owns its k smallest stages outright — the fact chapter 4 turns into the two-pass split, taken once with strided groups and once with contiguous tiles.</p>
-      <p class="dim">Hold onto that sentence — it is also why a plain CPU simulator, running the same stage bodies serially, can prove the whole schedule before any GPU is rented.</p>
+      <p>Butterflies in one stage write disjoint positions, so their execution order does not affect the result. Synchronize before the next stage reads those positions.</p>
+      <p>A distance-d butterfly stays inside a group of 2d values. This lets one block keep several stages local, provided every dependency stays in its group.</p>
+      <p class="dim">CPU simulation checks the shared index and arithmetic logic. Native CUDA tests must separately check device compilation, barriers and runtime behavior.</p>
       </details>
     </section>
 
     <!-- ============================ 4 ============================ -->
     <section id="s4" class="reveal">
       <div class="sec-head"><div class="sec-num">04</div><h2>Split the NTT into two passes</h2></div>
-      <p>So why not one giant block that does the whole transform? Size — a block's counter is capped at 48&nbsp;KB, and the data is far bigger:</p>
+      <p>A full N=65536 tower needs 512 KiB, which exceeds the shared-memory capacity available to one block. Split it into smaller groups:</p>
       <div class="widget">
         <div class="w-title">where "1.5 MB" comes from · why the data can't sit on one counter</div>
         <pre class="code" style="box-shadow:none; margin:10px 0;">1 value (one coefficient, one limb)   = 64 bits  = <b>8 bytes</b>
@@ -389,22 +389,22 @@ this repo  = 3 limbs  × 512 KB         = 1,536 KB ≈ <b>1.5 MB</b>
 real FHE   = ~40 limbs × 512 KB        ≈ <b>20 MB</b>  = 427× a block's whole 48 KB counter</pre>
         <div class="w-note">More limbs ≠ harder: each limb is one independent column of the grid (the <b>y</b> address) doing the identical dance — real coefficients are thousands of bits, kept as ~40 machine-word residues, one transform each.</div>
       </div>
-      <p>So how should a GPU run this? Walk the same road the port had to walk — four steps, each one forced by the step before:</p>
+      <p>The two-pass design follows from four choices:</p>
       <div class="ladder">
         <div class="rung"><div class="step">①</div><div>
           <h4>How the CPU does it — and where it hurts</h4>
-          <p>The reference (<code class="inline">ntt.hpp</code>) is one cook walking the list in order: stage by stage, pair by pair. At N = 8 that's four butterflies, one after another — even though chapter 3 proved they're independent. The picture below is the whole problem in miniature: <b>same four butterflies, four units of wall time versus one</b>. Fine at lecture size — but a real forward is 32,768 × 16 ≈ 524,288 butterflies <i>per limb</i>, ~21 million across 40 limbs. One cook at a few GHz drowns; that's the wall.</p>
+          <p>The CPU reference visits stages and pairs serially. At N=65536, each tower needs 32,768 butterflies per stage and 524,288 in total. The GPU assigns independent pairs to threads; actual speed depends on arithmetic, memory and scheduling costs.</p>
         </div></div>
         <div class="rung"><div class="step">②</div><div>
           <h4>First GPU idea: every pair on a cook, everything from VRAM</h4>
-          <p>Hand each pair of each stage to its own cook, all cooks at once, everyone reading and writing the warehouse directly. This <i>works</i> — and it is what a naive port does for every stage. But now count truck trips: <b>every stage fetches its partners from VRAM and writes them back</b> — one round-trip per stage per value, and there are 16 stages. The cooks spend their day at the loading dock (chapter 8's ladder: warehouse ≈ ×400 the counter). Both modular arithmetic and memory traffic require profiling.</p>
+          <p>A simple GPU port could launch one kernel per stage and load/store the whole array each time. That repeats global-memory traffic across all 16 stages. Shared-memory staging reduces those repeated loads and stores.</p>
         </div></div>
         <div class="rung"><div class="step">③</div><div>
           <h4>The hardware rule that shapes the fix — and the one choice we get to make</h4>
-          <p>The fast counter is <b>private to a block</b> — 256 cooks sharing 48&nbsp;KB — and nobody outside the block can touch it. So a stage can escape the warehouse on one condition: <b>all its pairs must sit inside data one block can gather onto its counter</b>. The group size is ours to choose; the port picks <b style="color:var(--accent);">256</b>:</p>
+          <p>Shared memory belongs to one block. Several stages can run there if all their dependencies fit inside that block's data. This implementation chooses 256 values per group:</p>
           <pre class="code" style="box-shadow:none; margin:8px 0;">counter budget:   48 KB ÷ 8 bytes per value = up to 6,144 values per group
 choose:           256 values  (= 2 KB of the 48) — and 65,536 = 256 × 256</pre>
-          <p style="margin-top:8px;">Why 256 exactly? It must be a <b>power of two</b>, so groups always contain whole pair-groups with nothing straddling an edge. And at N = 65,536 it makes the bookkeeping symmetric: <b>256 groups of 256 values</b>, twice over — once strided, once contiguous (rung ④). Each block requests 2&nbsp;KiB of shared memory; actual residency also depends on registers and hardware limits.</p>
+          <p style="margin-top:8px;">A power-of-two group contains complete butterfly groups. At N=65536, 256 × 256 gives a symmetric row/column split. Each block requests 2 KiB; registers and hardware limits also determine how many blocks can run together.</p>
           <svg viewBox="0 0 640 168" class="responsive" role="img" aria-label="Top: a 48 KB counter budget bar with a 2 KB group carved out and the rest spare. Bottom: one SM hosting three blocks, each bringing its own 2 KB group." style="max-width:640px;">
             <text x="10" y="20" font-family="IBM Plex Mono, monospace" font-size="12" fill="#57503F" font-weight="600">one block's counter budget: 48 KB</text>
             <rect x="10" y="30" width="620" height="34" rx="8" fill="#F7F1E5" stroke="#D8CFBB" stroke-width="1.5"/>
@@ -430,7 +430,7 @@ choose:           256 values  (= 2 KB of the 48) — and 65,536 = 256 × 256</pr
         </div></div>
         <div class="rung"><div class="step">④</div><div>
           <h4>That number is the pair distance d</h4>
-          <p>Look at a pair's addresses when the list is viewed as a 256×256 grid (row = 256q + r): partners of a <b>far</b> stage (d a multiple of 256) have the <b>same r</b> — same column, different row — so each strided group {r, r+256, r+512, …} owns all far stages. Partners of a <b>near</b> stage (d ≤ 128) sit in the <b>same row</b> — a contiguous 256-tile owns all near stages. Two groupings, no third case.</p>
+          <p>View the array as a 256×256 grid. Distances of 256 or more preserve the column index, so columns own the far stages. Distances 128 or less stay within a row, so rows own the near stages. These two sets cover all 16 stages.</p>
         </div></div>
       </div>
       <p>Stated cleanly, the four steps compress into one rule — the one structural idea of this port:</p>
@@ -449,7 +449,7 @@ choose:           256 values  (= 2 KB of the 48) — and 65,536 = 256 × 256</pr
     <!-- ============================ 5 ============================ -->
     <section id="s5" class="reveal">
       <div class="sec-head"><div class="sec-num">05</div><h2>Keep a group in shared memory</h2></div>
-      <p>Global memory is the warehouse; shared memory is the counter. A shared-phase block does exactly four things:</p>
+      <p>A block loads one group from global memory, runs its stages in shared memory, then stores the group back:</p>
       <div class="widget">
         <div class="w-title">one block, one group · the kernel's whole life</div>
         <div class="svg-wrap">
@@ -495,7 +495,7 @@ choose:           256 values  (= 2 KB of the 48) — and 65,536 = 256 × 256</pr
       </div>
       <p>A 256-value group uses 2&nbsp;KB of shared memory per limb, leaving room for several blocks to reside on an SM. Actual occupancy on the RTX 5090 must be measured after register use and launch limits are known.</p>
       <h3 style="font-family:var(--display); font-size:24px; margin:34px 0 4px;">The same trick, taken twice</h3>
-      <p>Notice what the tile trick actually was: <b>a group of 2^k values hosts the k smallest-distance stages with zero outside communication</b>. The port takes this trick <b>twice</b> — once with strided groups, once with contiguous ones — and that is the whole two-pass split:</p>
+      <p>The same staging pattern is used twice: once for strided columns and once for contiguous rows.</p>
       <div class="widget">
         <div class="w-title">one forward at N = 65,536 · two passes, four truck trips</div>
         <div class="svg-wrap">
@@ -557,17 +557,17 @@ choose:           256 values  (= 2 KB of the 48) — and 65,536 = 256 × 256</pr
               <circle cx="217" cy="167" r="12" fill="#F2E3C2" stroke="#765200" stroke-width="1.8"/><text x="217" y="172" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="#765200" font-weight="700">3</text>
               <circle cx="273" cy="167" r="12" fill="#F2E3C2" stroke="#765200" stroke-width="1.8"/><text x="273" y="172" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="#765200" font-weight="700">4</text>
             </g>
-            <text x="420" y="278" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="#57503F">per value: ① fetch + ② write-back + ③ fetch + ④ write-back = <tspan font-weight="700">4 warehouse trips</tspan> — versus 16 naive</text>
+            <text x="420" y="278" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="#57503F">per value: ① fetch + ② write-back + ③ fetch + ④ write-back = <tspan font-weight="700">4 warehouse trips</tspan> — versus 32 for 16 separate stages</text>
           </svg>
         </div>
-      <p>Two things this shape fixes at once. The <b>order</b> differs from stage order only in grouping — the forward runs pass 1 then pass 2, the inverse runs the same ladder backwards. And every launch is self-contained: <b>two kernel launches per forward</b> (one per pass), each block needing nothing but its own 256 values.</p>
+      <p>Forward runs columns then rows. Inverse runs rows then columns and finishes with normalization. At N=65536 this means two forward launches and three inverse launches.</p>
 
     </section>
 
     <!-- ============================ 6 ============================ -->
     <section id="s6" class="reveal">
       <div class="sec-head"><div class="sec-num">06</div><h2>Map the design to code</h2></div>
-      <p>Everything above exists in the repo in three small pieces. First, the butterfly body itself — written <b>once</b>, in <code class="inline">include/ntt/dev_core.hpp</code>, with the loop arranged as "one cook's slice of the pairs":</p>
+      <p>The snippets below shorten names to show the mapping. See <a href="../include/ntt/dev_core.hpp">the actual stage helpers</a> and <a href="../src/cuda/ntt_kernels.cu">CUDA kernels and launchers</a> for the implementation. First, each thread selects its share of butterfly pairs:</p>
       <pre class="code"><span class="c">// one DIF stage, one thread's slice — the same body the CPU simulator runs</span>
 NTT_DEV <span class="t">void</span> <span class="f">dev_dif_stage</span>(uint64_t* tile, uint64_t tile_len, uint64_t d,
                            uint64_t n, <span class="t">const</span> uint64_t* pp, uint64_t q,
@@ -583,7 +583,7 @@ NTT_DEV <span class="t">void</span> <span class="f">dev_dif_stage</span>(uint64_
     tile[v] = mul_mod(sub_mod(x, cv, q), pp[(n &gt;&gt; lg) * j], q); <span class="c">// twiddle</span>
   }
 }</pre>
-      <p>Second, the pass-1 kernel — pure choreography around the stage bodies, in <code class="inline">src/cuda/ntt_kernels.cu</code>. One block owns one strided group, start to finish:</p>
+      <p>Second, a column-pass block gathers its strided group, calls the shared stage helper and scatters results. The actual kernel is <code class="inline">forward_strided_group_kernel</code>:</p>
       <pre class="code">__global__ <span class="t">void</span> <span class="f">dif_col_kernel</span>(uint64_t* a, <span class="t">const</span> uint64_t* pp, <span class="t">const</span> uint64_t* q,
                                uint64_t n, uint32_t sub) {
   extern __shared__ uint64_t smem[];                          <span class="c">// the counter</span>
@@ -600,26 +600,26 @@ NTT_DEV <span class="t">void</span> <span class="f">dev_dif_stage</span>(uint64_
     al[r + (<span class="t">uint64_t</span>(t) &lt;&lt; <span class="hl">8</span>)] = smem[t];
 }</pre>
       <p class="dim">The pass-2 kernel (<code class="inline">dif_tile_kernel</code>) is the same shape with a contiguous gather — it is this kernel with <code class="inline">r + (t&lt;&lt;8)</code> replaced by <code class="inline">base + t</code>, running the near stages with <code class="inline">dev_dif_stage</code>.</p>
-      <p>Third, the launches — where the grid's two addresses become the map of the whole problem. Remember RNS from the butterfly guide: the same transform runs once per limb (per prime), completely independently, so the y address <b>is</b> the limb:</p>
+      <p>Third, the launch grid identifies independent groups and prime towers. RNS stores one polynomial modulo several primes; each prime's array is called a limb or tower. The grid's y coordinate selects that tower:</p>
       <pre class="code"><span class="c">// one forward = TWO launches (grid = x × limbs):</span>
 dif_col_kernel&lt;&lt;&lt;<span class="f">dim3</span>(<span class="hl">256</span>, num_limbs), T, sub * <span class="k">sizeof</span>(uint64_t)&gt;&gt;&gt;(buf, d_pp, d_q, n, sub);
 dif_tile_kernel&lt;&lt;&lt;<span class="f">dim3</span>(n/<span class="hl">256</span>, num_limbs), T, <span class="hl">256</span> * <span class="k">sizeof</span>(uint64_t)&gt;&gt;&gt;(buf, d_pp, d_q, n, <span class="hl">256</span>);
 <span class="c">// pass 1: block (x=r, y=k) = strided group r of limb k — owns {r, r+256, …}</span>
 <span class="c">// pass 2: block (x=q, y=k) = contiguous tile q of limb k — owns 256q … 256q+255</span></pre>
       <p class="dim">Three limbs produce 768 blocks per pass. The y grid coordinate batches limbs in one launch; hardware resource limits determine how many blocks run at once.</p>
-            <p>And the communication between stages — the part that makes or breaks a GPU program — is different in each phase, by design:</p>
+            <p>There are three synchronization boundaries:</p>
       <div class="ladder">
         <div class="rung"><div class="step">⇄</div><div>
           <h4>Between the two passes: the mix is pure data movement</h4>
-          <p>Pass 2's inputs are pass 1's outputs, regrouped — strided scatter becomes contiguous gather. No thread waits on another explicitly: the two launches share one stream, and pass 2 cannot begin until pass 1's writes have landed in VRAM. The pass boundary and the kernel boundary are the same line.</p>
+          <p>Pass 2 reads pass 1's results. Their same-stream kernel order ensures pass 1 completes first. The scatter/gather changes which block owns each group; it adds no arithmetic transform.</p>
         </div></div>
         <div class="rung"><div class="step">⇄</div><div>
           <h4>Between stages inside a pass: the barrier, because partners swap</h4>
-          <p>On the counter, the values your thread reads at stage <i>d</i> were written at stage <i>2d</i> by <b>different threads of your block</b> — the crossing re-shuffles ownership every stage. That is the entire reason for <code class="inline">__syncthreads()</code> after each stage: all 256 cooks finish, then anyone may read.</p>
+          <p>Within a pass, a stage can read values written by other threads in the previous stage. Every thread reaches <code class="inline">__syncthreads()</code> before the next stage starts.</p>
         </div></div>
         <div class="rung"><div class="step">∅</div><div>
           <h4>Between blocks: silence — and that is the design</h4>
-          <p>Inside either pass, every block's 256 values are a self-contained problem — a strided group for pass 1, a tile for pass 2 — and no pair ever leaves them. With three limbs, each pass has 768 independent block-local stage groups, which is why <b>one launch finishes eight whole stages</b>, and why the GPU can pack blocks onto SMs in any arrangement it likes.</p>
+          <p>Within one pass, blocks have disjoint groups and no cross-block dependencies. Each block can finish its eight stages independently. With three towers, a pass launches 768 blocks; they need not run simultaneously.</p>
         </div></div>
       </div>
     </section>
@@ -627,7 +627,7 @@ dif_tile_kernel&lt;&lt;&lt;<span class="f">dim3</span>(n/<span class="hl">256</s
     <!-- ============================ 7 ============================ -->
     <section id="s7" class="reveal">
       <div class="sec-head"><div class="sec-num">07</div><h2>Synchronize between stages</h2></div>
-      <p>Two GPU habits bite newcomers, and both are already handled in the kernel — know them when you read it.</p>
+      <p>Two barrier rules matter:</p>
       <div class="widget">
         <div class="w-title">the roll call rule · why barriers sit between stages</div>
         <div class="svg-wrap">
@@ -674,18 +674,18 @@ dif_tile_kernel&lt;&lt;&lt;<span class="f">dim3</span>(n/<span class="hl">256</s
       </div>
       <div class="callout">
         <h4>Rule 1: the barrier is all-or-nothing</h4>
-        <p>Every thread of a block must reach every <code class="inline">__syncthreads()</code>. Put one inside an <code class="inline">if</code> that only some threads take, and the others wait forever — a hung kernel. That is why our barriers sit <b>between</b> stage loops, never inside the pair loop: all 256 cooks finish their slice, then everyone crosses together.</p>
+        <p>Every thread in a block must reach the same <code class="inline">__syncthreads()</code>. A barrier in a branch taken by only some threads is invalid and can hang the kernel. Here barriers sit outside the pair loop.</p>
       </div>
       <div class="callout teal">
         <h4>Rule 2: idle cooks still attend roll call</h4>
-        <p>At N = 64 the tile is 64 values — only 32 pairs — but the block still has 256 threads. Most cooks hold no pair. Their loop body simply does zero iterations (<code class="inline">for (p = tid; p &lt; 32; p += 256)</code> never starts), and they walk straight to the barrier. Harmless — as long as they <b>don't skip it</b>. The repo's n=64 test fixture exists precisely to keep this edge honest.</p>
+        <p>A small N=64 tile has only 32 butterfly pairs but still launches 256 threads. Threads without a pair skip the arithmetic loop, then reach the barrier normally. Small fixtures check this boundary.</p>
       </div>
     </section>
 
     <!-- ============================ 8 ============================ -->
     <section id="s8" class="reveal">
-      <div class="sec-head"><div class="sec-num">08</div><h2>Memory movement sets the pace</h2></div>
-      <p>The whole design — tiles, phases, staging — is really one decision: <b>which shelf does each number live on?</b> The shelves differ by orders of magnitude:</p>
+      <div class="sec-head"><div class="sec-num">08</div><h2 id="memory-movement-sets-the-pace">Memory costs and timing boundaries</h2></div>
+      <p>Registers, shared memory, global memory and host/device transfers have different costs. This diagram illustrates their relative scale; it is not a measurement of these kernels.</p>
       <div class="widget">
         <div class="w-title">cost to fetch one value · relative, order-of-magnitude</div>
         <div class="svg-wrap" style="max-width:760px;">
@@ -693,21 +693,21 @@ dif_tile_kernel&lt;&lt;&lt;<span class="f">dim3</span>(n/<span class="hl">256</s
         </div>
         <div class="w-note">Log-scale bars — each gridline is ×10. Exact cycles vary by GPU generation; the gaps are what matter.</div>
       </div>
-      <p>In kitchen terms: <b>registers</b> are in your hands, <b>shared</b> is on your station's counter, <b>global</b> is the warehouse across town, and copying from the <b>host computer</b> is a delivery truck. Our kernel's shape follows directly: start and end in the warehouse, stage the tile on the counter, keep loop counters and twiddles in hands — and never, ever truck data back and forth per stage.</p>
-      <p class="dim">This ladder is also why the multiply pipeline stays on the GPU end to end: two forwards, pointwise, one inverse, <i>then</i> one truck trip home.</p>
+      <p>Keep loop variables in registers, stage each group in shared memory and use global memory between passes. The host-facing multiplication uploads two inputs and downloads the final result, rather than transferring after every NTT stage.</p>
+      <p class="dim">The fused chain is two forwards, pointwise multiplication and one inverse. Its intermediate arrays remain on the GPU.</p>
     </section>
 
     <!-- ============================ 9 ============================ -->
     <section id="s9" class="reveal">
       <div class="sec-head"><div class="sec-num">09</div><h2>Current baseline and next optimizations</h2></div>
-      <p>Everything above is proven before any rental: the stage bodies live once in <code class="inline">dev_core.hpp</code>, compiled by a CPU simulator that must match the reference exactly — the rented GPU's gates then check only the thin kernel wrappers. One confession before you read the benchmarks: version 1 of the GPU arithmetic is deliberately unoptimized. The multiply inside every butterfly uses the same <code class="inline">__uint128_t</code> division as the CPU reference — because on the GPU that division is <i>emulated</i>: the hardware has no 128-bit divide, so the compiler builds one from many instructions. Every butterfly pays it.</p>
-      <p>That is the right order of operations: <b>make it right, measure the gap, then make it fast</b>. The bench table's job is to quantify exactly how slow v1 is — the CPU reference column is right there in the same table. The fix (Barrett or Montgomery reduction: division-free modular multiplication, the standard trick every production NTT uses) swaps in later behind the same function signature, with its own dedicated cross-check.</p>
-      <p class="dim">The first RTX 5090 run answers one question: does N=65536 match the reference exactly across the target modulus widths? Then benchmarks should isolate modular reduction, coalescing, radix, register pressure, and end-to-end transfer cost.</p>
+      <p>The CPU simulator checks shared stage logic, while native tests check actual CUDA results and execution. The current modular multiply uses a wide product followed by remainder. Its device instruction cost needs profiling; it is not one native 128-bit divide instruction.</p>
+      <p>The <a href="batch40-native-analysis.md">temporary Ada results</a> establish the tested baseline. Candidate improvements include division-free Shoup/Barrett arithmetic, coalesced loads and more register work. Test and measure each change separately.</p>
+      <p class="dim">RTX 5090 validation remains pending. The newer resident runtime also needs its own native lifetime, failure and sanitizer checks.</p>
     </section>
 
     <div class="summary">
       <h3>Recap</h3>
-      <p>Each thread computes butterfly pairs. Each block loads one group into shared memory, runs several stages with barriers, and writes the group back. A far-pair pass followed by a near-pair pass covers the full transform; <b>x identifies the group and y identifies the RNS limb</b>. The CPU simulator proves the schedule before GPU testing. The current baseline favors exact results over speed; optimization comes next through division-free modular reduction, coalesced data layout, higher radix, and device-resident pipelines.</p>
+      <p>A thread computes pairs; a block owns a group. Shared memory reuses that group across stages. Columns handle far pairs, rows handle near pairs, and barriers preserve dependencies. Next, use the <a href="ntt-65536-work-distribution.html">N=65536 explorer</a> to trace a specific block and thread.</p>
       <p style="margin-top:18px; font-size:16px; color:var(--ink-soft);">Start here if you haven't: <a href="butterfly-explained.html">Butterflies all the way down</a> — why the NTT is butterflies at all.</p>
     </div>
 

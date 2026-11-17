@@ -8,10 +8,10 @@
 Choose kernels using exact checks and measured latency or throughput at
 N=65536. Record the GPU, CKKS parameters, batch shape, and transfer boundary.
 
-The [first native-run analysis](first-native-analysis.md) audits the saved
-2026-11-14 Ada diagnostic. Missing raw samples, inverse warm-up/reset, timing
-separation and production-parameter performance are explicit. No measured
-bottleneck or RTX 5090 result is claimed.
+The [full-matrix report](batch40-native-analysis.md) records the temporary Ada
+baseline. The [earlier diagnostic analysis](first-native-analysis.md) explains
+why its single averaged row was insufficient. Neither supplies an RTX 5090
+result or an accepted hardware-counter bottleneck diagnosis.
 
 ## 1. Implementations to compare
 
@@ -52,32 +52,30 @@ Three-limb synthetic fixtures alone are insufficient.
 
 The next rental's bounded baseline batch uses all five dimensions, all four
 prime widths, and K=1/3/8/16/24/32/40: **140 workloads**, with separate public
-GPU, resident event/pinned-copy, and OpenFHE CPU jobs (**420 jobs**). Any K from 1 to 40 can
-be selected explicitly; K is primes per polynomial, not ciphertext batch size.
-Defaults are five warm-ups and 100 timed samples per operation. This does not
-yet sweep actual production CKKS parameter sets, ciphertext batches or
-alternative implementations. Thirty-bit
-primes currently use the same `uint64_t` buffers/arithmetic; this is not a
-specialized `uint32_t` implementation or a four-byte storage benchmark.
+GPU, resident event/pinned-copy, and OpenFHE CPU jobs (**420 combined jobs**).
+The rental helper defaults to 280 GPU-only jobs; collect the 140 CPU jobs
+locally with the split collector. Select any K from 1 to 40; K counts primes
+per polynomial, not ciphertexts. Defaults are five warmups and 100 samples.
+
+This baseline does not sweep production CKKS parameter sets, ciphertext
+batches or alternative implementations. Thirty-bit primes use the same
+`uint64_t` storage/arithmetic; there is no specialized `uint32_t` kernel or
+four-byte transfer path yet.
 See the [batch protocol](offline-test-tooling.md) for restart and timing limits.
 
 ## 3. GPU and kernel parameters to tune
 
-Tune or record all of the following:
+Group experiments by the cost they change:
 
-- threads per block and blocks per transform;
-- values and butterflies per thread;
-- radix and number of stages fused per kernel;
-- tile/split dimensions and transpose shape;
-- register count per thread and register spilling;
-- static/dynamic shared memory per block and bank conflicts;
-- active blocks and warps per SM;
-- warp-shuffle versus shared-memory exchange boundaries;
-- twiddle layout, Shoup table layout, and on-the-fly twiddle generation;
-- lazy-reduction range and reduction frequency;
-- RNS limb, ciphertext, and operation batch layout;
-- CUDA stream count, asynchronous copies, and CUDA Graph replay;
-- scratch-buffer reuse and allocator behavior.
+| Area | Variables to test or record |
+|---|---|
+| Thread work | Block size, butterflies/values per thread, radix, register staging and spills |
+| Memory | Split/transpose shape, shared-memory padding, bank conflicts, warp exchange and coalescing |
+| Arithmetic | Shoup/Barrett policy, lazy range, reduction frequency and twiddle representation |
+| Workload | RNS tower layout, ciphertext/digit batch layout and active blocks/warps |
+| Runtime | Streams, allocation/scratch reuse, asynchronous copies and CUDA Graph replay |
+
+Change one major factor at a time before combining winners.
 
 Retain `ptxas -v` reports and Nsight occupancy. Select by end-to-end performance,
 not register count alone.
