@@ -22,7 +22,7 @@ Last reviewed: 2026-11-17 (Asia/Shanghai).
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Verify the resident-chain prototype and remaining P2 gates on RTX 5090 |
+| Active task | Verify the resident chain and new group-twiddle NTT on RTX 5090; compare with the legacy baseline |
 | Next gate | P2: native CUDA/OpenFHE exactness and named-hardware baseline (D11–D15) |
 | Overall state | In progress; additional Ada hardware verified, primary-device and remaining P2 gates open |
 

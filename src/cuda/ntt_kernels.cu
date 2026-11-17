@@ -1,7 +1,7 @@
 // The CUDA backend: kernels, launchers, and CudaNttTransform.
 //
-// Design invariant: every index-heavy line lives in include/ntt/
-// dev_core.hpp, shared with the device-schedule simulator (gate
+// Design invariant: the stage helpers in include/ntt/transform_stage.hpp
+// are shared with the device-schedule simulator (gate
 // device_schedule_check, green on the Mac since Layer 2a). This file is
 // deliberately only scaffolding around those bodies — allocate, launch,
 // synchronize, copy — the class of code the GPU gates (cuda_matches_ref,
@@ -26,7 +26,7 @@
 
 #include "ntt/cuda_ntt.hpp"
 #include "ntt/cuda_validation.hpp"
-#include "ntt/dev_core.hpp"
+#include "ntt/transform_stage.hpp"
 #include "ntt/mod_arith.hpp"
 #include "ntt/ntt.hpp"
 #include "ntt/param_gen.hpp"
@@ -117,7 +117,7 @@ __global__ void forward_strided_group_kernel(uint64_t *values,
   __syncthreads();
   for (uint64_t local_pair_distance = strided_group_length / 2;
        local_pair_distance >= 1; local_pair_distance >>= 1) {
-    dev_dif_col_stage(shared_group_values, strided_group_length, local_pair_distance,
+    transform_stage<false, kPassSplitWidth>(shared_group_values, strided_group_length, local_pair_distance,
                       transform_length, limb_twiddle_powers, limb_modulus, threadIdx.x,
                       blockDim.x, strided_group_offset);
     __syncthreads();
@@ -149,7 +149,7 @@ __global__ void inverse_strided_group_kernel(uint64_t *values,
   __syncthreads();
   for (uint64_t local_pair_distance = 1;
        local_pair_distance <= strided_group_length / 2; local_pair_distance <<= 1) {
-    dev_dit_col_stage(shared_group_values, strided_group_length, local_pair_distance,
+    transform_stage<true, kPassSplitWidth>(shared_group_values, strided_group_length, local_pair_distance,
                       transform_length, limb_inverse_twiddle_powers, limb_modulus,
                       threadIdx.x, blockDim.x, strided_group_offset);
     __syncthreads();
@@ -181,8 +181,8 @@ __global__ void forward_contiguous_tile_kernel(uint64_t *values,
   __syncthreads();
   for (uint64_t pair_distance = tile_length / 2; pair_distance >= 1;
        pair_distance >>= 1) {
-    dev_dif_stage(shared_tile_values, tile_length, pair_distance, transform_length,
-                  limb_twiddle_powers, limb_modulus, threadIdx.x, blockDim.x);
+    transform_stage<false, 1>(shared_tile_values, tile_length, pair_distance, transform_length,
+                  limb_twiddle_powers, limb_modulus, threadIdx.x, blockDim.x, tile_start_index);
     __syncthreads();
   }
   for (uint32_t tile_index = threadIdx.x; tile_index < tile_length;
@@ -208,8 +208,8 @@ __global__ void inverse_contiguous_tile_kernel(uint64_t *values,
   __syncthreads();
   for (uint64_t pair_distance = 1; pair_distance <= tile_length / 2;
        pair_distance <<= 1) {
-    dev_dit_stage(shared_tile_values, tile_length, pair_distance, transform_length,
-                  limb_inverse_twiddle_powers, limb_modulus, threadIdx.x, blockDim.x);
+    transform_stage<true, 1>(shared_tile_values, tile_length, pair_distance, transform_length,
+                  limb_inverse_twiddle_powers, limb_modulus, threadIdx.x, blockDim.x, tile_start_index);
     __syncthreads();
   }
   for (uint32_t tile_index = threadIdx.x; tile_index < tile_length;
@@ -357,16 +357,10 @@ CudaNttTransform::CudaNttTransform(uint64_t transform_length,
     const uint64_t modulus = moduli[limb_index];
     const uint64_t primitive_root = primitive_roots[limb_index];
     impl.cpu_references.emplace_back(transform_length, modulus, primitive_root);
-    const uint64_t inverse_primitive_root = inv_mod(primitive_root, modulus);
-    uint64_t twiddle_power = 1;
-    uint64_t inverse_twiddle_power = 1;
-    for (uint64_t exponent = 0; exponent <= transform_length; ++exponent) {
-      twiddle_powers.push_back(twiddle_power);
-      inverse_twiddle_powers.push_back(inverse_twiddle_power);
-      twiddle_power = mul_mod(twiddle_power, primitive_root, modulus);
-      inverse_twiddle_power =
-          mul_mod(inverse_twiddle_power, inverse_primitive_root, modulus);
-    }
+    const auto forward_table = transform_twiddles(transform_length, primitive_root, modulus);
+    const auto inverse_table = transform_twiddles(transform_length, inv_mod(primitive_root, modulus), modulus);
+    twiddle_powers.insert(twiddle_powers.end(), forward_table.begin(), forward_table.end());
+    inverse_twiddle_powers.insert(inverse_twiddle_powers.end(), inverse_table.begin(), inverse_table.end());
     inverse_transform_lengths.push_back(inv_mod(transform_length, modulus));
   }
   const size_t value_count = shape.values;
@@ -505,7 +499,8 @@ void describe_device(std::ostream &output) {
   CHECK_CUDA(cudaDriverGetVersion(&driver));
   CHECK_CUDA(cudaRuntimeGetVersion(&runtime));
   output << "visible devices: " << count << "\nselected device: " << device
-         << "\nname: " << props.name << "\ncompute capability: " << props.major << '.'
+         << "\nname: " << props.name << "\ntransform schedule: " << kTransformSchedule
+         << "\ncompute capability: " << props.major << '.'
          << props.minor << "\nmemory bytes: " << props.totalGlobalMem
          << "\ndriver API: " << driver << "\nruntime API: " << runtime << '\n';
 }
@@ -529,7 +524,8 @@ void run_bench(uint32_t minimum_size_exponent, uint32_t maximum_size_exponent,
   output << "driver/runtime API: " << driver_version / 1000 << "."
          << (driver_version % 1000) / 10 << " / " << runtime_version / 1000 << "."
          << (runtime_version % 1000) / 10 << "\n";
-  output << "v1 arithmetic: __uint128_t division (pre-Barrett; see README)\n";
+  output << "transform schedule: " << kTransformSchedule << '\n';
+  output << "reduction: __uint128_t remainder (pre-Barrett; see README)\n";
   output << "columns are end-to-end per call: transfers included\n\n";
   output
       << "baseline parameters: 46-bit primes; host validation/device guards included\n";
@@ -678,7 +674,8 @@ void run_bench_samples(uint64_t dimension, const std::vector<uint64_t> &moduli,
             "\"input_policy\":\"fixed_seed_reset_outside_timer\",\"seed\":7492057,"
             "\"setup_included\":false,\"device\":";
   measurement::json_string(output, properties.name);
-  output << ",\"compute_major\":" << properties.major << ",\"compute_minor\":" << properties.minor
+  output << ",\"transform_schedule\":\"" << kTransformSchedule << "\""
+         << ",\"compute_major\":" << properties.major << ",\"compute_minor\":" << properties.minor
          << ",\"device_bytes\":" << properties.totalGlobalMem
          << ",\"driver_api\":" << driver << ",\"runtime_api\":" << runtime << ",\"moduli\":[";
   for (size_t tower = 0; tower < moduli.size(); ++tower) {

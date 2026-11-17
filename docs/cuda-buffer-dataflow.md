@@ -39,7 +39,7 @@ does **not** preserve a transfer-free pipeline.
 
 1. Create the uniquely owned `Impl`; pointers start null. Validate the supported
    size, prime/root pairs and checked buffer extents before CUDA calls.
-2. Build CPU references, powers of ψ and ψ-inverse for exponents 0…N, and
+2. Build CPU references, bit-reversed forward and reciprocal twiddle tables, and
    N-inverse for each tower. Set tile length `min(256,N)` and column length `N/256`.
 3. Capture the current device, allocate six persistent buffers and upload four
    constant arrays. Record launch geometry: 256 threads per block,
@@ -60,8 +60,8 @@ Every stored element is `uint64_t`.
 |---|---|---|---|
 | `device_operand_a` | 196,608 / 1,572,864 B | `[limb][coefficient or evaluation position]`; working input/output | Public input copy and kernels write; result copy reads |
 | `device_operand_b` | 196,608 / 1,572,864 B | Second operand; separate from A | Input copy and its forward transform write; pointwise kernel reads |
-| `device_twiddle_powers` | 196,611 / 1,572,888 B | `[limb][exponent]`, \(\psi^e\) | Constructor uploads; forward kernels read |
-| `device_inverse_twiddle_powers` | 196,611 / 1,572,888 B | `[limb][exponent]`, \((\psi^{-1})^e\) | Constructor uploads; inverse kernels read |
+| `device_twiddle_powers` | 196,611 / 1,572,888 B | `[limb][table index]`, \(\psi^{\operatorname{rev}(i)}\) | Constructor uploads; forward kernels read |
+| `device_inverse_twiddle_powers` | 196,611 / 1,572,888 B | `[limb][table index]`, \((\psi^{-1})^{\operatorname{rev}(i)}\) | Constructor uploads; inverse kernels read |
 | `device_moduli` | 3 / 24 B | q for each limb | Constructor uploads; arithmetic kernels read |
 | `device_inverse_transform_lengths` | 3 / 24 B | N-inverse modulo each q | Constructor uploads; final scale kernel reads |
 
@@ -135,8 +135,8 @@ GPU allocation or transfer data.
 <div class="flow-arrow">↓ H2D · 2 copies · 3 MiB total</div>
 <div class="flow-device"><strong>GPU · reusable A and B</strong>
 <div class="dataflow-grid">
-<div><strong>A · 1.5 MiB</strong><p>Coefficients<br>↓ column DIF · 256 blocks/tower<br>↓ row DIF · 256 blocks/tower<br>Bit-reversed evaluations</p></div>
-<div><strong>B · 1.5 MiB</strong><p>Coefficients<br>↓ column DIF · 256 blocks/tower<br>↓ row DIF · 256 blocks/tower<br>Bit-reversed evaluations</p></div>
+<div><strong>A · 1.5 MiB</strong><p>Coefficients<br>↓ column stages · 256 blocks/tower<br>↓ row stages · 256 blocks/tower<br>Bit-reversed evaluations</p></div>
+<div><strong>B · 1.5 MiB</strong><p>Coefficients<br>↓ column stages · 256 blocks/tower<br>↓ row stages · 256 blocks/tower<br>Bit-reversed evaluations</p></div>
 </div>
 <div class="flow-arrow">↓ A × B, write A · 1 kernel · 768 blocks</div>
 <div><strong>A · product evaluations</strong><p>↓ row DIT → column DIT → inverse scale<br>3 kernels; result: 196,608 coefficient residues</p></div>

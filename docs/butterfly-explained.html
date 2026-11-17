@@ -626,7 +626,7 @@
         </div>
         <div class="w-note" id="plotnote">hover the plot — at N = 65,536 the direct line stands 8,192× above the butterfly line</div>
       </div>
-      <p class="dim">This compares arithmetic counts, not measured speed. A cyclic butterfly uses one multiply, one add and one subtract; this repository's folded negacyclic device butterfly uses two multiplies. CPU twiddle advancement adds another multiply. Doubling N multiplies the direct count by 4, and the butterfly count by \(2(\log_2N+1)/\log_2N\). The butterfly curve is slightly curved on a log–log plot.</p>
+      <p class="dim">This compares arithmetic counts, not measured speed. A cyclic butterfly and the current negacyclic CUDA butterfly each use one twiddle multiply; the legacy DIF butterfly uses two. Doubling N multiplies the direct count by 4, and the butterfly count by \(2(\log_2N+1)/\log_2N\).</p>
     </section>
 
     <!-- ============================ 5. EXPANSION ============================ -->
@@ -663,16 +663,44 @@ t &= \omega^k O_k \\[0.5em]
         <h4>Why the optimization keeps working</h4>
         <p><span class="m">\(ω^{2}\)</span> is an N/2-th root of unity, so E and O have exactly the same shape as the original problem, only half as large. Repeating the split reaches two-value problems. Each level contains N/2 butterflies, and there are log₂N levels.</p>
       </div>
-      <h3>What exactly happens in each stage?</h3>
-      <p>For this cyclic DIT explanation, first place input coefficients in bit-reversed order. Stage s starts at zero, uses group width M and distance d, and combines two completed half-transforms. Every pair reads the previous stage and writes two new values:</p>
+      <h3 id="cyclic-dit-stage">What exactly happens in each stage?</h3>
+      <p>This is <strong>cyclic DIT</strong>: bit-reverse the input coefficients once, then merge short transforms into longer ones. Write \(X_i^{(s)}\) for the value in array slot \(i\) <em>before</em> stage \(s\), counting stages from zero. The superscript is a stage label, not a power.</p>
+
+      <h4>1. Pick the group size</h4>
+      <div class="math typeset">\[d=2^s,\qquad M=2d=2^{s+1}.\]</div>
+      <p>Two completed \(d\)-point results sit side by side. The butterfly stage merges them into one \(M\)-point result. At \(s=0\), a single coefficient counts as a completed 1-point result; the group sizes then grow as 2, 4, 8, …, \(N\).</p>
+
+      <h4>2. Read the same offset from both halves</h4>
       <div class="math typeset">\[
-M=2^{s+1},\quad d=M/2,\quad U=gM+j,\quad V=U+d,\quad 0\le j&lt;d,
-\qquad t=\omega_N^{jN/M}X^{(s)}_V.
-\]
-\[
-X^{(s+1)}_U=X^{(s)}_U+t,\qquad X^{(s+1)}_V=X^{(s)}_U-t.
+\begin{aligned}
+U &= gM+j,\\
+V &= U+d.
+\end{aligned}
 \]</div>
-      <p>Stage 0 combines pairs into 2-point transforms; stage 1 combines two 2-point results into a 4-point result; stage s combines two d-point results into one M-point result. A stage has N/M groups and d butterflies per group, giving N/2 disjoint pairs. A later stage must wait until its input stage finishes. The complete numerical example in the negacyclic section uses the repository's opposite, DIF stage order.</p>
+      <p>\(g\) is the zero-based group number, so \(gM\) is its first slot. The local offset \(j\) ranges from 0 to \(d-1\). Read the first half at \(U\), then move forward by \(d\) slots to read the same offset in the second half at \(V\). With \(N/M\) groups and \(d\) pairs per group, each stage has exactly \(N/2\) disjoint butterflies.</p>
+
+      <h4>3. Multiply once, then write both outputs</h4>
+      <div class="math typeset">\[
+\begin{aligned}
+w_{s,j} &= \omega_N^{\,j(N/M)},\\
+t &= w_{s,j}X_V^{(s)},\\
+X_U^{(s+1)} &= X_U^{(s)}+t,\\
+X_V^{(s+1)} &= X_U^{(s)}-t.
+\end{aligned}
+\]</div>
+      <p>All butterfly arithmetic is modulo \(q\). Both writes use the <em>old</em> upper value \(X_U^{(s)}\); an in-place implementation saves it before overwriting that slot. The outputs become inputs to the next stage only after the current stage finishes.</p>
+
+      <h4>Worked example: one pair at N = 8</h4>
+      <p>Choose stage \(s=1\), group \(g=1\), and offset \(j=1\). Then \(M=4\) and \(d=2\). The second group starts at slot 4, so read \(U=4+1=5\) and \(V=5+2=7\). The exponent is \(j(N/M)=1(8/4)=2\). With \(q=17\) and \(\omega_8=2\) (of order 8), the twiddle is \(2^2=4\). Reduce both outputs modulo 17:</p>
+      <div class="math typeset">\[
+\begin{aligned}
+(X_5^{(1)},X_7^{(1)})&=(6,3),\\
+t&=4\cdot3=12,\\
+X_5^{(2)}&=6+12\equiv1,\\
+X_7^{(2)}&=6-12\equiv11.
+\end{aligned}
+\]</div>
+      <p>Here 6 and 3 are example values <em>after stage 0</em>, not original coefficients. The <a href="#cyclic-dit-stage-twiddle">twiddle derivation below</a> explains why the exponent is 2, not 1. The <a href="ntt-65536-work-distribution.html#column-proof">production CUDA butterfly</a> also multiplies once, but it implements a <em>negacyclic</em> transform with decreasing distances and a group-indexed table. Do not use this lesson's cyclic twiddle formula in that kernel.</p>
       <p>The <a href="#handwritten-derivation">handwritten derivation below</a> expands N=4, recurses into the second split, and derives the twiddle exponent for every stage. Try its four-point arithmetic here first:</p>
       <div class="widget">
         <div class="w-title">Interactive · both levels, real numbers — mod 17, ω = 4 (ω² = 16 ≡ −1)</div>
@@ -690,7 +718,7 @@ X^{(s+1)}_U=X^{(s)}_U+t,\qquad X^{(s+1)}_V=X^{(s)}_U-t.
         <div class="w-row" style="margin-top:10px;"><span class="equals-badge" id="s5agree"></span></div>
         <div class="w-note">Change any coefficient: level 1 feeds level 2, four butterflies total — and the result is checked against the direct definition.</div>
       </div>
-      <p>The cyclic butterfly reuses one multiply, one add and one subtract. The network below repeats that small operation; the repository's negacyclic version adds the folded factor derived next.</p>
+      <p>The cyclic butterfly reuses one multiply, one add and one subtract. The notes below expand the cyclic derivation; the later negacyclic example illustrates the CPU reference's separate folded factors.</p>
     </section>
 
     <span id="手稿推导-递归拆分与旋转因子" aria-hidden="true"></span>
@@ -771,19 +799,29 @@ b_3&=a_0+a_1\omega^3+a_2\omega^6+a_3\omega^9=(a_0-a_2)-\omega(a_1-a_3).
         </div>
         <figcaption>Scroll horizontally on small screens. The drawing groups outputs as b₀, b₂, b₁, b₃ to show shared intermediates; the mathematical output index is still j.</figcaption>
       </figure>
-      <p>The drawing's vertical order does not prescribe memory order. Standard iterative DIT usually starts with bit-reversed inputs and produces natural-order outputs. This repository's forward DIF takes natural-order inputs and produces bit-reversed evaluations. See the <a href="#s7">N=8 network</a> and the <a href="openfhe-representation-contract.md">D7 representation contract</a> for the exact ordering. Compare OpenFHE’s <a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474">format-to-NTT dispatch</a> in the actual implementation.</p>
+      <p>The drawing's vertical order does not prescribe memory order. Standard iterative DIT usually starts with bit-reversed inputs and produces natural-order outputs. The CPU reference’s forward DIF takes natural-order inputs and produces bit-reversed evaluations. See the <a href="#s7">N=8 network</a> and the <a href="openfhe-representation-contract.md">D7 representation contract</a> for the exact ordering. Compare OpenFHE’s <a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474">format-to-NTT dispatch</a> in the actual implementation.</p>
 
-      <h3>4. Derive the stage twiddle from its length</h3>
-      <p>Use the notes' <b>bottom-up DIT combination</b>, with s starting at zero. Stage s combines two 2<sup>s</sup>-point results into one M=2<sup>s+1</sup>-point result. Here j is the offset within the current butterfly group.</p>
+      <h3 id="cyclic-dit-stage-twiddle">4. Derive the stage twiddle from its length</h3>
+      <h4>Choose the root for an \(M\)-point transform</h4>
+      <p>\(\omega_N\) has order \(N\): its powers return to 1 after exactly \(N\) steps. An \(M\)-point merge needs a root with order \(M\), so take a stride of \(N/M\) in that same power table.</p>
       <div class="math typeset">\[
 \begin{aligned}
-M&=2^{s+1},\qquad 0\le s&lt;\log_2N,\qquad 0\le j&lt;M/2,\\
-\omega_M&=\omega_N^{N/M},\\
-w_{s,j}&=\omega_M^j=\left(\omega_N^{N/2^{s+1}}\right)^j
-=\boxed{\omega_N^{jN/2^{s+1}}}.
+\omega_M &= \omega_N^{N/M},\\
+(\omega_M)^M &= \omega_N^N=1.
 \end{aligned}
 \]</div>
-      <p>A butterfly's factor follows from three quantities: <b>stage s → group length M → local offset j</b>. Groups in the same stage share the j-to-factor rule. The group number changes the array positions, not the exponent.</p>
+      <p>For any positive \(k&lt;M\), \(k(N/M)\) is strictly between 0 and \(N\), so \((\omega_M)^k\ne1\). Thus the smaller root has <em>exactly</em> order \(M\), not just a power that happens to equal 1.</p>
+
+      <h4>Take \(j\) steps in the smaller root's powers</h4>
+      <p>The odd-index half of the merge is weighted by \(\omega_M^j\), as in the even/odd sum above. Its partner output at \(j+d\) uses the opposite sign because \(\omega_M^d=-1\). That is why one product feeds both the sum and the difference.</p>
+      <div class="math typeset">\[
+\begin{aligned}
+w_{s,j} &= \omega_M^j\\
+        &= \omega_N^{\,j(N/M)}\\
+        &= \omega_N^{\,jN/2^{s+1}}.
+\end{aligned}
+\]</div>
+      <p>In the <a href="#cyclic-dit-stage">worked pair above</a>, \(N=8\), \(M=4\), and \(j=1\): the stride is 2, so the factor is \(\omega_8^2\). At \(j=0\), it is always 1. Changing \(g\) selects a different block of array slots but leaves the exponent unchanged in <em>this cyclic DIT schedule</em>.</p>
       <div class="notes-table-scroll matrix-scroll" role="region" aria-label="Stage lengths and twiddle exponents" tabindex="0"><table class="notes-table"><thead><tr><th>N</th><th>s</th><th>M</th><th>ω<sub>N</sub> exponent</th></tr></thead><tbody>
         <tr><td>8</td><td>0</td><td>2</td><td>j=0: exponent 0, factor 1</td></tr>
         <tr><td>8</td><td>1</td><td>4</td><td>2j: 0, 2</td></tr>
@@ -796,7 +834,7 @@ w_{s,j}&=\omega_M^j=\left(\omega_N^{N/2^{s+1}}\right)^j
       <div class="widget" id="handwritten-twiddle">
         <div class="w-title">Explore the twiddle exponent by stage and offset</div>
         <div class="notes-controls">
-          <label>Convention<select data-note-mode><option value="dit">Notes: cyclic DIT</option><option value="repo">Repository: negacyclic DIF</option></select></label>
+          <label>Convention<select data-note-mode><option value="dit">Notes: cyclic DIT</option><option value="repo">CPU reference: negacyclic DIF</option></select></label>
           <label>Length N<select data-note-n><option value="4">4 (teaching example)</option><option value="8">8</option><option value="16">16</option><option value="65536">65536 (project target)</option></select></label>
           <label><span data-note-stage-label>stage s (zero-based)</span><input data-note-stage type="number" min="0" max="1" value="1" step="1"></label>
           <label>Local offset j<input data-note-j type="number" min="0" max="1" value="1" step="1"></label>
@@ -812,10 +850,10 @@ w_{s,j}&=\omega_M^j=\left(\omega_N^{N/2^{s+1}}\right)^j
       <div class="notes-table-scroll matrix-scroll" role="region" aria-label="Exponents in a four-bit reversed root table" tabindex="0"><table class="notes-table"><thead><tr><th>Table index k</th><th>rev₄(k)</th></tr></thead><tbody>
         <tr><td>1</td><td>8</td></tr><tr><td>2, 3</td><td>4, 12</td></tr><tr><td>4…7</td><td>2, 10, 6, 14</td></tr><tr><td>8…15</td><td>1, 9, 5, 13, 3, 11, 7, 15</td></tr>
       </tbody></table></div>
-      <p>If a root table is defined as T[k]=r<sup>rev₄(k)</sup>, the table above lists its exponents. These numbers alone do not define the order of r, the transform direction, or the butterfly schedule. They <b>are not a universal cyclic DIT twiddle list</b>. In particular, this repository's natural power table and OpenFHE's bit-reversed root table are distinct. See <a href="openfhe-representation-contract.md#5-roots-prime-widths-and-the-transform-cache">D7's root and cache contract</a>.</p>
+      <p>If a root table is defined as T[k]=r<sup>rev₄(k)</sup>, the table above lists its exponents. These numbers alone do not define the order of r, the transform direction, or the butterfly schedule. They <b>are not a universal cyclic DIT twiddle list</b>. In particular, the legacy DIF build uses natural powers; default CUDA uses the OpenFHE group-twiddle indexing. See <a href="openfhe-representation-contract.md#5-roots-prime-widths-and-the-transform-cache">D7's root and cache contract</a>.</p>
 
       <h3>6. Connect the derivation to the forward negacyclic loop</h3>
-      <p>The repository's forward transform is DIF. Stage t starts at zero, and distance d=N/2<sup>t+1</sup> decreases. For group length M=2d and local offset J:</p>
+      <p>The CPU reference and legacy CUDA build use this forward DIF schedule. Stage t starts at zero, and distance d=N/2<sup>t+1</sup> decreases. For group length M=2d and local offset J:</p>
       <div class="math typeset">\[
 \begin{aligned}
 E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
@@ -857,7 +895,7 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
     });
     field('context').textContent = state.mode === 'dit'
       ? 'Cyclic DIT work-array indices: input is bit-reversed first and stage distances increase. Every group shares the same local-offset rule; intermediate values no longer correspond to individual original coefficients.'
-      : 'Repository negacyclic DIF global indices: natural input, decreasing distances, and bit-reversed evaluation output. The factors c and w differ; the two CUDA passes map these pairs to columns and rows.';
+      : 'CPU reference DIF global indices: natural input, decreasing distances, and bit-reversed evaluation output. The factors c and w differ; the two CUDA passes map these pairs to columns and rows.';
   }
   field('n').addEventListener('change', () => {
     const value = Number(field('n').value);
@@ -937,7 +975,7 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
           </svg>
           <div class="coef-label" style="margin:6px 0 0;">DIF — ① add / subtract, ② multiply the <b>difference output</b> · the same unit, run the other way</div>
         </div>
-        <div class="w-note">Same two wings — only the <b>order</b> of multiply vs ± differs (the gold ①②). DIT multiplies before the crossing, DIF after it. (The repo's negacyclic forward adds one refinement on top of DIF — a ladder constant ψ^d on the input leg; that is chapter 10's loop.)</div>
+        <div class="w-note">Same two wings — only the <b>order</b> of multiply vs ± differs (the gold ①②). DIT multiplies before the crossing, DIF after it. (The CPU reference’s negacyclic forward adds one refinement on top of DIF — a ladder constant ψ^d on the input leg; that is chapter 10's loop.)</div>
       </div>
     </section>
 
@@ -965,7 +1003,7 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
       </div>
       <div class="callout">
         <h4>Why are the inputs scrambled?</h4>
-        <p>The leftmost values are in <b>bit-reversed</b> order (0,4,2,6,1,5,3,7 — index in binary, read backwards). That one upfront shuffle lets every stage read its partners from nearby positions and the outputs arrive in natural order. The repo ships the mirror image: a DIF <i>forward</i> (natural inputs, bit-reversed <b>outputs</b>) paired with a DIT inverse that consumes exactly that order — so in the real pipeline the two permutations cancel and <b>no bit-reversal pass exists at all</b> (<code class="inline">bitrev.hpp</code> documents the permutation itself).</p>
+        <p>The leftmost values are in <b>bit-reversed</b> order (0,4,2,6,1,5,3,7 — index in binary, read backwards). That one upfront shuffle lets every stage read its partners from nearby positions and the outputs arrive in natural order. The CPU reference uses the mirror image: a DIF <i>forward</i> (natural inputs, bit-reversed <b>outputs</b>) paired with a DIT inverse that consumes exactly that order — so in the real pipeline the two permutations cancel and <b>no bit-reversal pass exists at all</b> (<code class="inline">bitrev.hpp</code> documents the permutation itself).</p>
       </div>
       <div class="callout teal">
         <h4>And the negacyclic variant?</h4>
@@ -1025,6 +1063,7 @@ x^N &= -1 && \text{negacyclic: wrap with a minus}
 F_k=\sum_{i=0}^{N-1}a_i\psi^{(2k+1)i}
 =\sum_{i=0}^{N-1}(a_i\psi^i)\omega^{ki}.
 \]</div>
+      <p>This derivation follows the CPU reference and optional legacy CUDA build. The default CUDA path now uses an <a href="ntt-65536-work-distribution.html#column-proof">OpenFHE-style one-multiply butterfly</a>. Both compute the same final evaluations, but their intermediate values and twiddle tables differ.</p>
       <p>Now split input into a low half and a high half, d=N/2. This is the DIF split; the even/odd split above was DIT. The high-half factor contains a sign that depends only on k:</p>
       <div class="math typeset">\[
 \begin{aligned}

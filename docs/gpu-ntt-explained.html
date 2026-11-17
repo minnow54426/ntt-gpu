@@ -567,25 +567,24 @@ choose:           256 values  (= 2 KB of the 48) — and 65,536 = 256 × 256</pr
     <!-- ============================ 6 ============================ -->
     <section id="s6" class="reveal">
       <div class="sec-head"><div class="sec-num">06</div><h2>Map the design to code</h2></div>
-      <p>The snippets below shorten names to show the mapping. See <a href="../include/ntt/dev_core.hpp">the actual stage helpers</a> and <a href="../src/cuda/ntt_kernels.cu">CUDA kernels and launchers</a> for the implementation. First, each thread selects its share of butterfly pairs:</p>
-      <pre class="code"><span class="c">// one DIF stage, one thread's slice — the same body the CPU simulator runs</span>
-NTT_DEV <span class="t">void</span> <span class="f">dev_dif_stage</span>(uint64_t* tile, uint64_t tile_len, uint64_t d,
-                           uint64_t n, <span class="t">const</span> uint64_t* pp, uint64_t q,
-                           uint32_t tid, uint32_t nthr) {
-  <span class="t">const</span> uint64_t lg = log2_of_pow2(d);
-  <span class="k">for</span> (uint64_t p = tid; p &lt; tile_len / <span class="hl">2</span>; p += nthr) {  <span class="c">// MY pairs: start at my</span>
-    <span class="c">// thread id, stride by the thread count — chapter 3's disjoint pairs</span>
-    <span class="t">const</span> uint64_t g = p &gt;&gt; lg, j = p &amp; (d - <span class="hl">1</span>);        <span class="c">// which group, which offset</span>
-    <span class="t">const</span> uint64_t u = (g &lt;&lt; (lg + <span class="hl">1</span>)) + j, v = u + d;  <span class="c">// the pair's two slots</span>
-    <span class="t">const</span> uint64_t x  = tile[u];
-    <span class="t">const</span> uint64_t cv = mul_mod(pp[d], tile[v], q);     <span class="c">// ladder constant ψ^d</span>
-    tile[u] = add_mod(x, cv, q);
-    tile[v] = mul_mod(sub_mod(x, cv, q), pp[(n &gt;&gt; lg) * j], q); <span class="c">// twiddle</span>
-  }
+      <p>For the current arithmetic and a worked CUDA table lookup, see <a href="ntt-65536-work-distribution.html#column-proof">Why these inputs and twiddles?</a>.</p>
+      <p>The <a href="../include/ntt/transform_stage.hpp">shared stage helper</a> assigns disjoint pairs to threads. Here is the forward arithmetic with names shortened. A window maps local position u to global position origin + stride × u.</p>
+      <pre class="code">for (p = threadIdx.x; p &lt; window_length / 2; p += blockDim.x) {
+  u = p + (p / local_distance) * local_distance;
+  v = u + local_distance;
+  d = local_distance * stride;
+  group = (origin + stride * u) / (2 * d);
+  zeta = table[N / (2 * d) + group];
+  a = shared[u];
+  t = mul_mod(shared[v], zeta, q);
+  shared[u] = add_mod(a, t, q);
+  shared[v] = sub_mod(a, t, q);
 }</pre>
-      <p>Second, a column-pass block gathers its strided group, calls the shared stage helper and scatters results. The actual kernel is <code class="inline">forward_strided_group_kernel</code>:</p>
-      <pre class="code">__global__ <span class="t">void</span> <span class="f">dif_col_kernel</span>(uint64_t* a, <span class="t">const</span> uint64_t* pp, <span class="t">const</span> uint64_t* q,
+      <p>Second, a column-pass block gathers its strided group, calls the shared stage helper and scatters results. The current kernel keeps this mapping in <code class="inline">forward_strided_group_kernel</code>:</p>
+      <pre class="code">__global__ <span class="t">void</span> <span class="f">forward_strided_group_kernel</span>(uint64_t* a, <span class="t">const</span> uint64_t* pp, <span class="t">const</span> uint64_t* q,
                                uint64_t n, uint32_t sub) {
+  const uint64_t limb_q = q[blockIdx.y];
+  const uint64_t* table = pp + (uint64_t)blockIdx.y * (n + 1);
   extern __shared__ uint64_t smem[];                          <span class="c">// the counter</span>
   <span class="t">const</span> uint64_t r = blockIdx.x;                                <span class="h2l">// x = which strided group</span>
   uint64_t* al = a + (<span class="t">uint64_t</span>)blockIdx.y * n;               <span class="h2l">// y = which limb</span>
@@ -593,17 +592,17 @@ NTT_DEV <span class="t">void</span> <span class="f">dev_dif_stage</span>(uint64_
     smem[t] = al[r + (<span class="t">uint64_t</span>(t) &lt;&lt; <span class="hl">8</span>)];              <span class="c">//    one per cook</span>
   __syncthreads();                                            <span class="c">// ② roll call</span>
   <span class="k">for</span> (uint64_t delta = sub / <span class="hl">2</span>; delta &gt;= <span class="hl">1</span>; delta &gt;&gt;= <span class="hl">1</span>) {  <span class="c">// ③ the 8 far stages,</span>
-    dev_dif_col_stage(smem, sub, delta, n, pp, q, threadIdx.x, blockDim.x, r);
+    transform_stage&lt;false, 256&gt;(smem, sub, delta, n, table, limb_q, threadIdx.x, blockDim.x, r);
     __syncthreads();                                          <span class="c">//    barrier each</span>
   }
   <span class="k">for</span> (uint32_t t = threadIdx.x; t &lt; sub; t += blockDim.x)  <span class="c">// ④ scatter back strided</span>
     al[r + (<span class="t">uint64_t</span>(t) &lt;&lt; <span class="hl">8</span>)] = smem[t];
 }</pre>
-      <p class="dim">The pass-2 kernel (<code class="inline">dif_tile_kernel</code>) is the same shape with a contiguous gather — it is this kernel with <code class="inline">r + (t&lt;&lt;8)</code> replaced by <code class="inline">base + t</code>, running the near stages with <code class="inline">dev_dif_stage</code>.</p>
+      <p class="dim">The pass-2 kernel (<code class="inline">forward_contiguous_tile_kernel</code>) is the same shape with a contiguous gather — it is this kernel with <code class="inline">r + (t&lt;&lt;8)</code> replaced by <code class="inline">base + t</code>, running the near stages with <code class="inline">transform_stage&lt;false, 1&gt;</code> and the tile’s global starting index.</p>
       <p>Third, the launch grid identifies independent groups and prime towers. RNS stores one polynomial modulo several primes; each prime's array is called a limb or tower. The grid's y coordinate selects that tower:</p>
       <pre class="code"><span class="c">// one forward = TWO launches (grid = x × limbs):</span>
-dif_col_kernel&lt;&lt;&lt;<span class="f">dim3</span>(<span class="hl">256</span>, num_limbs), T, sub * <span class="k">sizeof</span>(uint64_t)&gt;&gt;&gt;(buf, d_pp, d_q, n, sub);
-dif_tile_kernel&lt;&lt;&lt;<span class="f">dim3</span>(n/<span class="hl">256</span>, num_limbs), T, <span class="hl">256</span> * <span class="k">sizeof</span>(uint64_t)&gt;&gt;&gt;(buf, d_pp, d_q, n, <span class="hl">256</span>);
+forward_strided_group_kernel&lt;&lt;&lt;<span class="f">dim3</span>(<span class="hl">256</span>, num_limbs), T, sub * <span class="k">sizeof</span>(uint64_t)&gt;&gt;&gt;(buf, d_pp, d_q, n, sub);
+forward_contiguous_tile_kernel&lt;&lt;&lt;<span class="f">dim3</span>(n/<span class="hl">256</span>, num_limbs), T, <span class="hl">256</span> * <span class="k">sizeof</span>(uint64_t)&gt;&gt;&gt;(buf, d_pp, d_q, n, <span class="hl">256</span>);
 <span class="c">// pass 1: block (x=r, y=k) = strided group r of limb k — owns {r, r+256, …}</span>
 <span class="c">// pass 2: block (x=q, y=k) = contiguous tile q of limb k — owns 256q … 256q+255</span></pre>
       <p class="dim">Three limbs produce 768 blocks per pass. The y grid coordinate batches limbs in one launch; hardware resource limits determine how many blocks run at once.</p>

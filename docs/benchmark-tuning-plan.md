@@ -149,3 +149,13 @@ comparison tables.
 - Full Hybrid key-switch and inference results accompany NTT microbenchmarks.
 - The HTML explainer identifies which schedule is the correctness baseline and
   which implementation the tuner selected for each workload class.
+
+### Compare the two butterfly schedules
+
+Build the default `group_twiddle_ct` and a separate
+`-DNTT_CUDA_LEGACY_BUTTERFLY=ON` build on the same GPU. Run exact checks and
+sanitizers first, then run `events-jsonl` on matched N, roots, primes and
+operands. Compare resident forward and inverse medians before comparing public
+calls; keep both builds' raw data and `transform_schedule` labels. The pass
+split and reduction are unchanged, but arithmetic and twiddle access differ.
+Prior Ada timings used the old schedule; no speedup is assumed.

@@ -67,13 +67,12 @@ test('65536: all stages and boundary thread/block selections match the CPU pair 
               const u = (thread & (localDistance-1)) + Math.floor(thread/localDistance)*2*localDistance;
               const upper = far ? u*256+block : block*256+u;
               assert.ok(selection.includes('global ' + upper + ' ↔ ' + (upper+distance)),selection);
-              const cpuOffset = upper % (2*distance);
-              const exponent = (n/distance)*cpuOffset;
-              const multipliers = direction === 'inverse' ?
-                ' · c⁻¹ = (ψ⁻¹)^' + distance + ' · w⁻¹ = (ψ⁻¹)^' + exponent :
-                ' · c = ψ^' + distance + ' · w = ψ^' + exponent;
+              const globalGroup = Math.floor(upper / (2*distance));
+              const index = n/(2*distance) + globalGroup;
+              const exponent = parseInt(index.toString(2).padStart(Math.log2(n), '0').split('').reverse().join(''), 2);
+              const twiddle = direction === 'inverse' ? ' · ζ⁻¹ = (ψ⁻¹)^' : ' · ζ = ψ^';
               assert.equal(page.get('[data-twiddle]').textContent,
-                'CPU offset J = ' + cpuOffset + multipliers + ' (mod q)');
+                'Global group g = ' + globalGroup + ' · table index ' + index + twiddle + exponent + ' (mod q)');
               const cells = page.get('[data-matrix] tbody').children.flatMap(row => row.children);
               assert.equal(cells.find(cell => cell.className === 'matrix-upper').textContent,String(upper));
               assert.equal(cells.find(cell => cell.className === 'matrix-lower').textContent,String(upper+distance));

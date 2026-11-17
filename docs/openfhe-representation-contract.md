@@ -183,10 +183,11 @@ The hit checks the modulus and table length. No root comparison appears in this 
 </details>
 
 
-OpenFHE's bit-reversed power tables and preconditioned multiplication constants
-are internal implementation data. They are not interchangeable with this
-repository's \([\psi^0,\ldots,\psi^N]\) table. Share parameter values and polynomial
-arrays; construct backend-specific twiddle tables separately.
+Default CUDA uses the same bit-reversed group indexing for root and inverse-root
+powers, but owns its tables and uses the repository's modular reduction. The
+legacy build uses natural powers \([\psi^0,\ldots,\psi^N]\). Do not pass OpenFHE's
+internal tables or preconditioned multiply constants to CUDA. Share the exact
+parameters and polynomial arrays; construct backend-specific tables separately.
 
 ## 6. DCRT tower order and flat GPU packing
 

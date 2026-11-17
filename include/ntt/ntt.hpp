@@ -33,9 +33,9 @@
 // evaluation point is still an odd power of psi; the individual ladder
 // and stride twiddles need not be odd powers. The twist and cyclic
 // machinery are merged.
-// The CUDA port runs this same stage sequence, regrouped as a two-pass
-// split at 256 (see include/ntt/dev_core.hpp) — identical values out,
-// bit-reversed order included.
+// CUDA preserves the pair distances and final array layout. Its default
+// group-twiddle butterfly uses different intermediate values; the optional
+// legacy build runs this DIF arithmetic in the two-pass split.
 //
 // A visual walkthrough of everything below — the wheel of powers, the
 // expansion where shared brackets turn into butterflies, and this exact
@@ -105,8 +105,7 @@ public:
         for (uint64_t pair_offset = 0; pair_offset < stage_pair_distance;
              ++pair_offset) {
           // One ladder butterfly: (u, v) -> (u + c·v, (u − c·v)·w).
-          // The +/- pair uses (psi^2)^(n/2) == psi^n == -1; this body is
-          // what the CUDA backend tiles across threads.
+          // The +/- pair uses (psi^2)^(n/2) == psi^n == -1.
           const uint64_t upper_index = group_start_index + pair_offset;
           const uint64_t lower_index = upper_index + stage_pair_distance;
           const uint64_t upper_value = values[upper_index];

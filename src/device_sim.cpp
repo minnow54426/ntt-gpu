@@ -1,6 +1,6 @@
 // ntt_device_sim: portable simulator of the CUDA kernel schedule.
 //
-// Runs the SAME stage bodies the GPU kernels run (include/ntt/dev_core.hpp,
+// Runs the SAME stage bodies the GPU kernels run (include/ntt/transform_stage.hpp,
 // the single source of schedule truth) with std::vector tiles and a serial
 // loop over thread ids standing in for thread blocks, and checks the result
 // against the CPU reference on identical vectors. Green here means the
@@ -22,14 +22,15 @@
 #include <string>
 #include <vector>
 
-#include "ntt/dev_core.hpp"
+#include "ntt/transform_stage.hpp"
 #include "ntt/ntt.hpp"
 #include "ntt/vector_io.hpp"
 
-using ntt::dev_dif_col_stage;
-using ntt::dev_dif_stage;
-using ntt::dev_dit_col_stage;
-using ntt::dev_dit_stage;
+#ifdef NTT_SIM_COMPARE_OPENFHE
+#include "math/hal/intnat/transformnat.h"
+#endif
+using ntt::transform_stage;
+using ntt::transform_twiddles;
 using ntt::inv_mod;
 using ntt::mul_mod;
 
@@ -43,6 +44,30 @@ void check(bool condition, const std::string &description) {
     std::cerr << "FAIL: " << description << "\n";
   }
 }
+
+#ifdef NTT_SIM_COMPARE_OPENFHE
+void compare_openfhe(const std::vector<uint64_t> &input,
+                     const std::vector<uint64_t> &expected, uint64_t modulus,
+                     uint64_t root, bool inverse) {
+  intnat::NativeVector values(input.size(), intnat::NativeInteger(modulus));
+  for (size_t i = 0; i < input.size(); ++i)
+    values[i] = intnat::NativeInteger(input[i]);
+  intnat::ChineseRemainderTransformFTTNat<intnat::NativeVector> transform;
+  const intnat::NativeInteger psi(root);
+  const auto order = static_cast<uint32_t>(2 * input.size());
+  if (inverse)
+    transform.InverseTransformFromBitReverseInPlace(psi, order, &values);
+  else
+    transform.ForwardTransformToBitReverseInPlace(psi, order, &values);
+  for (size_t i = 0; i < expected.size(); ++i) {
+    if (values[i].ConvertToInt() != expected[i]) {
+      check(false, std::string(inverse ? "inverse" : "forward") +
+                   " schedule != OpenFHE at index " + std::to_string(i));
+      return;
+    }
+  }
+}
+#endif
 
 // Deterministic pseudo-random generator, same scheme as unit_tests.cpp so
 // any failure replays exactly.
@@ -70,24 +95,11 @@ public:
       // reference throws on any bad wheel/root before tables are built.
       cpu_references_.emplace_back(transform_length_, moduli_[limb_index],
                                    primitive_roots[limb_index]);
-      // Store every forward and inverse power of the primitive root. Kernel
-      // stages can then use table lookups instead of generating twiddles.
-      std::vector<uint64_t> twiddle_powers(transform_length_ + 1);
-      std::vector<uint64_t> inverse_twiddle_powers(transform_length_ + 1);
-      const uint64_t inverse_primitive_root =
-          inv_mod(primitive_roots[limb_index], moduli_[limb_index]);
-      uint64_t twiddle_power = 1;
-      uint64_t inverse_twiddle_power = 1;
-      for (uint64_t exponent = 0; exponent <= transform_length_; ++exponent) {
-        twiddle_powers[exponent] = twiddle_power;
-        inverse_twiddle_powers[exponent] = inverse_twiddle_power;
-        twiddle_power =
-            mul_mod(twiddle_power, primitive_roots[limb_index], moduli_[limb_index]);
-        inverse_twiddle_power =
-            mul_mod(inverse_twiddle_power, inverse_primitive_root, moduli_[limb_index]);
-      }
-      twiddle_powers_.push_back(std::move(twiddle_powers));
-      inverse_twiddle_powers_.push_back(std::move(inverse_twiddle_powers));
+      const auto modulus = moduli_[limb_index];
+      const auto root = primitive_roots[limb_index];
+      twiddle_powers_.push_back(transform_twiddles(transform_length_, root, modulus));
+      inverse_twiddle_powers_.push_back(
+          transform_twiddles(transform_length_, inv_mod(root, modulus), modulus));
       inverse_transform_lengths_.push_back(
           inv_mod(transform_length_, moduli_[limb_index]));
     }
@@ -117,7 +129,7 @@ public:
               values[strided_group_offset + local_index * kPassSplitWidth];
         for (uint64_t local_pair_distance = strided_group_length / 2;
              local_pair_distance >= 1; local_pair_distance >>= 1)
-          launch_strided_group_stage(dev_dif_col_stage, gathered_group_values.data(),
+          launch_stage(transform_stage<false, kPassSplitWidth>, gathered_group_values.data(),
                                      strided_group_length, local_pair_distance,
                                      twiddle_powers_[limb_index].data(),
                                      moduli_[limb_index], strided_group_offset);
@@ -136,9 +148,9 @@ public:
                                             tile_length);
       for (uint64_t pair_distance = tile_length / 2; pair_distance >= 1;
            pair_distance >>= 1)
-        launch_tile_stage(dev_dif_stage, tile_values.data(), tile_length, pair_distance,
-                          transform_length_, twiddle_powers_[limb_index].data(),
-                          moduli_[limb_index]);
+        launch_stage(transform_stage<false, 1>, tile_values.data(), tile_length, pair_distance,
+                          twiddle_powers_[limb_index].data(),
+                          moduli_[limb_index], tile_start_index);
       std::copy(tile_values.begin(), tile_values.end(),
                 values.begin() + tile_start_index);
     }
@@ -158,9 +170,9 @@ public:
                                             tile_length);
       for (uint64_t pair_distance = 1; pair_distance <= tile_length / 2;
            pair_distance <<= 1)
-        launch_tile_stage(dev_dit_stage, tile_values.data(), tile_length, pair_distance,
-                          transform_length_, inverse_twiddle_powers_[limb_index].data(),
-                          moduli_[limb_index]);
+        launch_stage(transform_stage<true, 1>, tile_values.data(), tile_length, pair_distance,
+                          inverse_twiddle_powers_[limb_index].data(),
+                          moduli_[limb_index], tile_start_index);
       std::copy(tile_values.begin(), tile_values.end(),
                 values.begin() + tile_start_index);
     }
@@ -174,7 +186,7 @@ public:
               values[strided_group_offset + local_index * kPassSplitWidth];
         for (uint64_t local_pair_distance = 1;
              local_pair_distance <= strided_group_length / 2; local_pair_distance <<= 1)
-          launch_strided_group_stage(dev_dit_col_stage, gathered_group_values.data(),
+          launch_stage(transform_stage<true, kPassSplitWidth>, gathered_group_values.data(),
                                      strided_group_length, local_pair_distance,
                                      inverse_twiddle_powers_[limb_index].data(),
                                      moduli_[limb_index], strided_group_offset);
@@ -208,37 +220,15 @@ public:
   }
 
 private:
-  using TileStageFunction = void (*)(uint64_t *, uint64_t, uint64_t, uint64_t,
-                                     const uint64_t *, uint64_t, uint32_t, uint32_t);
+  using Stage = void (*)(uint64_t *, uint64_t, uint64_t, uint64_t,
+                         const uint64_t *, uint64_t, uint32_t, uint32_t, uint64_t);
 
-  // One "kernel launch": every thread of the block runs its slice. The
-  // global phase on GPU uses a grid-stride pair index instead of
-  // threadIdx — same coverage of a disjoint-pair map, same result.
-  void launch_tile_stage(TileStageFunction stage_function, uint64_t *tile_values,
-                         uint64_t tile_length, uint64_t pair_distance,
-                         uint64_t transform_length, const uint64_t *twiddle_powers,
-                         uint64_t modulus) const {
-    for (uint32_t thread_index = 0; thread_index < kThreadsPerBlock; ++thread_index)
-      stage_function(tile_values, tile_length, pair_distance, transform_length,
-                     twiddle_powers, modulus, thread_index, kThreadsPerBlock);
-  }
-
-  using StridedGroupStageFunction = void (*)(uint64_t *, uint64_t, uint64_t, uint64_t,
-                                             const uint64_t *, uint64_t, uint32_t,
-                                             uint32_t, uint64_t);
-
-  // One strided-group "kernel launch": every thread runs its slice of the
-  // group's stage. strided_group_offset is its index modulo 256.
-  void launch_strided_group_stage(StridedGroupStageFunction stage_function,
-                                  uint64_t *gathered_group_values,
-                                  uint64_t strided_group_length,
-                                  uint64_t local_pair_distance,
-                                  const uint64_t *twiddle_powers, uint64_t modulus,
-                                  uint64_t strided_group_offset) const {
-    for (uint32_t thread_index = 0; thread_index < kThreadsPerBlock; ++thread_index)
-      stage_function(gathered_group_values, strided_group_length, local_pair_distance,
-                     transform_length_, twiddle_powers, modulus, thread_index,
-                     kThreadsPerBlock, strided_group_offset);
+  void launch_stage(Stage stage, uint64_t *values, uint64_t window_length,
+                    uint64_t local_distance, const uint64_t *twiddles,
+                    uint64_t modulus, uint64_t origin) const {
+    for (uint32_t thread = 0; thread < kThreadsPerBlock; ++thread)
+      stage(values, window_length, local_distance, transform_length_, twiddles,
+            modulus, thread, kThreadsPerBlock, origin);
   }
 
   void check_size(const std::vector<uint64_t> &values) const {
@@ -281,6 +271,10 @@ void test_with_vectors(const ntt::VectorFile &vector_file) {
     simulator.reference(limb_index).forward(reference_values);
     check(scheduled_values == reference_values,
           "schedule forward == reference forward, limb " + std::to_string(limb_index));
+#ifdef NTT_SIM_COMPARE_OPENFHE
+    compare_openfhe(original_values, scheduled_values, vector_file.q[limb_index],
+                    vector_file.psi[limb_index], false);
+#endif
 
     simulator.inverse(scheduled_values, limb_index);
     check(scheduled_values == original_values,
@@ -290,6 +284,15 @@ void test_with_vectors(const ntt::VectorFile &vector_file) {
     std::vector<uint64_t> right_operand(vector_file.n);
     for (uint64_t value_index = 0; value_index < vector_file.n; ++value_index)
       right_operand[value_index] = random_generator.next(vector_file.q[limb_index]);
+    auto scheduled_inverse = right_operand, reference_inverse = right_operand;
+    simulator.inverse(scheduled_inverse, limb_index);
+    simulator.reference(limb_index).inverse(reference_inverse);
+    check(scheduled_inverse == reference_inverse,
+          "independent inverse == reference inverse, limb " + std::to_string(limb_index));
+#ifdef NTT_SIM_COMPARE_OPENFHE
+    compare_openfhe(right_operand, scheduled_inverse, vector_file.q[limb_index],
+                    vector_file.psi[limb_index], true);
+#endif
     check(simulator.multiply(original_values, right_operand, limb_index) ==
               ntt::ntt_multiply(simulator.reference(limb_index), original_values,
                                 right_operand),

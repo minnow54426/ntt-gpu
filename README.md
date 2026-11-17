@@ -97,6 +97,12 @@ work. Changing modes or scopes requires a new record directory.
 The default build targets `sm_89` and, with CUDA 12.8+, `sm_120`. For one known
 GPU, use `-DCMAKE_CUDA_ARCHITECTURES=native` (CMake 3.24+).
 
+Default CUDA uses one OpenFHE-style group twiddle per butterfly, with the same
+two-pass thread mapping. Configure a separate build with
+`-DNTT_CUDA_LEGACY_BUTTERFLY=ON` for the old two-multiply baseline.
+GPU JSONL records identify the choice as `group_twiddle_ct` or `legacy_dif`.
+The previous native benchmark measured the legacy path, not the new default.
+
 ## Design
 
 The [resident operation-chain prototype](docs/resident-operation-chain.md) adds
@@ -118,7 +124,7 @@ loads 256 contiguous rows. At N=65536, each pass handles eight stages in shared
 memory. One forward uses two launches and four logical array movements.
 The strided pass is uncoalesced, so logical bytes are not measured DRAM traffic.
 
-Stage bodies in [`dev_core.hpp`](include/ntt/dev_core.hpp) are compiled for
+Stage bodies in [`transform_stage.hpp`](include/ntt/transform_stage.hpp) are compiled for
 both CPU simulation and CUDA. The current `__uint128_t` remainder arithmetic
 is a correctness baseline. Shoup/Barrett reduction, coalesced layouts, and
 register staging are planned optimizations, subject to exact checks and profiling.

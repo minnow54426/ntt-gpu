@@ -1,5 +1,6 @@
 #pragma once
-// The GPU stage schedule, written once.
+// Legacy two-multiply DIF/DIT stage helpers. Default CUDA uses the
+// group-twiddle stages in transform_stage.hpp with the same pair geometry.
 //
 // Everything index-heavy about the CUDA port lives in this header and is
 // compiled three ways:
