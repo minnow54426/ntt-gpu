@@ -124,10 +124,11 @@
 
   <section id="whole-job">
     <div class="section-title"><span class="section-number">01</span><h2>Start with the data</h2></div>
-    <p>A tower is one polynomial modulo one prime: a[0] through a[65535]. Each residue uses 8 bytes, so an N=65536 tower needs 512 KiB. Several towers represent the same polynomial under different primes.</p>
+    <p><strong>N</strong> is the number of coefficients in one polynomial, here 65,536. A <strong>tower</strong> stores those N coefficients reduced modulo one prime <strong>q</strong>, at slots 0 through N−1. Each stored residue uses 8 bytes, so one tower needs 512 KiB. Other towers use different primes, but the same array length.</p>
     <div class="facts"><div><strong>65536</strong><span>coefficients per modulus</span></div><div><strong>16</strong><span>stages · 32768 butterflies each</span></div><div><strong>524,288</strong><span>butterflies · two kernel launches</span></div></div>
     <p>Imagine the same array as <strong>256 rows × 256 columns</strong>. This is an index view; the stored array stays flat.</p>
     <div class="layout-rule"><code>global_index = row × 256 + column</code></div>
+    <p>Rows and columns both start at 0. Multiplying the row number by 256 skips complete rows; adding the column number selects a slot inside the row. These are element indices, not byte offsets.</p>
   </section>
 
   <section id="two-passes">
@@ -206,15 +207,38 @@
   <section id="column-proof">
     <div class="section-title"><span class="section-number">04 · D2</span><h2>Why these inputs and twiddles?</h2></div>
     <p>The default CUDA path now uses the <strong>OpenFHE-style one-multiply butterfly</strong>. The column and row passes still assign the same pairs to threads. What changed is how each pair gets its twiddle.</p>
-    <div class="math derivation">\[t=\zeta b,\qquad x=a+t,\qquad y=a-t\pmod q.\]</div>
-    <p>Let d be the global pair distance, U the upper input index, and ψ a primitive 2N-th root for the tower prime q. There are m groups of width 2d. All pairs in group g use the same table entry:</p>
-    <div class="math derivation">\[m=N/(2d),\qquad g=\lfloor U/(2d)\rfloor,\qquad \zeta=T[m+g]=\psi^{\operatorname{rev}_{\log_2 N}(m+g)}.\]</div>
+    <h3>1. Read two slots, then write two results</h3>
+    <p><strong>U</strong> is the first slot of the pair in the full tower array. <strong>d</strong> is the distance in slots at this stage, so its partner is <strong>V = U + d</strong>. The old values at U and V are <strong>a</strong> and <strong>b</strong>, respectively.</p>
+    <div class="math derivation">\[\begin{aligned}
+t&=\zeta b,\\
+x&=a+t,\\
+y&=a-t.
+\end{aligned}\]</div>
+    <p><strong>ζ</strong> (zeta) is the group's twiddle multiplier. Compute the temporary product <strong>t</strong> once, then write <strong>x</strong> at U and <strong>y</strong> at V. Both writes use the same old a. All value arithmetic is modulo q; the slot indices are ordinary integers.</p>
+    <h3>2. Turn a slot index into a twiddle</h3>
+    <p>One butterfly group contains two halves of d slots each, so the group width is <strong>2d</strong>. The two halves are paired offset by offset.</p>
+    <div class="math derivation">\[\begin{aligned}
+m&=N/(2d),\\
+g&=\lfloor U/(2d)\rfloor,\\
+k&=m+g.
+\end{aligned}\]</div>
+    <p><strong>m</strong> counts the groups at this stage. <strong>N/d</strong> would count half-groups; divide by 2 to count whole groups. <strong>g</strong> is the zero-based group containing U: the floor brackets round down, so every slot in the same width-2d group gives the same g. <strong>k</strong> is the table index; this stage uses entries m through 2m−1.</p>
+    <div class="math derivation">\[
+e=\operatorname{rev}_{\log_2 N}(k),\qquad
+\zeta=T[k]=\psi^e.
+\]</div>
+    <p><strong>T</strong> is the forward twiddle table. <strong>ψ</strong> (psi) is the tower's primitive 2N-th root modulo q: its powers first return to 1 at exponent 2N. <strong>e</strong> is an exponent, not a slot or table index. The notation \(\operatorname{rev}_{\log_2 N}\) means reverse exactly \(\log_2 N\) binary digits, including leading zeros (16 digits here). This reverses the bits of k at table setup, not the coefficient array during the butterfly.</p>
+    <p><strong>Example:</strong> with N=65,536, d=256 and U=2,563, the group width is 512, m=128 and g=5 because 2,563 is between slots 2,560 and 3,071. Thus k=133, whose 16-bit reversal is 41,216. The pair is (2,563, 2,819), and it uses \(T[133]=\psi^{41216}\).</p>
     <p><strong>Why one twiddle is enough:</strong> view each group as a polynomial split into a low half \(A(X)\) and a high half \(X^d B(X)\). Its two child groups correspond to \(X^d=\zeta\) and \(X^d=-\zeta\). Substituting gives \(A+\zeta B\) and \(A-\zeta B\): each pair shares the same product \(\zeta b\). At the first split, \(\zeta=\psi^{N/2}\), so \(\zeta^2=-1\), as required by \(X^N+1\).</p>
     <p>The bit-reversed table stores the factor for each group in advance. There is no separate input twist pass and no multiply on the difference output. This follows the <a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L337-L385">OpenFHE butterfly and group selection</a>, not its CPU reduction routine.</p>
     <h3>Find the pair in a column</h3>
-    <p>For column r, let δ=d/256 and p be the thread's pair index. The local group is g=⌊p/δ⌋ and local offset j=p mod δ. In global coordinates:</p>
-    <div class="math derivation">\[U=256(2\delta g+j)+r=2dg+(256j+r),\qquad V=U+d.\]</div>
-    <p>Since 0 ≤ 256j+r &lt; d, the local group is also the global group. Changing the column changes the pair offset, not the twiddle for that group.</p>
+    <p><strong>r</strong> is the column number. <strong>δ</strong> (delta) is the pair distance in shared-memory slots, \(d/256\), because each adjacent entry in a column is 256 slots apart in the tower array. <strong>p</strong> is the pair number in that column, equal to the active thread's index here. Dividing p by δ and rounding down gives g; the remainder <strong>j</strong> is the pair offset within that local group.</p>
+    <div class="math derivation">\[\begin{aligned}
+u_{\mathrm{local}}&=2\delta g+j,\\
+U&=256u_{\mathrm{local}}+r,\\
+V&=U+d.
+\end{aligned}\]</div>
+    <p>The first line finds the upper shared-memory slot. The second maps it back to a full-array slot. Expanding gives \(U=2dg+(256j+r)\); the last term is smaller than d, so the column's local group number is also the global group number. Changing the column changes the addresses, not the twiddle for that group.</p>
     <div class="matrix-scroll"><table><caption>N=65536 · column 3, thread 5</caption><thead><tr><th>d</th><th>U ↔ V</th><th>m+g</th><th>ψ exponent</th></tr></thead><tbody>
       <tr><td>32768</td><td>1283 ↔ 34051</td><td>1</td><td>32768</td></tr>
       <tr><td>256</td><td>2563 ↔ 2819</td><td>133</td><td>41216</td></tr>
@@ -225,8 +249,12 @@
   <section id="inverse-proof">
     <div class="section-title"><span class="section-number">05 · D3</span><h2>Undo the forward butterfly</h2></div>
     <p>The inverse visits the same pairs in reverse stage order. It selects the reciprocal from the inverse table at the same index m+g. For forward outputs x=a+ζb and y=a−ζb, the inverse butterfly produces:</p>
-    <div class="math derivation">\[x+y=2a,\qquad (x-y)\zeta^{-1}=2b\pmod q.\]</div>
-    <p>Each stage contributes a factor of two, so the final scaling kernel multiplies by N⁻¹ once. Forward runs columns then rows; inverse runs rows then columns then scaling. The forward output is already in bit-reversed evaluation order, and the inverse consumes that layout directly.</p>
+    <div class="math derivation">\[\begin{aligned}
+x+y&=2a,\\
+(x-y)\zeta^{-1}&=2b.
+\end{aligned}\]</div>
+    <p>Adding x and y cancels the two terms involving b. Subtracting gives twice ζb; multiplying by <strong>ζ⁻¹</strong>, the modular reciprocal of ζ, cancels ζ because their product is 1 modulo q.</p>
+    <p>Each of the \(\log_2 N\) stages contributes a factor of two, for a total factor of N. The final kernel multiplies by <strong>N⁻¹</strong>, the modular reciprocal of N for this tower, to cancel it. Forward runs columns then rows; inverse runs rows then columns then scaling. The inverse consumes the forward transform's bit-reversed evaluation order directly.</p>
     <p><a href="../src/device_sim.cpp">The schedule simulator</a> shares the CUDA stage helpers and checks forward arrays, independent inverse arrays and products against the CPU reference. With OpenFHE enabled, it also compares forward and independent inverse arrays directly with OpenFHE. These are host checks, not GPU measurements.</p>
   </section>
 
@@ -234,10 +262,18 @@
     <div class="section-title"><span class="section-number">06 · D4</span><h2>Why two passes equal the full transform</h2></div>
     <p>The column proof handles far stages. The remaining kernels—<code>forward_contiguous_tile_kernel</code> and <code>inverse_contiguous_tile_kernel</code>—assign one contiguous tile to each block. For our target sizes, tile length L is 256; for smaller transforms it is <code>min(256,N)</code>.</p>
     <h3 style="margin-top:24px">1. Map a row thread to the CPU pair</h3>
-    <p>Let b be the row block, p the pair index, and d a near-stage distance (128 down to 1 for forward, 1 up to 128 for inverse). Each active thread has p = threadIdx.x for these tiles.</p>
-    <div class="math derivation">\[\begin{aligned}g_{\rm local}&amp;=\lfloor p/d\rfloor,\quad j=p\bmod d,\\U&amp;=Lb+2dg_{\rm local}+j,\quad V=U+d,\\g&amp;=Lb/(2d)+g_{\rm local},\quad \zeta=T[N/(2d)+g].\end{aligned}\]</div>
-    <p>Why is this a valid CPU group? Since d is a power of two and <code>2d ≤ L</code>, <strong>2d divides L</strong>. Therefore Lb + 2dg is a multiple of 2d, exactly where the CPU group loop begins. Also <code>0 ≤ j &lt; d</code> and the final local lower index is at most L−1. Every CPU group fits entirely inside an aligned tile.</p>
-    <p>The tile's starting index Lb matters: it determines the first global group in that row. The pair offset j selects addresses inside the group, but does not change its twiddle. A row is not an independent 256-point NTT.</p>
+    <p><strong>R</strong> is the row block number, <strong>L</strong> is its tile length, and <strong>p</strong> is the pair index (<code>threadIdx.x</code> for active threads here). The rows are contiguous, so the local pair distance is the same d as in the full tower.</p>
+    <div class="math derivation">\[\begin{aligned}
+g_{\rm local}&=\lfloor p/d\rfloor,\\
+j&=p\bmod d.
+\end{aligned}\]</div>
+    <p>The quotient selects the group inside this tile; the remainder selects the pair inside that group. Here “mod d” finds an index remainder, not a residue modulo the tower prime q.</p>
+    <div class="math derivation">\[\begin{aligned}
+U&=LR+2d\,g_{\rm local}+j,\\
+V&=U+d,\\
+g&=LR/(2d)+g_{\rm local}.
+\end{aligned}\]</div>
+    <p><strong>LR</strong> is the start slot of the tile; \(2d\,g_{\rm local}\) skips complete groups within it. Because 2d divides L, \(LR/(2d)\) is the number of complete groups before the tile. Adding the local group gives the global g used in \(T[m+g]\). For example, row 3 starts at 768; at d=128 it starts at global group 3, not group 0. A row is not an independent 256-point NTT.</p>
     <h3 style="margin-top:24px">2. Trace row 3, thread 5</h3>
     <div class="matrix-scroll"><table><caption>Row 3, thread 5 at N=65536</caption><thead><tr><th scope="col">d</th><th scope="col">Global group</th><th scope="col">U ↔ V</th><th scope="col">Table index</th></tr></thead><tbody>
       <tr><td>128</td><td>3</td><td>773 ↔ 901</td><td>259</td></tr>
@@ -246,7 +282,7 @@
     </tbody></table></div>
     <p>At N=65536, row 255/thread 127/distance 128 reaches the final coefficient: <code>U=65407, V=65535</code>. The group is 255 and the table index is 511. Inverse uses that index in the reciprocal table.</p>
     <h3 style="margin-top:24px">3. Account for every stage exactly once</h3>
-    <p>The CPU distances are precisely the powers of two from N/2 down to 1. At N≥512, they partition into two disjoint sets:</p>
+    <p>The forward distances are the powers of two from N/2 down to 1, measured in full-array slots. For N=65,536 they split at 256:</p>
     <div class="math derivation">\[\begin{aligned}\text{Far: }&amp;d=32768,16384,\ldots,256,\\\text{Near: }&amp;d=128,64,\ldots,1.\end{aligned}\]</div>
     <p>Forward runs far distances descending, then near distances descending. Inverse reverses both passes and scales by the inverse of 65536. For other supported N≥512, far distances begin at N/2.</p>
     <p>There is no missing distance between 128 and 256: no power of two lies between them. Neither set overlaps the other. The far count is <code>log₂N − 8</code>; the near count is 8. Each stage has exactly N/2 disjoint butterflies, so the full count is <code>(N/2) × log₂N</code> per direction. Scaling is not an additional butterfly stage.</p>
@@ -256,7 +292,7 @@
     <p class="note">At N≤256, the far pass is skipped and one tile covers all log₂N stages. The coverage check also exercises N=2, 64, 256 and 512, including the tile clamp and first column-pass boundary.</p>
     <h3 style="margin-top:24px">4. Why block-local stage fusion is safe</h3>
     <p>During all far stages, every dependency stays inside the same column; during all near stages, every dependency stays inside the same tile. A block may therefore finish all its stages before another block finishes its first: those blocks do not consume each other's intermediate values within that pass. This reorders independent operations without changing the CPU result.</p>
-    <p>Each tile loads <code>values[Lb+t]</code> into <code>shared[t]</code>. All threads reach the load barrier and every stage barrier. Threads 0…127 compute butterflies at L=256, while all 256 threads participate in loading/storing and synchronization. The block stores its tile once after the last stage. Within a stage, pair endpoints do not overlap; between stages, the shared-memory barrier makes the preceding writes visible.</p>
+    <p>Loading thread <code>tid</code> copies <code>values[L*R + tid]</code> into <code>shared[tid]</code>. Here <code>tid</code> is an index, not the butterfly product t. All threads reach the load barrier and every stage barrier. Threads 0…127 compute butterflies at L=256, while all 256 threads participate in loading, storing, and synchronization. The block stores its tile once after the last stage.</p>
     <p>Between passes, scatter must finish before the next gather. Same-stream kernel order provides that boundary. Gather/scatter changes block ownership; it does not transpose the stored array or perform another transform.</p>
     <h3 style="margin-top:24px">5. Executable evidence</h3>
     <p><a href="../tests/tile_mapping_tests.cpp">tile_mapping_check</a> checks the shared pair geometry and the legacy twiddle lookup with tagged inputs. <code>device_schedule_check</code> exercises the default group-twiddle arithmetic on CPU using the same helper as CUDA.</p>
@@ -292,7 +328,7 @@ ctest --test-dir build --output-on-failure</pre>
   <section id="synchronization">
     <div class="section-title"><span class="section-number">08</span><h2>What keeps the work ordered?</h2></div>
     <div class="sync-list"><div><h3>Inside a block</h3><p>All 256 threads reach <code>__syncthreads()</code> after loading and after each stage—even threads without a butterfly. This barrier synchronizes only that block.</p></div><div><h3>Between the passes</h3><p>The kernels use the same CUDA stream, so pass 2 starts after pass 1 finishes. Blocks within a pass are independent; SM scheduling does not guarantee they all execute simultaneously.</p></div></div>
-    <p>For CKKS with multiple RNS primes, repeat this arrangement per limb. Storage is limb-major: <code>values[limb × N + index]</code>. <code>blockIdx.y</code> selects the limb; <code>blockIdx.x</code> selects the column in pass 1 or the row in pass 2.</p>
+    <p>For CKKS with multiple RNS primes, repeat this arrangement per limb. Storage is limb-major: <code>values[limb × N + index]</code>. The zero-based <code>limb</code> skips whole towers; <code>index</code> is the slot inside that tower. <code>blockIdx.y</code> selects the limb, and <code>blockIdx.x</code> selects the column or row for the current pass.</p>
   </section>
   <p class="closing">The mental model: <strong>a block owns a data subset; a thread computes a butterfly within it at each stage.</strong> Next, follow the <a href="cuda-buffer-dataflow.md">constructor, buffers, and host/device dataflow (D5)</a>.</p>
 </div>
