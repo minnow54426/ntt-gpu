@@ -9,13 +9,14 @@ import platform
 import signal
 import subprocess
 import sys
-from benchmark_batch import (DIMENSIONS, MAX_TOWERS, TOWER_COUNTS, SCOPE_GROUPS,
-                             benchmark_scope, collect_batch, collect_profiles)
+from benchmark_batch import (DIMENSIONS, MAX_TOWERS, PRIME_BITS, TOWER_COUNTS, SCOPE_GROUPS,
+                             atomic_json, benchmark_scope, collect_batch, collect_profiles)
 
 ROOT = Path(__file__).resolve().parents[1]
 GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection', 'cuda_benchmark_matrix_exact', 'resident_cuda_exact'}
-OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph', 'openfhe_benchmark_protocol', 'resident_openfhe_host'}
-HOST_TESTS = {'cuda_host_validation', 'setup_ownership_host', 'measurement_host', 'resident_runtime_host'}
+OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph', 'openfhe_basis_conversion', 'openfhe_benchmark_protocol', 'resident_openfhe_host'}
+HOST_TESTS = {'cuda_host_validation', 'setup_ownership_host', 'measurement_host', 'resident_runtime_host', 'resident_benchmark_host'}
+NTT_SCHEDULES = {'group_twiddle_ct': 'OFF', 'legacy_dif': 'ON'}
 
 
 def tool(name):
@@ -46,12 +47,15 @@ class Session:
         self.root = ROOT
         self.output = args.output_dir.resolve()
         previous_attempt = 0
+        schedule = getattr(args, 'ntt_schedule', None)
         if getattr(args, 'resume', False):
             previous = json.loads((self.output / 'report.json').read_text())
             if previous['mode'] != args.mode or args.mode not in ('gpu', 'cpu'):
                 raise ValueError('Resume requires the same CPU/GPU session mode')
             if previous.get('benchmark_scope', 'all') != benchmark_scope(args):
                 raise ValueError('Cannot change benchmark scope on resume; use a fresh output directory')
+            if previous.get('transform_schedule') != schedule:
+                raise ValueError('Cannot change NTT schedule on resume; use a fresh output directory')
             previous_attempt = previous.get('attempt', 1)
             history = self.output / ('report-history-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.json')
             with history.open('x') as archive:
@@ -65,6 +69,8 @@ class Session:
                        'profiling': 'NOT_RUN' if getattr(args, 'profile', False) else 'NOT_REQUESTED',
                        'benchmark': 'NOT_RUN',
                        'benchmark_scope': benchmark_scope(args)}
+        if schedule:
+            self.report['transform_schedule'] = schedule
         self.save()
 
     def save(self):
@@ -146,8 +152,11 @@ class Session:
                 if not args.skip_sanitizers:
                     self.run('sanitizer-version', ['compute-sanitizer', '--version'])
             build = args.build_dir.resolve()
+            schedule = self.report.get('transform_schedule')
+            legacy_option = NTT_SCHEDULES[schedule or 'group_twiddle_ct']
             configure = [args.cmake, '-S', ROOT, '-B', build, '-DCMAKE_BUILD_TYPE=Release',
                          '-DNTT_ENABLE_OPENFHE_COMPAT=ON',
+                         f'-DNTT_CUDA_LEGACY_BUTTERFLY={legacy_option}',
                          f'-DCMAKE_PREFIX_PATH={args.openfhe_prefix.resolve()}']
             if args.mode == 'cpu':
                 configure += ['-DNTT_REQUIRE_CUDA=OFF', '-DNTT_ENABLE_CUDA=OFF']
@@ -160,13 +169,17 @@ class Session:
                 keys = {'CMAKE_CXX_COMPILER', 'CMAKE_CUDA_COMPILER', 'CMAKE_CUDA_HOST_COMPILER',
                         'CMAKE_CUDA_ARCHITECTURES', 'CMAKE_BUILD_TYPE', 'OpenFHE_DIR',
                         'CMAKE_CXX_FLAGS', 'CMAKE_CXX_FLAGS_RELEASE', 'CMAKE_CUDA_FLAGS', 'CMAKE_CUDA_FLAGS_RELEASE',
-                        'NTT_REQUIRE_CUDA', 'NTT_ENABLE_CUDA', 'NTT_ENABLE_OPENFHE_COMPAT'}
+                        'NTT_REQUIRE_CUDA', 'NTT_ENABLE_CUDA', 'NTT_ENABLE_OPENFHE_COMPAT',
+                        'NTT_CUDA_LEGACY_BUTTERFLY'}
                 self.report['configured_cache'] = {}
                 for line in cache.read_text().splitlines():
                     if '=' in line and ':' in line.split('=', 1)[0]:
                         name = line.split(':', 1)[0]
                         if name in keys:
                             self.report['configured_cache'][name] = line.split('=', 1)[1]
+            if schedule and self.report.get('configured_cache', {}).get(
+                    'NTT_CUDA_LEGACY_BUTTERFLY') != legacy_option:
+                raise RuntimeError('CMake cache does not confirm requested NTT schedule')
             self.run('build', [args.cmake, '--build', build, '-j', str(args.jobs)])
             registered = json.loads(self.run('registered-tests', [args.ctest, '--test-dir', build, '--show-only=json-v1']))
             tests = {test['name']: test for test in registered['tests']}
@@ -201,13 +214,14 @@ class Session:
             else:
                 self.report['registered_gpu_tests'] = sorted(GPU_TESTS)
                 self.report['selected_device'] = self.run('device-info', [build / 'ntt_cuda_cli', 'info']).strip()
+                if schedule and f'transform schedule: {schedule}' not in self.report['selected_device'].splitlines():
+                    raise RuntimeError('CUDA executable does not report requested NTT schedule')
                 self.report['gpu_execution'] = 'RUNNING'
                 exact = [args.ctest, '--test-dir', build, '--output-on-failure']
-                if benchmark_scope(args) == 'gpu':
-                    # Direct CUDA/OpenFHE exactness remains mandatory. The separate
-                    # CPU-only timing-protocol sweep belongs on the CPU host.
-                    exact += ['-E', '^openfhe_benchmark_protocol$']
-                    self.report['excluded_tests'] = ['openfhe_benchmark_protocol']
+                if benchmark_scope(args) in ('gpu', 'gpu-chain'):
+                    # Native tests still run their OpenFHE references and CTest fixtures.
+                    exact += ['-L', 'gpu']
+                    self.report['exact_test_label'] = 'gpu'
                 self.run('exact-tests', exact)
                 self.report['gpu_execution'] = 'EXACT_TESTS_PASS'
                 if not args.skip_sanitizers:
@@ -254,6 +268,77 @@ class Session:
             print(f'Record: {self.output / "report.json"} ({self.report["status"]})', flush=True)
 
 
+def compare_ntt(args):
+    """Run the standard gates twice and pair only matching validated workloads."""
+    output, build = args.output_dir.resolve(), args.build_dir.resolve()
+    if output == build or output in build.parents or build in output.parents:
+        raise ValueError('Comparison build and record roots must be disjoint')
+    for schedule in NTT_SCHEDULES:
+        child = build / schedule
+        if child.is_symlink() or child.exists():
+            raise ValueError('Comparison requires fresh build directories: ' + str(child))
+    output.mkdir(parents=True, exist_ok=False)
+    index = output / 'comparison.json'
+    record = {'mode': args.mode, 'status': 'RUNNING', 'runs': {}}
+    atomic_json(index, record)
+    sessions = []
+    try:
+        for schedule in NTT_SCHEDULES:
+            child_args = argparse.Namespace(**vars(args))
+            child_args.ntt_schedule = schedule
+            child_args.build_dir, child_args.output_dir = build / schedule, output / schedule
+            session = Session(child_args)
+            result = session.execute()
+            sessions.append(session)
+            record['runs'][schedule] = {'status': session.report['status'],
+                                        'report': f'{schedule}/report.json'}
+            atomic_json(index, record)
+            if result == 130:
+                raise KeyboardInterrupt
+        expected = 'OFFLINE_READY' if args.mode == 'offline' else 'GPU_CHECKS_PASSED'
+        if any(session.report['status'] != expected for session in sessions):
+            raise RuntimeError('One or more child sessions failed; records retained')
+        if len({(s.report['source_commit'], s.report['source_dirty']) for s in sessions}) != 1:
+            raise RuntimeError('Source changed between builds')
+        if args.mode == 'gpu':
+            left, right = sessions
+            def context(session):
+                data = json.loads((session.output / 'benchmark-manifest.json').read_text())['context']
+                binaries = data.pop('binaries')
+                data.pop('transform_schedule')
+                data['selected_device'] = [line for line in data['selected_device'].splitlines()
+                                           if not line.startswith('transform schedule: ')]
+                return data, binaries
+            left_context, left_binaries = context(left)
+            right_context, right_binaries = context(right)
+            if (left_context != right_context or left_binaries.keys() != right_binaries.keys()
+                    or not left_binaries
+                    or any(value == right_binaries[name] for name, value in left_binaries.items())):
+                raise RuntimeError('Comparison requires the same environment and distinct binaries')
+            def workloads(session):
+                return {name: {key: value for key, value in data['workload'].items()
+                               if key != 'transform_schedule'}
+                        for name, data in session.report['benchmark_summaries'].items()}
+            matched = workloads(left)
+            if (not matched or len(matched) != left.report['benchmark_expected_jobs']
+                    or len(matched) != right.report['benchmark_expected_jobs']
+                    or matched != workloads(right)):
+                raise RuntimeError('Compared benchmark workloads do not match')
+            record['matched_jobs'] = sorted(matched)
+        record['status'] = 'OFFLINE_READY' if args.mode == 'offline' else 'MATCHED_GPU_RUNS'
+        return 0
+    except KeyboardInterrupt:
+        record['status'] = 'INTERRUPTED'
+        return 130
+    except Exception as error:
+        record.update(status='FAIL', error=str(error))
+        print(error, file=sys.stderr)
+        return 1
+    finally:
+        atomic_json(index, record)
+        print(f'Comparison: {index} ({record["status"]})', flush=True)
+
+
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument('--mode', choices=['offline', 'gpu', 'cpu'], required=True)
@@ -266,8 +351,11 @@ def parser():
     result.add_argument('--cmake', default=tool('cmake'))
     result.add_argument('--ctest', default=tool('ctest'))
     result.add_argument('--benchmark', action='store_true')
+    result.add_argument('--ntt-schedule', choices=NTT_SCHEDULES, help='Select and verify a single CUDA schedule')
+    result.add_argument('--compare-ntt', action='store_true', help='Build and record both CUDA schedules separately')
+    result.add_argument('--benchmark-prime-bits', type=int, nargs='+', choices=PRIME_BITS, default=list(PRIME_BITS))
     result.add_argument('--benchmark-scope', choices=SCOPE_GROUPS,
-                        help='Default: all in GPU mode, cpu in CPU mode; gpu selects public/events only')
+                        help='Default: all in GPU mode, cpu in CPU mode; gpu selects public/events; gpu-chain adds the resident chain')
     result.add_argument('--benchmark-warmups', type=int, default=5)
     result.add_argument('--benchmark-samples', type=int, default=100)
     result.add_argument('--benchmark-dimensions', type=int, nargs='+', choices=DIMENSIONS, default=list(DIMENSIONS))
@@ -284,6 +372,16 @@ def parser():
 def main(argv=None):
     cli = parser()
     args = cli.parse_args(argv)
+    if args.compare_ntt:
+        if (args.mode == 'cpu' or args.ntt_schedule or args.resume or args.allow_dirty
+                or args.profile or args.skip_sanitizers):
+            cli.error('--compare-ntt requires fresh offline/GPU records; no schedule override, dirty runs, profiling or skipped sanitizers')
+        if args.mode == 'gpu':
+            if not args.benchmark or args.benchmark_scope not in (None, 'gpu', 'gpu-chain'):
+                cli.error('GPU comparison requires --benchmark and GPU-only scope')
+            args.benchmark_scope = args.benchmark_scope or 'gpu'
+    if args.ntt_schedule and args.mode == 'cpu':
+        cli.error('--ntt-schedule requires offline or GPU mode')
     try:
         benchmark_scope(args)
     except ValueError as error:
@@ -298,9 +396,12 @@ def main(argv=None):
         cli.error('--jobs must be positive')
     if not 1 <= args.benchmark_warmups <= 10000 or not 2 <= args.benchmark_samples <= 100000:
         cli.error('benchmark requires 1..10000 warmups and 2..100000 samples')
+    if args.benchmark_scope == 'gpu-chain' and args.benchmark_warmups + args.benchmark_samples > 200:
+        cli.error('resident chain allows at most 200 warmups and samples combined')
     if not 1 <= args.command_timeout <= 7200:
         cli.error('--command-timeout must be 1..7200 seconds')
-    if len(set(args.benchmark_dimensions)) != len(args.benchmark_dimensions) or len(set(args.benchmark_towers)) != len(args.benchmark_towers):
+    if any(len(set(axis)) != len(axis) for axis in
+           (args.benchmark_dimensions, args.benchmark_towers, args.benchmark_prime_bits)):
         cli.error('benchmark matrix axes must not contain duplicates')
     if args.resume and (args.output_dir is None or not args.benchmark or args.allow_dirty):
         cli.error('--resume requires --output-dir, --benchmark and a clean checkout')
@@ -311,6 +412,11 @@ def main(argv=None):
     args.build_dir = args.build_dir or ROOT / {'offline': 'build/cuda-offline13',
                                              'gpu': 'build/native-gpu', 'cpu': 'build/native-cpu'}[args.mode]
     args.output_dir = args.output_dir or ROOT / ('bench-results-' + args.mode + '-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
+    if args.compare_ntt:
+        try:
+            return compare_ntt(args)
+        except (ValueError, OSError) as error:
+            cli.error(str(error))
     return Session(args).execute()
 
 

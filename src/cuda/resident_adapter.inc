@@ -28,12 +28,10 @@ struct Context : std::enable_shared_from_this<Context> {
     host[2].reserve(base.towers.size()); host[3].reserve(base.towers.size());
     for (auto ref : base.towers) {
       const auto t = base.parameters->tower(ref);
-      const auto inverse = inv_mod(t.psi, t.q);
-      uint64_t a = 1, b = 1;
-      for (uint64_t i = 0; i <= n; ++i) {
-        host[0].push_back(a); host[1].push_back(b);
-        a = mul_mod(a, t.psi, t.q); b = mul_mod(b, inverse, t.q);
-      }
+      const auto forward_table = transform_twiddles(n, t.psi, t.q);
+      const auto inverse_table = transform_twiddles(n, inv_mod(t.psi, t.q), t.q);
+      host[0].insert(host[0].end(), forward_table.begin(), forward_table.end());
+      host[1].insert(host[1].end(), inverse_table.begin(), inverse_table.end());
       host[2].push_back(t.q); host[3].push_back(inv_mod(n, t.q));
     }
   }

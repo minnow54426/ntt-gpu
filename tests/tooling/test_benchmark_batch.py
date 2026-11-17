@@ -20,7 +20,7 @@ class FakeSession:
         self.root, self.output = ROOT, Path(directory)
         build = self.output / 'build'
         build.mkdir()
-        for binary in ('ntt_cuda_cli', 'ntt_openfhe_bench'):
+        for binary in ('ntt_cuda_cli', 'ntt_openfhe_bench', 'ntt_resident_bench'):
             (build / binary).write_text('synthetic executable identity')
         prefix = self.output / 'openfhe'
         prefix.mkdir()
@@ -35,6 +35,8 @@ class FakeSession:
         self.commands = []
         self.fail = set()
         self.wrong_parameters = False
+        self.schedule_label = None
+        self.simulated_chain = False
 
     def save(self):
         pass
@@ -57,6 +59,7 @@ class FakeSession:
             timing = ('host_wall_gpu_public_call' if name.endswith('-gpu-public') else
                       'host_wall_public_call' if name.endswith('-public') else
                       'cuda_event_resident_and_pinned_copy' if name.endswith('-events') else
+                      'host_wall_resident_chain' if name.endswith('-chain') else
                       'host_wall_openfhe_native')
             operations = TIMING_OPERATIONS[timing]
             rows = [{'type': 'workload', 'schema': 1, 'n': dimension, 'towers': towers,
@@ -64,8 +67,12 @@ class FakeSession:
                 'roots': [int(tokens[3 + 2 * i]) for i in range(towers)],
                 'timing': timing, 'input_policy': 'fixed_seed_reset_outside_timer',
                 'seed': 7492057, 'setup_included': False, 'warmups': 1, 'samples': 2}]
+            if name.endswith('-chain') and self.simulated_chain:
+                rows[0]['simulation'] = True
             if self.wrong_parameters:
                 rows[0]['roots'][0] += 1
+            if self.schedule_label:
+                rows[0]['transform_schedule'] = self.schedule_label
             for operation in operations:
                 for iteration in range(2):
                     rows.append({'type': 'sample', 'operation': operation,
@@ -82,6 +89,44 @@ class FakeSession:
 
 
 class BatchTests(unittest.TestCase):
+    def test_gpu_chain_collects_native_records_and_rejects_host_simulation(self):
+        for simulation in (False, True):
+            with self.subTest(simulation=simulation), tempfile.TemporaryDirectory() as directory:
+                session = FakeSession(directory, scope='gpu-chain')
+                session.args.benchmark_prime_bits = [30]
+                session.simulated_chain = simulation
+                if simulation:
+                    with self.assertRaisesRegex(RuntimeError, '1 benchmark jobs failed'):
+                        collect_batch(session, 'mock GPU')
+                    self.assertIn('synthetic benchmark', session.report['benchmark_errors'][0])
+                else:
+                    collect_batch(session, 'mock GPU')
+                    self.assertEqual(session.report['benchmark_scopes'], ['gpu-public', 'events', 'chain'])
+                    self.assertEqual(len(session.report['benchmark_summaries']), 3)
+
+    def test_requested_schedule_and_prime_width_subset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = FakeSession(directory, scope='gpu')
+            session.args.ntt_schedule = 'legacy_dif'
+            session.args.benchmark_prime_bits = [30, 60]
+            session.schedule_label = 'legacy_dif'
+            collect_batch(session, 'mock GPU')
+            self.assertEqual(session.report['benchmark_expected_jobs'], 4)
+            self.assertEqual(session.report['benchmark'], 'PASS_30_60_BIT_GPU_PUBLIC_EVENTS')
+            manifest = json.loads((session.output / 'benchmark-manifest.json').read_text())
+            self.assertEqual(manifest['context']['transform_schedule'], 'legacy_dif')
+            self.assertEqual(manifest['context']['prime_bits'], [30, 60])
+        for label in (None, 'group_twiddle_ct'):
+            with tempfile.TemporaryDirectory() as directory, self.subTest(label=label):
+                session = FakeSession(directory, scope='gpu')
+                session.args.ntt_schedule = 'legacy_dif'
+                session.args.benchmark_prime_bits = [30]
+                session.schedule_label = label
+                with self.assertRaisesRegex(RuntimeError, '2 benchmark jobs failed'):
+                    collect_batch(session, 'mock GPU')
+                self.assertTrue(all('requested NTT schedule' in error
+                                    for error in session.report['benchmark_errors']))
+
     def test_small_parameter_files_retain_40_exact_primes(self):
         with tempfile.TemporaryDirectory() as directory:
             for bits in PRIME_BITS:

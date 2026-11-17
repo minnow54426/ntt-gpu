@@ -17,6 +17,11 @@ endif()
 add_library(ntt_resident STATIC src/resident.cpp)
 target_include_directories(ntt_resident PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_options(ntt_resident PRIVATE -Wall -Wextra -Werror)
+add_executable(ntt_resident_bench_host src/resident_bench.cpp)
+target_compile_definitions(ntt_resident_bench_host PRIVATE NTT_RESIDENT_BENCH_HOST)
+target_include_directories(ntt_resident_bench_host PRIVATE tests)
+target_link_libraries(ntt_resident_bench_host PRIVATE ntt_resident)
+target_compile_options(ntt_resident_bench_host PRIVATE -Wall -Wextra -Werror)
 add_executable(ntt_resident_tests tests/resident_tests.cpp)
 target_link_libraries(ntt_resident_tests PRIVATE ntt_resident)
 target_compile_options(ntt_resident_tests PRIVATE -Wall -Wextra -Werror)
@@ -93,6 +98,10 @@ add_test(NAME gen_vectors_n64
                  ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/gen_vectors.py
                  ${VEC64} 64 3 1)
 set_tests_properties(gen_vectors_n64 PROPERTIES FIXTURES_SETUP VECTORS_N64)
+add_test(NAME resident_benchmark_host
+         COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/tooling/check_resident_benchmark.py
+                 $<TARGET_FILE:ntt_resident_bench_host> ${VEC64})
+set_tests_properties(resident_benchmark_host PROPERTIES FIXTURES_REQUIRED VECTORS_N64)
 
 add_test(NAME gen_vectors_n65536
          COMMAND Python3::Interpreter
@@ -164,6 +173,7 @@ if(NTT_ENABLE_OPENFHE_COMPAT)
     message(FATAL_ERROR "Hybrid graph checks require the OpenFHE PKE library")
   endif()
   add_test(NAME openfhe_hybrid_graph COMMAND ntt_openfhe_hybrid)
+  add_test(NAME openfhe_basis_conversion COMMAND ntt_openfhe_hybrid --basis-only)
 
 endif()
 
@@ -208,6 +218,9 @@ if(CMAKE_CUDA_COMPILER)
   add_library(ntt_cuda_backend STATIC src/cuda/ntt_kernels.cu)
   target_include_directories(ntt_cuda_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(ntt_cuda_backend PUBLIC ntt_resident)
+  add_executable(ntt_resident_bench src/resident_bench.cpp)
+  target_link_libraries(ntt_resident_bench PRIVATE ntt_cuda_backend)
+  target_compile_options(ntt_resident_bench PRIVATE -Wall -Wextra -Werror)
   add_executable(ntt_resident_cuda_preflight tests/resident_cuda_preflight.cpp)
   target_link_libraries(ntt_resident_cuda_preflight PRIVATE ntt_cuda_backend)
   add_test(NAME resident_cuda_preflight COMMAND ntt_resident_cuda_preflight)

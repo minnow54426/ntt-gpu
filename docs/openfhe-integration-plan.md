@@ -22,9 +22,12 @@ Last reviewed: 2026-11-17 (Asia/Shanghai).
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Verify the resident chain and new group-twiddle NTT on RTX 5090; compare with the legacy baseline |
+| Active task | Compile both CUDA schedules in driverless CI, then run the bundled RTX 5090 session |
 | Next gate | P2: native CUDA/OpenFHE exactness and named-hardware baseline (D11–D15) |
 | Overall state | In progress; additional Ada hardware verified, primary-device and remaining P2 gates open |
+
+See the [next GPU rental queue](next-gpu-rental.md) for the offline work and
+the order of the bundled native checks.
 
 Hardware: RTX 5090 primary, RTX 4090 control. Use larger-memory hardware only
 when measurements justify it; see the [GPU comparison](gpu-selection-survey.md).

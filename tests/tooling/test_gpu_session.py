@@ -24,6 +24,74 @@ spec.loader.exec_module(module)
 
 
 class SessionTests(unittest.TestCase):
+    def test_comparison_pairs_only_matching_runs_and_retains_both_reports(self):
+        for changed in (None, 'roots', 'device', 'same-binary', 'same-chain', 'failure'):
+            with tempfile.TemporaryDirectory() as directory, self.subTest(changed=changed):
+                directory = Path(directory)
+                args = SimpleNamespace(mode='gpu', output_dir=directory / 'record',
+                                       build_dir=directory / 'build')
+                seen = []
+
+                class SyntheticSession:
+                    def __init__(self, options):
+                        self.output = options.output_dir
+                        self.output.mkdir()
+                        self.options = options
+                        seen.append(options)
+
+                    def execute(self):
+                        legacy = self.options.ntt_schedule == 'legacy_dif'
+                        failed = changed == 'failure' and not legacy
+                        self.report = {
+                            'source_commit': 'mock', 'source_dirty': False,
+                            'status': 'FAIL' if failed else 'GPU_CHECKS_PASSED',
+                            'benchmark_expected_jobs': 1,
+                            'benchmark_summaries': {'paired-job': {'workload': {
+                                'roots': [3 if legacy and changed == 'roots' else 2],
+                                'transform_schedule': self.options.ntt_schedule}}},
+                        }
+                        (self.output / 'report.json').write_text(json.dumps(self.report))
+                        identity = 'other device' if legacy and changed == 'device' else 'same device'
+                        context = {'hardware_identity': identity,
+                                   'selected_device': 'device\ntransform schedule: ' + self.options.ntt_schedule,
+                                   'transform_schedule': self.options.ntt_schedule,
+                                   'binaries': {
+                                       'ntt_cuda_cli': 'A' if changed == 'same-binary' else self.options.ntt_schedule,
+                                       'ntt_resident_bench': 'B' if changed == 'same-chain' else self.options.ntt_schedule,
+                                   }}
+                        (self.output / 'benchmark-manifest.json').write_text(json.dumps({'context': context}))
+                        return int(failed)
+
+                with patch.object(module, 'Session', SyntheticSession):
+                    self.assertEqual(module.compare_ntt(args), int(changed is not None))
+                self.assertEqual([item.ntt_schedule for item in seen], list(module.NTT_SCHEDULES))
+                self.assertEqual(len({item.build_dir for item in seen}), 2)
+                self.assertEqual(len({item.output_dir for item in seen}), 2)
+                record = json.loads((args.output_dir / 'comparison.json').read_text())
+                self.assertEqual(set(record['runs']), set(module.NTT_SCHEDULES))
+                self.assertEqual(record['status'], 'FAIL' if changed else 'MATCHED_GPU_RUNS')
+                self.assertEqual(record.get('matched_jobs'), None if changed else ['paired-job'])
+                with self.assertRaises(FileExistsError):
+                    module.compare_ntt(args)
+
+    def test_compare_cli_uses_gpu_only_scope(self):
+        options = ['--mode', 'gpu', '--cuda-root', '/mock/cuda',
+                   '--openfhe-prefix', '/mock/openfhe', '--compare-ntt', '--benchmark',
+                   '--benchmark-prime-bits', '30', '60']
+        with patch.object(module, 'compare_ntt', return_value=0) as compare:
+            self.assertEqual(module.main(options), 0)
+            args = compare.call_args.args[0]
+            self.assertEqual(args.benchmark_scope, 'gpu')
+            self.assertEqual(args.benchmark_prime_bits, [30, 60])
+        with patch.object(module, 'compare_ntt', return_value=0) as compare:
+            self.assertEqual(module.main(options + ['--benchmark-scope', 'gpu-chain']), 0)
+            self.assertEqual(compare.call_args.args[0].benchmark_scope, 'gpu-chain')
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            module.main(options + ['--benchmark-scope', 'gpu-chain', '--benchmark-samples', '200'])
+        for flag in ('--skip-sanitizers', '--profile', '--allow-dirty'):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                module.main(options + [flag])
+
     def test_cli_cpu_needs_no_cuda_and_uses_its_own_build_directory(self):
         with patch.object(module, 'Session') as session:
             session.return_value.execute.return_value = 0
@@ -298,8 +366,8 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(sum('gpu-bench-jsonl' in c for c in commands), 4)
         self.assertFalse(any('bench-jsonl' in c for c in commands))
         gate = next(c for c in commands if '--output-on-failure' in c)
-        self.assertEqual(gate[-2:], ['-E', '^openfhe_benchmark_protocol$'])
-        self.assertEqual(report['excluded_tests'], ['openfhe_benchmark_protocol'])
+        self.assertEqual(gate[-2:], ['-L', 'gpu'])
+        self.assertEqual(report['exact_test_label'], 'gpu')
         self.assertEqual(report['registered_gpu_tests'], sorted(module.GPU_TESTS))
 
     def test_cpu_only_test_list_cannot_pass(self):

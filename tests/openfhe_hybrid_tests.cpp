@@ -222,6 +222,63 @@ Rows check_down(const DCRTPoly& actual_ext, const Rows& ext_eval, const Params& 
   return expected;
 }
 
+// Full-prefix conversion is a separate API from Hybrid's per-digit lift.
+void check_basis_conversion(const std::shared_ptr<CryptoParametersRNS>& cp) {
+  const auto p = cp->GetParamsP();
+  const size_t special_count = p->GetParams().size();
+  const BigInteger barrett_base = BigInteger(1).LShiftEq(128);
+  std::vector<DoubleNativeInt> barrett;
+  for (size_t j = 0; j < special_count; ++j)
+    barrett.push_back((barrett_base / BigInteger(modulus(p, j))).ConvertToInt<DoubleNativeInt>());
+
+  for (size_t active_count = 1; active_count <= cp->GetElementParams()->GetParams().size(); ++active_count) {
+    const auto active = select(cp->GetElementParams(), 0, active_count);
+    std::vector<NativeInteger> inverses, preconditions;
+    std::vector<std::vector<NativeInteger>> hats_mod_p(active_count);
+    // Build the OpenFHE routine's parameter tables independently of lift().
+    // Each hat is the product of every other active prime.
+    for (size_t i = 0; i < active_count; ++i) {
+      const NativeInteger qi(modulus(active, i));
+      NativeInteger hat_mod_qi(1);
+      for (size_t k = 0; k < active_count; ++k)
+        if (k != i) hat_mod_qi = hat_mod_qi.ModMul(NativeInteger(modulus(active, k)), qi);
+      inverses.push_back(hat_mod_qi.ModInverse(qi));
+      preconditions.push_back(inverses.back().PrepModMulConst(qi));
+      for (size_t j = 0; j < special_count; ++j) {
+        const uint64_t pj = modulus(p, j);
+        uint64_t hat_mod_pj = 1;
+        for (size_t k = 0; k < active_count; ++k)
+          if (k != i) hat_mod_pj = ntt::mul_mod(hat_mod_pj, modulus(active, k) % pj, pj);
+        hats_mod_p[i].emplace_back(hat_mod_pj);
+      }
+    }
+
+    for (unsigned pattern = 0; pattern < 4; ++pattern) {
+      const Rows coeff = fixture(active, pattern);
+      const Rows evaluation = transform(coeff, active);
+      const auto ext = make(evaluation, active, Format::EVALUATION).GetExtendedCRTBasis(p);
+      const Rows lifted = transform(lift(coeff, active, p), p);
+      Rows expected = evaluation;
+      expected.insert(expected.end(), lifted.begin(), lifted.end());
+      for (const auto format : {Format::COEFFICIENT, Format::EVALUATION}) {
+        auto up = make(format == Format::COEFFICIENT ? coeff : evaluation, active, format);
+        up.ApproxModUp(active, p, ext, inverses, preconditions, hats_mod_p, barrett);
+        equal(up, expected, ext, Format::EVALUATION, "standalone ApproxModUp");
+      }
+
+      // Arbitrary QP values exercise the P correction independently of ModUp.
+      const Rows ext_eval = transform(fixture(ext, pattern), ext);
+      const auto input = make(ext_eval, ext, Format::EVALUATION);
+      check_down(input, ext_eval, active, cp);
+      equal(input, ext_eval, ext, Format::EVALUATION, "standalone ApproxModDown preserves source");
+    }
+    std::cout << "BASIS CONVERSION OK: N=" << N << " active Q=" << active_count << std::endl;
+  }
+  require(noncanonical_witnesses > 0, "basis fixtures must detect canonical-CRT substitution");
+  std::cout << "BASIS CONVERSION PASS: " << comparisons
+            << " residue comparisons; canonical-lift witnesses=" << noncanonical_witnesses << std::endl;
+}
+
 void check_wrappers(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks,
                     const EvalKey<DCRTPoly>& key, const DCRTPoly& input, const Rows& base,
                     const std::vector<Rows>& down) {
@@ -359,8 +416,10 @@ void run_case(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks,
 }
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
   try {
+    const bool basis_only = argc == 2 && std::string(argv[1]) == "--basis-only";
+    require(argc == 1 || basis_only, "usage: ntt_openfhe_hybrid [--basis-only]");
     CCParams<CryptoContextCKKSRNS> config;
     config.SetRingDim(N);config.SetMultiplicativeDepth(4);config.SetScalingModSize(50);
     config.SetFirstModSize(60);config.SetScalingTechnique(FIXEDMANUAL);
@@ -381,6 +440,10 @@ int main() {
     for (size_t l = 0; l < cp->GetParamsQP()->GetParams().size(); ++l)
       std::cout << "PARAM " << l << " q=" << modulus(cp->GetParamsQP(), l)
                 << " psi=" << root(cp->GetParamsQP(), l) << std::endl;
+    if (basis_only) {
+      check_basis_conversion(cp);
+      return 0;
+    }
     KeySwitchHYBRID ks;
     const auto diagnostic = diagnostic_key(cc, cp);
     for (size_t L : {size_t(5), size_t(4), size_t(3), size_t(1)})

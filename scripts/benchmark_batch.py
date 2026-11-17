@@ -14,9 +14,11 @@ MAX_TOWERS = 40
 SCOPES = {'public': ('ntt_cuda_cli', 'bench-jsonl', 'host_wall_public_call'),
           'gpu-public': ('ntt_cuda_cli', 'gpu-bench-jsonl', 'host_wall_gpu_public_call'),
           'events': ('ntt_cuda_cli', 'events-jsonl', 'cuda_event_resident_and_pinned_copy'),
+          'chain': ('ntt_resident_bench', None, 'host_wall_resident_chain'),
           'openfhe': ('ntt_openfhe_bench', None, 'host_wall_openfhe_native')}
 SCOPE_GROUPS = {'all': ('public', 'events', 'openfhe'),
-                'gpu': ('gpu-public', 'events'), 'cpu': ('openfhe',)}
+                'gpu': ('gpu-public', 'events'),
+                'gpu-chain': ('gpu-public', 'events', 'chain'), 'cpu': ('openfhe',)}
 
 
 def benchmark_scope(args):
@@ -55,6 +57,8 @@ def collect_batch(session, hardware_identity):
     args, output = session.args, session.output
     scope_group = benchmark_scope(args)
     scopes = SCOPE_GROUPS[scope_group]
+    prime_bits = getattr(args, 'benchmark_prime_bits', PRIME_BITS)
+    schedule = getattr(args, 'ntt_schedule', None)
     build = args.build_dir.resolve()
     prefix = args.openfhe_prefix.resolve()
     libraries = {str(path.relative_to(prefix)): digest(path)
@@ -69,7 +73,7 @@ def collect_batch(session, hardware_identity):
                'cpu_identity': session.report['cpu_identity'],
                'warmups': args.benchmark_warmups, 'samples': args.benchmark_samples,
                'dimensions': list(args.benchmark_dimensions),
-               'tower_counts': list(args.benchmark_towers), 'prime_bits': list(PRIME_BITS),
+               'tower_counts': list(args.benchmark_towers), 'prime_bits': list(prime_bits),
                'openfhe_libraries': libraries,
                'binaries': {name: digest(build / name) for name in
                             dict.fromkeys(SCOPES[scope][0] for scope in scopes)}}
@@ -77,6 +81,8 @@ def collect_batch(session, hardware_identity):
         context.update(selected_device=session.report['selected_device'],
                        cuda_visible_devices=os.environ.get('CUDA_VISIBLE_DEVICES'),
                        architectures=args.architectures)
+        if schedule:
+            context['transform_schedule'] = schedule
     manifest_path = output / 'benchmark-manifest.json'
     manifest = {'context': context, 'jobs': {}}
     if manifest_path.exists():
@@ -88,12 +94,12 @@ def collect_batch(session, hardware_identity):
     session.report['benchmark_manifest'] = manifest_path.name
     session.report['benchmark_scopes'] = list(scopes)
     session.report['benchmark_expected_jobs'] = (len(args.benchmark_dimensions) *
-        len(args.benchmark_towers) * len(PRIME_BITS) * len(scopes))
+        len(args.benchmark_towers) * len(prime_bits) * len(scopes))
     session.report['benchmark_summaries'] = {}
     errors = []
     for dimension in args.benchmark_dimensions:
         for towers in args.benchmark_towers:
-            for bits in PRIME_BITS:
+            for bits in prime_bits:
                 cell = f'n{dimension}-k{towers}-b{bits}'
                 vector = output / f'benchmark-vector-{cell}.txt'
                 # Regenerate from source even on resume; q/roots must still
@@ -134,6 +140,8 @@ def collect_batch(session, hardware_identity):
                         workload = summary['workload']
                         if workload.get('simulation'):
                             raise ValueError('synthetic benchmark cannot count as native evidence')
+                        if schedule and scope != 'openfhe' and workload.get('transform_schedule') != schedule:
+                            raise ValueError('benchmark did not report the requested NTT schedule')
                         if (workload['samples'] != args.benchmark_samples or workload['warmups'] != args.benchmark_warmups
                                 or workload.get('seed') != 7492057
                                 or any(workload[key] != values for key, values in parameters.items())):
@@ -152,11 +160,9 @@ def collect_batch(session, hardware_identity):
     if errors:
         session.report['benchmark_errors'] = errors
         raise RuntimeError(f'{len(errors)} benchmark jobs failed; completed jobs retained for --resume')
-    session.report['benchmark'] = {
-        'all': 'PASS_30_50_55_60_BIT_PUBLIC_EVENTS_OPENFHE',
-        'gpu': 'PASS_30_50_55_60_BIT_GPU_PUBLIC_EVENTS',
-        'cpu': 'PASS_30_50_55_60_BIT_CPU_OPENFHE',
-    }[scope_group]
+    suffix = {'all': 'PUBLIC_EVENTS_OPENFHE', 'gpu': 'GPU_PUBLIC_EVENTS',
+              'gpu-chain': 'GPU_PUBLIC_EVENTS_CHAIN', 'cpu': 'CPU_OPENFHE'}[scope_group]
+    session.report['benchmark'] = f'PASS_{"_".join(map(str, prime_bits))}_BIT_{suffix}'
 
 
 def collect_profiles(session):

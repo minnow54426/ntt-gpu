@@ -61,13 +61,18 @@ K=1/3/8/16/24/32/40: **140 workloads**.
 Add `--benchmark` to collect timings. Direct GPU collector commands default to
 `all`; the rental helper `scripts/autodl_setup.sh` defaults to `gpu`.
 Set `--benchmark-scope all` or `NTT_BENCHMARK_SCOPE=all` for a combined rental run.
-GPU-only selection retains untimed reference checks, native exactness and
-requested sanitizers; it excludes only the separate CPU timing-protocol sweep.
+GPU-only selection runs the native CTest group with its OpenFHE references
+and fixtures, followed by the requested sanitizers. Run standalone CPU
+checks and CPU timing on the local host.
 
 Use `--benchmark-dimensions 65536 --benchmark-towers 3 40` for a bounded
 batch. Any K from 1 through 40 is selectable; the default samples seven counts.
 Match dimensions, tower counts, widths, warmups and samples across machines.
 Different platforms are not a same-host acceleration comparison.
+
+Use `--benchmark-prime-bits 30 60` to limit widths. For the matched default
+versus legacy GPU experiment, use `--compare-ntt` and the fresh-directory
+commands in the [rental queue](next-gpu-rental.md).
 
 At 100 samples per operation, the default GPU selection records 154,000 timed
 samples; CPU records 56,000; combined records 224,000. These repeat fixed
@@ -139,7 +144,18 @@ explicit completion marker. Percentiles use linear interpolation at
 | `ntt_cuda_cli gpu-bench-jsonl parameters.txt 5 100` | GPU forward, inverse, pointwise, unfused product and fused product; host-wall public-call time |
 | `ntt_cuda_cli bench-jsonl parameters.txt 5 100` | The same GPU operations plus scalar reference forward; legacy combined public protocol |
 | `ntt_cuda_cli events-jsonl parameters.txt 5 100` | Resident forward, inverse, pointwise and product; separate pinned H2D/D2H copies |
+| `ntt_resident_bench parameters.txt 2 10` | Host-wall time for the device-resident chain, public host boundary, and explicit host-roundtrip control |
 | `ntt_openfhe_bench parameters.txt 5 100` | Four OpenFHE NativeVector/CRT-FTT CPU operations |
+
+Select `--benchmark-scope gpu-chain` to add the resident prototype timings
+to the GPU public and CUDA-event records. For the device chain, inputs are
+uploaded once and the timer ends when the coefficient output is ready on the
+device. The exact coefficient check downloads it after the timer. The host
+boundary times both input uploads and the final download. The roundtrip
+control also downloads and re-uploads each intermediate. All three scopes
+include prototype allocations, copies and synchronization inside their measured
+interval. Each checks every result and excludes one-time plan setup. Keep
+warmups and samples at 200 combined or fewer.
 
 Public GPU calls include validation, guards, transfers and the multiply
 interface's by-value input allocation/copy. Result retention/destruction is

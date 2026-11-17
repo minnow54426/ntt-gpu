@@ -11,10 +11,13 @@ EVENT_OPERATIONS = {"gpu_forward", "gpu_inverse", "gpu_pointwise", "gpu_fused_mu
                     "h2d_pinned", "d2h_pinned"}
 OPENFHE_OPERATIONS = {"cpu_openfhe_forward", "cpu_openfhe_inverse", "cpu_openfhe_pointwise",
                       "cpu_openfhe_multiply"}
+RESIDENT_CHAIN_OPERATIONS = {"resident_device_chain", "resident_host_boundary",
+                             "resident_host_roundtrip_chain"}
 TIMING_OPERATIONS = {"host_wall_public_call": OPERATIONS,
                      "host_wall_gpu_public_call": OPERATIONS - {"cpu_reference_forward"},
                      "cuda_event_resident_and_pinned_copy": EVENT_OPERATIONS,
-                     "host_wall_openfhe_native": OPENFHE_OPERATIONS}
+                     "host_wall_openfhe_native": OPENFHE_OPERATIONS,
+                     "host_wall_resident_chain": RESIDENT_CHAIN_OPERATIONS}
 
 
 def percentile(values, fraction):

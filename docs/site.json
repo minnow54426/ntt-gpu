@@ -4,6 +4,18 @@
   "public_base_url": "https://minnow54426.github.io/systems/ntt-gpu/",
   "pages": [
     {
+      "source": "docs/next-gpu-rental.md",
+      "url": "next-gpu-rental.html",
+      "title": "Next GPU rental queue",
+      "group": "Plans",
+      "summary": "Prepare offline and bundle required RTX 5090 work into one rental.",
+      "takeaways": [
+        "Prepare both NTT builds, resident-chain timing, and CPU basis-conversion fixtures before renting.",
+        "On the 5090, run exactness and sanitizers first, then matched timings and profiling."
+      ],
+      "next_page": "offline-test-tooling.html"
+    },
+    {
       "source": "README.md",
       "url": "project.html",
       "title": "Project & setup",
