@@ -66,19 +66,189 @@ including quotient error, carries, temporary width, and final correction.
 
 ## 3. The invariant through every butterfly
 
-Forward and inverse use these canonical modular operations:
+There are two things to preserve: **what each value means** and **how it is
+stored**. A stage must compute the correct partial polynomial evaluations,
+and every stored word must remain in \([0,q)\). The negacyclic merge equations
+explain both. All equations in this section use arithmetic modulo q.
+
+### Split a negacyclic polynomial into two smaller problems
+
+Start with \(a(x)\) modulo \(x^N+1\). Set \(d=N/2\) and split its coefficient
+array into low and high halves:
 
 \[
 \begin{aligned}
-\text{Forward: }&t=cv\bmod q,\quad u'=u+t\bmod q,\quad v'=(u-t)w\bmod q,\\
-\text{Inverse: }&t=yw^{-1}\bmod q,\quad u'=x+t\bmod q,\quad v'=(x-t)c^{-1}\bmod q.
+a(x)&=U(x)+x^dV(x),\\
+U(x)&=\sum_{i=0}^{d-1}a_i x^i,\\
+V(x)&=\sum_{i=0}^{d-1}a_{i+d}x^i.
 \end{aligned}
 \]
 
-Tables contain canonical powers.
-Every operation above returns canonical values, so induction over all 16
-stages preserves \([0,q)\). Inverse's final multiplication by N-inverse does too.
-Pointwise multiplication has the same invariant.
+Because \(\psi^N=-1\), choose \(\alpha=\psi^d\), so \(\alpha^2=-1\).
+The original modulus factors as
+
+\[
+x^N+1=(x^d-\alpha)(x^d+\alpha).
+\]
+
+Inside the first smaller ring, \(x^d=\alpha\); inside the second,
+\(x^d=-\alpha\). Substitution gives the **negacyclic merge**:
+
+\[
+\begin{aligned}
+a(x)\bmod(x^d-\alpha)&=U(x)+\alpha V(x),\\
+a(x)\bmod(x^d+\alpha)&=U(x)-\alpha V(x).
+\end{aligned}
+\]
+
+For each coefficient pair \(u=a_i\), \(v=a_{i+d}\), the two output words
+are therefore \(u+\alpha v\) and \(u-\alpha v\). One multiplication is shared
+by the plus and minus branches: this is a butterfly. The minus sign comes
+from the two factors of the negacyclic modulus, not from an extra array operation.
+
+### Repeat the same merge through all 16 stages
+
+At a later stage, a block of 2d coefficients represents a remainder modulo
+\(x^{2d}-\beta\). Choose the appropriate \(\alpha\) with
+\(\alpha^2=\beta\). The same identity applies:
+
+\[
+x^{2d}-\beta=(x^d-\alpha)(x^d+\alpha).
+\]
+
+The block splits into its two child remainders \(U+\alpha V\) and
+\(U-\alpha V\). This is the **meaning invariant**: each block is still the
+original polynomial reduced modulo its current factor. At d=1, each factor
+is linear, \(x-z\), and its remainder is exactly \(a(z)\).
+
+For the default [shared CPU/CUDA stage helper](../include/ntt/transform_stage.hpp),
+let \(m=N/(2d)\) be the number of groups, \(g\in[0,m)\) the group index,
+and \(\operatorname{rev}_L\) reverse L bits, where \(L=\log_2N\). Its group twiddle is
+
+\[
+\alpha_{m,g}=\psi^{\operatorname{rev}_L(m+g)}\bmod q.
+\]
+
+One twiddle applies to every coefficient pair in that group. As d runs from
+N/2 down to 1, these choices select the successive factors above. At the end,
+array position k holds
+
+\[
+a\!\left(\psi^{2\operatorname{rev}_L(k)+1}\right)\bmod q.
+\]
+
+Thus the transform produces evaluations at the roots of \(x^N+1\), in
+bit-reversed order. It keeps N words throughout; the intermediate words are
+partial remainders, not final evaluations yet. See the
+[exact evaluation formulas](openfhe-representation-contract.md#3-exact-evaluation-and-inverse-formulas)
+for the direct sum that these butterflies compute.
+
+### Keep the stored values canonical, and reverse the merge
+
+The default forward butterfly implements those child remainders with
+canonical operations:
+
+\[
+\begin{aligned}
+t&=\operatorname{mul\_mod}(\alpha,v,q),\\
+p&=\operatorname{add\_mod}(u,t,q),\\
+r&=\operatorname{sub\_mod}(u,t,q).
+\end{aligned}
+\]
+
+The inputs u, v and table entry α are in \([0,q)\). Multiplication reduces
+the full-width product before storing t; addition and subtraction reduce
+before storing p and r. Consequently **each output is again in \([0,q)\)**,
+even though an unreduced sum could reach 2q−2 or a difference could be negative.
+This proves the range invariant by induction over all 16 stages.
+
+To reconstruct the parent, add and subtract its two child remainders:
+
+\[
+\begin{aligned}
+p+r&\equiv2u\pmod q,\\
+(p-r)\alpha^{-1}&\equiv2v\pmod q.
+\end{aligned}
+\]
+
+The inverse helper forms a canonical difference before multiplying:
+
+\[
+\begin{aligned}
+\delta&=\operatorname{sub\_mod}(p,r,q),\\
+\widetilde u&=\operatorname{add\_mod}(p,r,q),\\
+\widetilde v&=\operatorname{mul\_mod}(\delta,\alpha^{-1},q).
+\end{aligned}
+\]
+
+Here \(\widetilde u\) and \(\widetilde v\) represent 2u and 2v modulo q.
+The helper postpones division by 2: every reversed stage contributes a factor 2,
+so 16 stages contribute \(2^{16}=N\). One final multiplication by
+\(N^{-1}\bmod q\) recovers the original coefficients. All these stored
+intermediates are canonical too. Pointwise multiplication preserves the same
+range; its evaluation products correspond to polynomial multiplication modulo
+\(x^N+1\).
+
+### A complete four-word example
+
+For illustration, use N=4, q=17 and ψ=2. Start with canonical coefficients
+`[1, 15, 3, 15]`, representing \(1-2x+3x^2-2x^3\) modulo 17.
+
+```text
+Forward, default group-twiddle schedule:
+  d=2, alpha=4:       [1, 15, 3, 15] -> [13, 7, 6, 6]
+  d=1, alphas=2, 8:  [13, 7, 6, 6] -> [10, 16, 3, 9]
+
+Inverse, without the final scale yet:
+  d=1, inverses=9,15: [10, 16, 3, 9] -> [9, 14, 12, 12]
+  d=2, inverse=13:    [9, 14, 12, 12] -> [4, 9, 12, 9]
+  multiply by 4^-1=13 modulo 17:      -> [1, 15, 3, 15]
+```
+
+For example, the first forward pair is
+\(t=4\times3\bmod17=12\), \(p=(1+12)\bmod17=13\),
+\(r=(1-12)\bmod17=6\). Every displayed word stays between 0 and 16.
+The final values evaluate the polynomial at `[2, 15, 8, 9]`, the odd powers
+of ψ in bit-reversed order. N=4 only makes the arithmetic visible; the project
+workload remains N=65536.
+
+<details markdown="1">
+<summary>How the CPU reference folds the same negacyclic twist into its butterflies</summary>
+
+The [CPU reference](../include/ntt/ntt.hpp) and optional legacy CUDA build use
+a different intermediate layout. Write \(b_i=\psi^i a_i\) and
+\(\omega=\psi^2\). The negacyclic evaluation sum becomes a cyclic sum:
+
+\[
+a(\psi^{2j+1})=\sum_i a_i\psi^{(2j+1)i}
+=\sum_i b_i\omega^{ji}.
+\]
+
+The reference carries the factors \(\psi^i\) implicitly rather than storing
+a separate twisted array. For a pair at local offset i and distance d,
+write the implicit inputs as \(\psi^iu\) and \(\psi^{i+d}v\).
+With \(c=\psi^d\) and \(w=\psi^{iN/d}\), a cyclic DIF split factors as
+
+\[
+\begin{aligned}
+\psi^iu+\psi^{i+d}v&=\psi^i(u+cv),\\
+(\psi^iu-\psi^{i+d}v)w&=\psi^i(u-cv)w.
+\end{aligned}
+\]
+
+After leaving the common \(\psi^i\) implicit, the stored pair is
+\(p=(u+cv)\bmod q\), \(r=(u-cv)w\bmod q\).
+The reverse butterfly computes \(t=rw^{-1}\bmod q\), then
+\((p+t)\bmod q\) and \((p-t)c^{-1}\bmod q\), giving 2u and 2v.
+It also postpones normalization until the final N-inverse multiply.
+
+For the example above, the reference's first-stage array is `[13, 7, 6, 7]`,
+while the default helper's is `[13, 7, 6, 6]`. Their final evaluations are
+identical. Do not require intermediate arrays from these two schedules to
+match. Each schedule preserves its own partial-transform meaning and the
+same canonical range.
+
+</details>
 
 There is **no stage where values are intentionally in \([0,2q)\) or \([0,4q)\)**.
 The upstream [`native forward NTT`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L337-L507) uses lazy intermediate arithmetic. Feeding lazy OpenFHE/internal buffers directly into this interface without
@@ -88,10 +258,12 @@ an explicit representation contract would violate its assumptions.
 
 N=65536 has \(32768\times16=524288\) butterflies per direction and per tower.
 The CPU reference uses three modular multiplications per butterfly: two
-for data and one to advance the twiddle. Shared device-stage helpers use
-two, reading precomputed twiddles instead. Thus the loop bodies perform
-1,572,864 and 1,048,576 multiplications respectively; inverse adds 65,536
-normalization multiplies. Setup powers/table generation are additional work.
+for data and one to advance the twiddle. The optional legacy device schedule
+uses two, reading precomputed twiddles instead. The default group-twiddle
+helper uses one, as in the merge equations above. Thus their loop bodies
+perform 1,572,864, 1,048,576 and 524,288 multiplications respectively;
+inverse adds 65,536 normalization multiplies per tower in each schedule.
+Setup powers/table generation are additional work.
 
 The old arithmetic-header comment counted the CPU loop incorrectly; D6 fixes
 that comment without changing the algorithms. `__uint128_t` remainder is
