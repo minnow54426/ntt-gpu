@@ -73,19 +73,202 @@ bit reversal changes an **index**, not byte order or the bits of a residue.
 
 ## 3. Exact evaluation and inverse formulas
 
-Let `rev16(k)` reverse the low 16 bits of k and define
-\(r_k=\psi^{2\operatorname{rev}_{16}(k)+1}\pmod q\). Then:
+Work with **one tower**: one polynomial modulo one prime q. The input array
+\([a_0,a_1,\ldots,a_{N-1}]\) stores the coefficients of
+\(a(x)=a_0+a_1x+\cdots+a_{N-1}x^{N-1}\).
+Forward describes this same polynomial by its values at N special points;
+inverse recovers its coefficients. Repeat the operation independently for
+other towers.
+
+### Read the symbols
+
+| Symbol | Meaning |
+|---|---|
+| \(N\) | Power-of-two transform length: the number of coefficients and evaluation points; 65536 in the project |
+| \(q\) | This tower's prime modulus; stored values lie in \([0,q)\) |
+| \(\psi\) | A primitive 2N-th root: \(\psi^{2N}=1\) and \(\psi^N=-1\pmod q\) |
+| \(i,\ a_i\) | Coefficient index and coefficient of \(x^i\), with \(0\le i<N\) |
+| \(k,\ y_k\) | Memory index and stored evaluation value, with \(0\le k<N\) |
+| \(j\) | Natural evaluation-point index; it can differ from memory index k |
+| \(\operatorname{rev}_b(k)\) | Reverse exactly b binary digits of k, where \(b=\log_2N\); keep leading zeros |
+| \(r_k\) | The evaluation point assigned to memory position k |
+| \(N^{-1}\) | The modular inverse of N: \(N\cdot N^{-1}\equiv1\pmod q\) |
+
+### Choose the point stored at position k
+
+For N=65536, an index has 16 bits. First find
+\(j=\operatorname{rev}_{16}(k)\), then choose the odd root power:
 
 \[
-\mathrm{forward}(a)[k]=\sum_{i=0}^{N-1}a_i r_k^i\pmod q,
-\qquad
-\mathrm{inverse}(y)[i]=N^{-1}\sum_{k=0}^{N-1}y_k r_k^{-i}\pmod q.
+r_k=\psi^{2j+1}=\psi^{2\operatorname{rev}_{16}(k)+1}\pmod q.
 \]
 
-The first natural evaluation indices in memory are
-`0, 32768, 16384, 49152, 8192, ...`. Thus the corresponding root exponents
-begin `1, 65537, 32769, 98305, 16385, ...`. In particular, slot 0 contains
-\(a(\psi)\) and slot 1 contains \(a(-\psi)\).
+**Why odd powers?** This project multiplies modulo \(x^N+1\), so the evaluation
+points must satisfy \(r_k^N=-1\). Odd powers have that property because
+\((\psi^{2j+1})^N=(-1)^{2j+1}=-1\).
+
+**Why bit reversal?** OpenFHE's NTT stores these evaluations in bit-reversed
+point order. It rearranges the addresses of the results, not their numeric
+bits. The first memory positions therefore mean:
+
+| Memory k | Natural point index j = rev₁₆(k) | Root exponent 2j+1 |
+|---:|---:|---:|
+| 0 | 0 | 1 |
+| 1 | 32768 | 65537 |
+| 2 | 16384 | 32769 |
+| 3 | 49152 | 98305 |
+| 4 | 8192 | 16385 |
+
+In particular, \(r_0=\psi\), while
+\(r_1=\psi^{N+1}=\psi^N\psi=-\psi\pmod q\).
+Thus memory positions 0 and 1 contain \(a(\psi)\) and \(a(-\psi)\).
+A negative value is stored as its canonical residue; for example, −2 is 15
+modulo 17. This ordering concerns NTT evaluations, not decoded CKKS slots.
+
+### Forward: plug the point into the polynomial
+
+\[
+\begin{aligned}
+y_k&=\mathrm{forward}(a)[k]\\
+&=a(r_k)\\
+&=\sum_{i=0}^{N-1}a_i r_k^i\pmod q.
+\end{aligned}
+\]
+
+For **one fixed k**, the sum means
+\(a_0+a_1r_k+a_2r_k^2+\cdots+a_{N-1}r_k^{N-1}\).
+Multiply each coefficient by the corresponding power, add the terms, and
+reduce modulo q. That gives one output value yₖ. Repeating for all k gives
+the complete evaluation array.
+
+The equation defines the required answer. Real implementations use
+[butterflies](butterfly-explained.html) to share work rather than calculate
+N separate N-term sums directly.
+
+### Inverse: collect contributions back into each coefficient
+
+\[
+\begin{aligned}
+a_i&=\mathrm{inverse}(y)[i]\\
+&=N^{-1}\sum_{k=0}^{N-1}y_k r_k^{-i}\pmod q.
+\end{aligned}
+\]
+
+Now hold **coefficient index i** fixed and sum over **all evaluation positions
+k**. Every yₖ contributes with weight \(r_k^{-i}\). Add those contributions
+and multiply by N-inverse to obtain aᵢ.
+
+Two details matter:
+
+- \(r_k^{-i}=(r_k^{-1})^i\). A negative exponent means a modular inverse,
+  not a negative array index or an ordinary floating-point reciprocal.
+- N-inverse removes the factor N accumulated by the inverse sum. It is an
+  integer modulo q, not decimal division by N. N is invertible because the
+  supported prime satisfies \(2N\mid(q-1)\).
+
+Keep each yₖ paired with its original rₖ. The inverse consumes the forward's
+bit-reversed evaluation order directly and returns coefficients in natural
+order; do not sort the values or add another bit-reversal pass.
+
+### A complete four-point example
+
+Use **N=4, q=17, ψ=2**, so \(\psi^4=16\equiv-1\pmod{17}\).
+This is a small arithmetic example; the project workload remains N=65536.
+The index now has **two bits**, so use rev₂ instead of rev₁₆.
+
+Start with \(a(x)=1+2x+3x^2+4x^3\), stored as `[1, 2, 3, 4]`.
+Here k is the memory position, j is the natural point index, and the two-bit
+labels make the reversal visible:
+
+| \(k\) (bits) | \(j\) (bits) | \(r_k\) | \(y_k\) |
+|---|---|---:|---:|
+| 0 (`00`) | 0 (`00`) | 2 | 15 |
+| 1 (`01`) | 2 (`10`) | 15 | 11 |
+| 2 (`10`) | 1 (`01`) | 8 | 13 |
+| 3 (`11`) | 3 (`11`) | 9 | 16 |
+
+For k=0, substitute r₀=2:
+
+\[
+\begin{aligned}
+y_0&=1+2\cdot2+3\cdot2^2+4\cdot2^3\\
+&=49\equiv15\pmod{17}.
+\end{aligned}
+\]
+
+The stored forward array is **`[15, 11, 13, 16]`**. Evaluating in natural j
+order would give `[15, 13, 11, 16]`: the same point values at different
+addresses. Exact OpenFHE compatibility requires the stored order.
+
+For the inverse, \(4^{-1}=13\pmod{17}\), since \(4\cdot13=52\equiv1\).
+The inverse points are `[9, 8, 15, 2]`; for example, \(2\cdot9\equiv1\pmod{17}\).
+
+For i=0, every weight is 1. The evaluations sum to 55, which is 4 modulo 17;
+scaling gives \(a_0=13\cdot4\bmod17=1\).
+For i=1, call the weighted sum S₁:
+
+\[
+\begin{aligned}
+S_1&=15\cdot9+11\cdot8\\
+&\quad+13\cdot15+16\cdot2\\
+&=450\equiv8\pmod{17},\\
+a_1&=13S_1\bmod17=2.
+\end{aligned}
+\]
+
+All four coefficient calculations are:
+
+| Coefficient i | Weighted sum, reduced mod 17 | Multiply by 13, mod 17 |
+|---:|---:|---:|
+| 0 | 4 | 1 |
+| 1 | 8 | 2 |
+| 2 | 12 | 3 |
+| 3 | 16 | 4 |
+
+The inverse returns **`[1, 2, 3, 4]`**: the original coefficients.
+
+<details markdown="1">
+<summary>Why does the inverse recover exactly the original coefficients?</summary>
+
+Let h be a second coefficient index while i stays fixed. Substitute the
+forward definition into the inverse and collect the contribution from aₕ:
+
+\[
+\mathrm{inverse}(y)[i]
+=\sum_{h=0}^{N-1}a_h
+\left(N^{-1}\sum_{k=0}^{N-1}r_k^{h-i}\right)\pmod q.
+\]
+
+The inner sum is N when h=i, because every term is 1. Otherwise it is zero.
+To see why, write \(\omega=\psi^2\), a primitive N-th root. The points rₖ
+visit all \(\psi\omega^j\), only in a permuted order, so:
+
+\[
+\sum_{k=0}^{N-1}r_k^{h-i}
+=\psi^{h-i}\sum_{j=0}^{N-1}(\omega^{h-i})^j.
+\]
+
+For h≠i, set \(z=\omega^{h-i}\). Then z≠1 but \(z^N=1\). Multiplying the
+geometric sum by 1−z cancels its middle terms:
+
+\[
+(1-z)(1+z+\cdots+z^{N-1})=1-z^N=0\pmod q.
+\]
+
+Because q is prime and 1−z is nonzero, it has a modular inverse, so the sum
+itself must be zero. For h=i, every term is 1 and the sum is N. The final
+N-inverse therefore keeps aᵢ and cancels every other coefficient's
+contribution. Bit reversal does not change this sum, because it visits each
+point exactly once.
+
+</details>
+
+### Simple probes that catch ordering and scaling errors
+
+Returning to N=65536, the test suite uses polynomials with easy expected
+answers. For example, evaluating a(x)=x returns the points themselves, which
+reveals their stored order. Setting just one evaluation value to 1 isolates
+one term of the inverse formula.
 
 | Probe | Expected array |
 |---|---|
@@ -97,7 +280,9 @@ begin `1, 65537, 32769, 98305, 16385, ...`. In particular, slot 0 contains
 
 These closed forms distinguish order and scaling errors that a shared
 forward/inverse round trip could conceal. The D7 gate checks all N outputs,
-not just the first few slots. The upstream [inverse normalization loop][normalization] shows where the remaining N-inverse factors are applied.
+not just the first few slots. See the upstream [inverse normalization loop][normalization]
+for the scaling implementation, and [our CPU reference](../include/ntt/ntt.hpp)
+for the matching transform convention.
 
 ## 4. Changing format versus changing its label
 
