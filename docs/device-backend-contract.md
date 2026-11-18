@@ -4,11 +4,14 @@
 
 A pointer and a length cannot tell us which primes an array uses, whether it
 contains coefficients or evaluations, or whether its producer has finished.
-This design keeps those facts with the buffer's owner and completion state.
-A **layout** describes an array's meaning and order; a **completion** records
-whether queued work has succeeded.
+A GPU calculation may still be running after the CPU submits it. This design
+therefore keeps the array’s description with its owner and progress record.
+A **layout** describes what the numbers mean and their order. A **completion**
+lets later code find out whether the queued work finished successfully.
 
-This is the D9 design reference at N=65536. [D7](openfhe-representation-contract.md)
+This page records design milestone D9 for N=65536. D7, D8 and D9 are work
+items in the roadmap, not calendar dates. A backend is the part of the
+program that performs operations on a selected device. [D7](openfhe-representation-contract.md)
 defines the arrays, [D8](openfhe-hybrid-operation-graph.md) defines Hybrid
 operations, and [the ADR](architecture-decision.md) accepts the design.
 The separate [resident prototype](resident-operation-chain.md) implements a
@@ -37,7 +40,8 @@ Neither promotes this full proposal to a production backend.
 
 ## 2. Carry the complete polynomial identity
 
-The immutable `Parameters` object owns a deep copy of:
+The `Parameters` object makes its own copy of the following values. They
+cannot change after construction, even if the caller changes the originals:
 
 - ring dimension N;
 - full, ordered Q and P lists, each containing the exact modulus and primitive
@@ -55,10 +59,13 @@ Alternative primitive roots can be mathematically valid metadata. The first
 OpenFHE adapter must import the exact existing roots and respect D7's shared
 FTT-cache constraint; support for conflicting custom-root contexts is not implied.
 
-Each `PolynomialLayout` adds the active Q count L, an explicit ordered list of
-`TowerRef {Q or P, index}`, domain, order, and residue encoding. M is the full
-Q count; K is the P count. The full parameter snapshot remains attached at
-reduced levels. Upstream [`ILDCRTParams`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/ildcrtparams.h#L135-L149) constructs towers in the supplied modulus/root order; [`GetAllElements()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly.h#L879-L889) exposes their individual polynomials.
+Q is the ciphertext’s prime list and P is an auxiliary prime list used in
+key switching. M counts all Q primes; L counts those still active; K counts
+P primes. A basis is an ordered selection from those lists. `PolynomialLayout`
+records that selection with `TowerRef {Q or P, index}`. It also records
+whether the array contains coefficients or evaluations (its domain), how
+they are ordered, and how residues are encoded. Dropping a level reduces L
+but retains the full original parameter description. Upstream [`ILDCRTParams`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/ildcrtparams.h#L135-L149) constructs towers in the supplied modulus/root order; [`GetAllElements()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly.h#L879-L889) exposes their individual polynomials.
 
 | Field | Initial supported contract |
 |---|---|
@@ -82,19 +89,21 @@ layouts. Parameter equality compares complete values, not hash equality alone.
 
 ## 3. Make views explicit and bounded
 
-A future private registry owns allocation records. A public view carries an
-allocation ID/generation, first tower, tower count, and active Q count. It exposes
-no raw device pointer. Validation checks a live matching generation, device and
-session, allocation capacity, legal whole-tower extent, and layout consistency.
-Byte counts use checked multiplication.
+The planned runtime keeps its own registry of allocated buffers. A public
+view identifies a buffer by ID and generation number, then selects its first
+tower, tower count and active Q count. The generation prevents an old handle
+from referring to a reused ID. Validation checks that the buffer is still
+alive, belongs to the right device/session, and is large enough for the
+selected whole towers. Size calculations reject integer overflow.
 
 \[
 \operatorname{offset}(t,i)=8(tN+i),\qquad
 \operatorname{bytes}(T)=8NT.
 \]
 
-At N=65536, one tower is 524,288 bytes, or **0.5 MiB**. Whole-tower subviews are
-immutable aliases that retain the allocation and its readiness completion.
+At N=65536, one tower is 524,288 bytes, or **0.5 MiB**. A whole-tower subview refers to part of the same buffer without copying it.
+It cannot modify the input, and it keeps both the buffer and the record of
+when its data become ready alive.
 Arbitrary coefficient strides and partial-tower views are deferred.
 
 A reduced QP basis is a particularly important boundary:
@@ -160,12 +169,14 @@ fabricated record does not create a CUDA event or prove synchronization.
 
 ## 5. Keep resources alive through completion
 
-A lease is an ownership reference that keeps a resource alive; a pin is a
-lease retained by queued work. Each submitted operation pins its input allocations, output allocation,
-stream, plans, keys, host staging, and scratch leases. The backend retains these
-pins even when the caller drops the returned completion. Dropping a handle is
-not cancellation. Private scratch is reusable only after every operation that
-can touch it has completed successfully or device quiescence is proven.
+A lease is a reference that keeps a resource alive. A pin is a lease held
+by unfinished work. Each submitted operation pins its input and output
+buffers, work queue, precomputed tables, keys, temporary CPU transfer buffers
+and GPU scratch space. The backend retains these
+pins even when the caller drops the returned completion. Discarding a handle does not cancel queued GPU work. Temporary memory can
+be reused only after every operation that might access it has finished, or
+after the runtime proves that the device has stopped accessing it. This
+proved stopped state is called quiescence.
 
 The proposed lifecycle is:
 
@@ -198,9 +209,10 @@ tests remain in the accepted implementation backlog.
 
 ## 6. Cache semantic identities, then pin leases
 
-Caches belong to one backend session and device. A content hash can accelerate
-lookup, but a hit must compare the complete semantic key. Object pointers,
-ring size alone, or OpenFHE key tags alone are insufficient.
+A cache saves tables or keys so later operations can reuse them. Each cache
+belongs to one session and device. A hash can quickly find a likely match,
+but reuse still requires comparing every field that affects the result.
+A pointer, N alone, or an OpenFHE key tag does not identify all those fields.
 
 | Cache | Required identity |
 |---|---|
@@ -222,17 +234,20 @@ canonical-CRT plan is a different operation. ModDown needs a distinct plan kind
 for its P→active-Q conversion and P-inverse scale (see [`ApproxModDown`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1020-L1055)); the prototype's
 `ConversionPlanKey` covers digit extension only.
 
-The proposed cache stores deep immutable A/B snapshots; secret keys are not uploaded.
+The proposed cache copies the evaluation key’s A/B arrays into snapshots
+that cannot be changed. These evaluation-key arrays support encrypted
+operations; the secret key itself is not uploaded.
 The actual OpenFHE input arrays come from [`GetAVector()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/include/key/evalkeyrelin.h#L129-L151) and [`GetBVector()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/include/key/evalkeyrelin.h#L159-L181); [`GetKeyTag()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/include/cryptoobject.h#L130-L132) returns a tag, not a digest of those arrays.
 A material ID/generation is assigned to that snapshot. Mutating the original
 OpenFHE key requires a new snapshot and identity. A rotation index or
 relinearization component is part of the identity; equal tags do not establish
 equal key data. Packing validates digit count, full QP order and every residue.
 
-On a cache miss, a future implementation publishes one pending entry under a
-mutex and shares its readiness event with concurrent requests. This single
-upload must be waited on across streams. Readers pin the entry through their
-own completion. A budgeted LRU can evict only unpinned, quiescent entries.
+If a requested item is missing, the planned cache creates one pending entry
+under a lock. Other requests share that entry instead of uploading it again.
+Consumers on another stream wait for its upload event. Each reader keeps
+the entry alive until its own work finishes. A least-recently-used (LRU)
+policy may remove old entries only when no caller or GPU work still uses them.
 The proposal contains equality/validation rules and retirement checks, not an
 implemented cache, uploader, hash table or LRU policy.
 
@@ -244,7 +259,9 @@ first and fails if live pins prevent the requested bound. Trimming returns only
 bytes actually freed. [ADR 0001](architecture-decision.md#5-choose-initial-cache-and-admission-limits)
 selects the initial budget and admission policy; their runtime implementation is pending.
 
-Hoisted digits are explicit immutable results, not an implicit global cache.
+Hoisting means computing a polynomial’s digit decomposition once and reusing
+it for several operations, such as rotations. The resulting digit arrays
+are explicit read-only results rather than hidden global cache entries.
 Their provenance includes the complete parameter snapshot, source allocation
 ID/generation, complete active-Q view, domain/order and rule revision. The
 prototype rejects stale or incompatible provenance. Reuse across rotation keys
@@ -255,12 +272,13 @@ has the claimed layout.
 
 ## 7. Budget the Hybrid lifetimes
 
-D8 fixes the graph; D9 assigns the ownership boundaries. Digit coefficient
-scratch lives through its complement conversion. Each assembled evaluation
-digit lives through every consuming B/A MAC. QP accumulators live through
-ModDown or an explicitly delayed QP consumer. P coefficient scratch and Q
-correction buffers live through the final correction transforms and subtraction.
-Keys and tables remain pinned by all readers.
+D8 defines the operation order; D9 specifies how long each buffer must
+survive. Keep a digit’s coefficient scratch until conversion to its other
+primes finishes. Keep each evaluation digit until every multiply-accumulate
+(MAC) with key arrays B/A has finished. The running QP sums must survive
+until ModDown or a later QP operation completes. Keep P scratch and Q
+corrections through the final transforms and subtraction. Every reader
+retains the keys and tables it needs.
 
 For the full D8 fixture M=L=5, K=3, α=3, β=2 at N=65536:
 

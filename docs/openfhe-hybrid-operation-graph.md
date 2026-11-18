@@ -2,17 +2,20 @@
 
 # How OpenFHE Hybrid key switching works
 
-Key switching changes a ciphertext's key representation without decrypting
-its data. Hybrid key switching splits the input into digits, extends their
-prime basis from Q to QP, multiplies by evaluation-key arrays, then reduces
-the two accumulated outputs back to Q.
+Key switching changes a ciphertext’s key representation without decrypting
+its data. Hybrid key switching groups its prime towers into chunks called
+digits. For each chunk it computes residues under additional primes,
+multiplies by evaluation-key arrays, and adds the products into two outputs.
+It then reduces those outputs back to the original active prime set.
 
 This page follows **OpenFHE 1.6.1**, commit
 `b59e1f291965f14fbee5172cd83a20f5b856204f`, at N=65536 with NativeInteger 64.
 Read the [representation guide](openfhe-representation-contract.md) first:
 a tower is one prime-modulus array, and its format determines whether it
-contains coefficients or NTT evaluations. Q is the active data basis; P is
-the auxiliary prime basis used during switching.
+contains coefficients or NTT evaluations. A basis is an ordered prime list.
+Q is the active ciphertext basis; P contains extra primes used during
+switching. QP means the Q towers followed by the P towers; in formulas it
+also denotes the product of those primes.
 
 [The CPU tests](../tests/openfhe_hybrid_tests.cpp) compare real OpenFHE PKE
 arrays with an independent unreduced-CRT formula. They establish this graph,
@@ -37,7 +40,9 @@ std::vector<DCRTPoly> KeySwitchHYBRID::KeySwitchCore(const DCRTPoly& a, const Ev
 }
 ```
 
-Precomputation produces the digits; the fast core performs their MAC and final reduction.
+Precomputation produces the digit arrays. The fast core multiplies them by
+key arrays, adds the products (multiply-accumulate, or MAC), and reduces the
+two results to the active Q basis.
 
 </details>
 
@@ -52,9 +57,10 @@ Precomputation produces the digits; the fast core performs their MAC and final r
 <li><strong><a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L203-L215">Update the ciphertext</a></strong><span>Add the first contribution to c0; add or replace c1 according to the caller.</span></li>
 </ol>
 
-The implementation has no general coefficient-domain round trip of all QlP
-towers. It preserves the original digit evaluations during extension and
-leaves Q evaluations intact during ModDown.
+Notice which arrays actually change format. During extension, OpenFHE keeps
+the digit’s original evaluation towers. During ModDown, it keeps the Q
+evaluation towers. It does not inverse-transform and forward-transform
+every Q_lP tower at each step.
 
 ## 2. Names, levels, and tower order
 
@@ -99,8 +105,10 @@ S=\sum_i t_i\widehat B_i,\qquad
 \widetilde x_m=[S]_m.
 \]
 
-Brackets mean the canonical residue in the indicated modulus. The final
-modulus m is a complement tower. **There is no reduction of S modulo B**
+The Chinese Remainder Theorem (CRT) combines residues under different
+primes. Here brackets mean “take the remainder from 0 to modulus−1.”
+The x_i are coefficient residues in the source towers. Each destination
+prime m belongs to the complement: the other active Q primes and all P primes. **There is no reduction of S modulo B**
 before reducing it modulo m. In general:
 
 \[
@@ -113,10 +121,12 @@ hat residues, and modular multiplication/accumulation. Our test independently
 forms the full unreduced sum with arbitrary-precision `BigInteger` arithmetic;
 it does not read those conversion tables to compute its expected answer.
 
-The digit is converted to coefficient format **before** this operation. Its
-complement is then transformed using each destination tower's own root. The
-digit's original evaluation towers are copied directly into their slots.
-Applying the CRT formula to evaluation coordinates would change the result.
+Apply this formula to coefficients, so inverse-transform the source digit
+first. Then forward-transform each newly created destination tower with its
+own root. Copy the original digit evaluation towers into the remaining
+positions. Evaluation positions under different roots are not the same
+coefficient; applying this CRT formula to them directly would give a
+different result.
 
 <details markdown="1">
 <summary>Read the digit’s coefficient → complement → evaluation sequence</summary>
@@ -212,8 +222,8 @@ Z_{1,m,k}=\left[\sum_d D_{d,m,k}A_{d,\operatorname{keyIndex}(m),k}\right]_m.
 \]
 
 [`EvalFastKeySwitchCoreExt`][mac] returns these two QlP arrays. The multiplication is
-pointwise; there is no NTT inside the MAC loop. All products and sums remain
-canonical residues. The evaluation key already supplies the gadget scaling:
+pointwise; there is no NTT inside the MAC loop. Each product and sum is reduced modulo its tower prime, so stored values
+remain between 0 and that prime minus one. The evaluation key already supplies the gadget scaling:
 in private-to-private generation, its old-secret term is P times the old
 secret on that digit's Q towers, and zero on its other towers. Do not add an
 extra global twist or a guessed CRT/gadget multiplier to the digits. The [`KeySwitchGenInternal`][key-gen] private-to-private branch shows the `PModq[i] * soi` term only within that digit’s Q interval.
@@ -232,9 +242,12 @@ Y_{q_i}=\left[(Z_{q_i}-\operatorname{NTT}_{q_i}(R_i))
 [P^{-1}]_{q_i}\right]_{q_i}.
 \]
 
-This is the **exact implementation order** for the pinned CKKS path. Its
-noise scale is 1, so the source passes t=0 and skips the BGV-specific t factors.
-There is no floating-point rounding operation in these steps. Calling this
+Read these equations in order: inverse-transform the P towers to get u,
+convert those coefficient residues to a correction R under Q, then transform
+R, subtract it from Z, and multiply by the modular inverse of P. This is
+the **exact order** in the selected CKKS source. Its noise scale is 1, so it
+passes t=0 and skips factors used by the separate BGV encryption scheme.
+These steps use integer modular arithmetic, with no floating-point rounding. Calling this
 “division by P” does not authorize replacing its approximate representative
 with a canonical or centered CRT representative, or with a generic rounding rule.
 
@@ -329,7 +342,8 @@ q₀ are 60-bit. Use the exact table rather than inferring widths from the knob.
 
 These exact parameters are asserted in the executable. Pattern generation and
 diagnostic key generation use fixed integer formulas in that source file.
-The diagnostic key is **not a cryptographic evaluation key**. A separate pair
+The diagnostic key uses predictable patterns to make wrong addresses easy
+to detect. It is **not a cryptographic evaluation key**. A separate pair
 of actual generated secret keys supplies a real key-switching key; its fixed
 arrays are shared by all comparisons in that run. Random key generation is
 not compared across separate runs.
@@ -349,10 +363,10 @@ in the OpenFHE-enabled build passed. The deterministic reduced-level fixture
 found 524,288 residues that distinguish the wrong per-digit reduction order.
 
 Every comparison checks all 65536 entries of every involved tower, plus
-modulus/root order and outer/child format. Intermediate conversion states are
-observed by calling the same public primitive separately; the tests do not
-instrument or modify OpenFHE's implementation. Full-core equality checks the
-composition against the independent formulas.
+modulus/root order and outer/child format. To observe an intermediate array, the test calls the corresponding public
+OpenFHE operation separately. It does not modify OpenFHE to inspect hidden
+state. A further comparison checks that the complete core produces the
+same result as the independent step-by-step calculation.
 
 Run the opt-in gate after [installing pinned OpenFHE](../scripts/openfhe_setup.sh):
 

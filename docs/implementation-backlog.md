@@ -2,16 +2,19 @@
 
 # Implementation tasks and acceptance checks
 
-The architecture is accepted; the production backend is still being built.
-Use this checklist to decide whether an implementation is ready. The
+The design has been accepted, but the production GPU implementation is
+still being built. Each task below lists work to do and the checks required
+to call it complete. Those checks are its acceptance criteria. The
 [roadmap](openfhe-integration-plan.md) gives phase order; [ADR 0001](architecture-decision.md)
 defines the behavior each task must preserve.
 
 **Current state:** D11/P2 remains open. The temporary Ada baseline is measured;
 RTX 5090 acceptance and remaining native failure/profiling checks are pending.
-B01–B04 have offline preparation and partial native evidence. B06 has a bounded
-host-tested, CUDA-compiled prototype. B05 and B07–B12 production work has not
-started. Early preparation does not complete a later phase.
+Tasks B01–B04 have local preparation and some results from real GPU runs.
+B06 has a limited prototype tested on CPU and compiled for CUDA. Production
+work on B05 and B07–B12 has not started. Preparing part of a later task does
+not complete its phase. B labels a backlog task, P a phase, and D a
+working-day milestone; these are not calendar dates.
 
 ## 1. Deliverables and dependencies
 
@@ -70,9 +73,10 @@ the primary RTX 5090 nor the planned RTX 4090 control.
 ### B02 — native build and baseline safety
 
 Work in [cuda_ntt.hpp](../include/ntt/cuda_ntt.hpp) and
-[ntt_kernels.cu](../src/cuda/ntt_kernels.cu). Replace raw constructor ownership
-with exception-safe RAII, retain the owning device, use a device guard, and
-validate checked extents and supported canonical inputs before enqueue.
+[ntt_kernels.cu](../src/cuda/ntt_kernels.cu). Give allocated resources owners that release them automatically, including
+when construction fails (RAII). Remember which GPU owns them and select it
+for each runtime call with a device guard. Before queuing work, check array
+sizes for overflow and require every input residue to be in 0…q−1.
 Resolve compiler/architecture blockers exposed by the first native build.
 Keep the baseline arithmetic and transform convention intact.
 
@@ -149,8 +153,10 @@ transfer-inclusive wall time as kernel-only time.
 
 ### B05 — arithmetic policies
 
-Retain the exact oracle path while adding Shoup twiddle multiplication and
-Barrett variable multiplication, with their exact range proofs and tables.
+Keep the simple exact implementation for checking answers. Add Shoup
+multiplication for precomputed constant multipliers and Barrett reduction
+for two changing operands. Prove their valid input ranges and generate the
+required tables before selecting either optimization.
 Run independent bigint, maximum-width adversarial, complete-transform and
 native OpenFHE comparisons before selecting optimized dispatch.
 
@@ -183,8 +189,11 @@ exact cross-stream waits, event-generation handling and race tests pass.
 
 ### B07 — cache and memory admission
 
-Implement complete semantic plan keys, a single pending upload per key,
-readiness waits, external leases, in-flight pins and eligible-entry LRU eviction.
+A plan contains reusable tables for an operation. Identify it with every
+parameter that affects its values. Allow only one pending upload per plan,
+and make later readers wait until it is ready. Keep it alive while callers
+or queued work use it. Remove least-recently-used (LRU) entries only after
+those users finish.
 Apply ADR 0001's separate 256 MiB cache, 256 MiB device workspace and 128 MiB
 host staging defaults, with checked allocation-size charging and configurable
 limits. The initial allocator owns individual allocations.
@@ -217,7 +226,8 @@ Upstream entry points: [`ApproxSwitchCRTBasis`](https://github.com/openfheorg/op
 Broaden D8's model into independent Q→QP and QP→Q CPU fixtures across the intended
 levels, tower counts and boundary coefficients. Freeze exact constants, integer
 representatives, reduction order, and separate digit-extension/ModDown plan kinds.
-Then implement batched GPU conversion over the resident views.
+Then implement conversion for batches of polynomials using views of arrays
+already stored on the GPU, so intermediate results need not return to the CPU.
 
 **Acceptance:** every intermediate array matches pinned OpenFHE; shortened digits
 and dynamic active prefixes work; NTT and conversion compose without host copies.
@@ -232,7 +242,9 @@ Broaden the production parameter, digit, level and key-family fixtures before
 GPU composition. Snapshot immutable A/B evaluation-key material with versioned
 identity; cache full-context metadata; preserve reduced-level P offsets, B/A
 accumulation, delayed QP scaling and one final ModDown per accumulated result.
-Add an explicit immutable hoist result tied to its source allocation/version.
+Store the reusable digit decomposition as an explicit read-only result
+(a hoist). Record which input allocation and version produced it, so it
+cannot be reused after the input changes.
 
 **Acceptance:** complete intermediate/final arrays match for fixed input/key
 material; altered key snapshots cannot reuse stale cache entries; stale hoists
@@ -295,7 +307,7 @@ CUDA compiler, the CUDA targets and their registered CTests, a real GPU, and
 successful native execution. The commands above are a handoff, not evidence of execution on that GPU.
 Compiler-only builds are documented separately in the preparation guide.
 
-For each completed item, retain the source commit, parameter/fixture identifiers,
-hardware/toolchain record, exact commands, raw logs, failing-case diagnosis where
-relevant, and the final gate result. Update this backlog, the roadmap and that
+For each completed item, save the source revision, test inputs and parameters,
+machine and compiler details, exact commands, original logs, any failure
+explanation, and the result of each required check. Update this backlog, the roadmap and that
 calendar day's journal together. Leave unexecuted items visibly open.

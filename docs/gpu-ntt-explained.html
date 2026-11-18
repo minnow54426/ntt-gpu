@@ -211,7 +211,7 @@
     <div>
       <div class="kicker">ntt-gpu · a beginner's field guide to the GPU port</div>
       <h1>From CPU <em>to CUDA.</em></h1>
-      <p class="hero-sub">Each GPU thread handles a butterfly pair. Blocks keep small tiles in shared memory so several stages run without repeated VRAM traffic.</p>
+      <p class="hero-sub">A GPU thread follows instructions for one assigned pair at a time. Threads work in teams called blocks. Each block keeps a small part of the array in shared memory while it runs several NTT stages.</p>
       <div class="hero-meta">
         <span class="chip">target: <b>RTX 5090</b></span>
         <span class="chip">ring dimension: <b>65,536</b></span>
@@ -228,14 +228,14 @@
 
   <aside class="quick-start" aria-labelledby="quick-title">
     <h2 id="quick-title">The GPU plan in four steps</h2>
-    <p>This is the whole design. The chapters below explain the hardware and show the current code.</p>
+    <p>These four steps summarize the design. The chapters below define the GPU terms and connect them to the code. VRAM means the GPU’s main memory; a tile is one small group of array values.</p>
     <div class="quick-grid">
       <div class="quick-step"><b>1 · SPLIT</b><span>Give each independent butterfly pair to a GPU thread.</span></div>
       <div class="quick-step"><b>2 · LOAD</b><span>A block gathers one 256-value group into shared memory.</span></div>
       <div class="quick-step"><b>3 · COMPUTE</b><span>Run several stages locally, with a barrier between stages.</span></div>
       <div class="quick-step"><b>4 · REGROUP</b><span>Use a far-pair pass and a near-pair pass to cover the full NTT.</span></div>
     </div>
-    <div class="status-note"><b>Current status:</b> correctness-first baseline. Results must match the <a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474">OpenFHE-compatible</a> CPU reference exactly. The strided pass is not yet coalesced, so “four logical movements” does not mean four efficient VRAM transactions.</div>
+    <div class="status-note"><b>Current status:</b> correctness-first baseline. Results must match the <a href="https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474">OpenFHE-compatible</a> CPU reference exactly. In the column pass, neighboring threads read widely separated addresses. The GPU cannot combine those requests efficiently (coalescing), so a small count of array reads and writes can still require many memory transactions.</div>
   </aside>
 
   <div class="layout">
@@ -258,14 +258,14 @@
     <section id="s1" class="reveal">
       <div class="sec-head"><div class="sec-num">01</div><h2>CPU and GPU favor different work</h2></div>
       <p>A CPU is good at a few complicated tasks. A GPU is good at many copies of the same small task.</p>
-      <p>A GPU schedules groups of 32 threads called <b>warps</b>. Threads in a warp normally execute the same instruction on different data; different warps can make progress independently. Branch divergence can reduce efficiency within a warp.</p>
+      <p>A GPU schedules groups of 32 threads called <b>warps</b>. Threads in a warp normally execute the same instruction on different data; different warps can make progress independently. If threads in one warp take different branches, the GPU may execute those paths separately. This is called branch divergence and can waste work.</p>
       <p>At each NTT stage, disjoint pairs use the same butterfly formula. Assigning these pairs to threads exposes parallel work without changing the result.</p>
     </section>
 
     <!-- ============================ 2 ============================ -->
     <section id="s2" class="reveal">
       <div class="sec-head"><div class="sec-num">02</div><h2>Six GPU terms</h2></div>
-      <p>These six terms connect the GPU model to this repository.</p>
+      <p>These six terms connect the GPU model to this repository. RNS means Residue Number System: store a polynomial under several primes, with one array called a limb or tower for each prime. An SM (streaming multiprocessor) is a GPU processor that schedules thread blocks. Occupancy measures how many warps can remain active on an SM relative to its limit.</p>
       <div class="matrix-scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="vocab">
         <tr><th>Word</th><th>Plain meaning</th><th>In this repo</th></tr>
         <tr><td>thread</td><td>One execution instance. It computes assigned pairs; it does not permanently own a coefficient.</td><td class="ours">we use T = 256 per block</td></tr>
@@ -340,7 +340,7 @@
           <tr><td>pipe <b>into</b> the chip — VRAM bandwidth</td><td>≈ 1.0 TB/s</td><td>≈ 1.8 TB/s</td></tr>
           <tr><td>traffic <b>inside</b> the chip — shared, aggregate</td><td>≈ 40 TB/s</td><td>≈ 50 TB/s</td></tr>
         </table></div>
-        <div class="coef-label" style="text-align:left; line-height:1.8;">The design fact hiding in the last two rows: on-chip traffic is <b>40–50× the pipe into the chip</b> — the entire reason the communication ladder (chapter 5) exists. Aggregate shared figures are order-of-magnitude estimates (per-SM path × SMs × boost clock); the ratio is the point, not the decimals.</div>
+        <div class="coef-label" style="text-align:left; line-height:1.8;">The table estimates that shared memory inside the chip can move data much faster than external VRAM. This motivates reusing a loaded group across stages. The shared-memory figures are rough estimates from per-processor capacity, processor count and boost clock; they are not measurements of these kernels.</div>
         <pre class="code" style="box-shadow:none; margin:10px 0;"><span class="c">// the first rows are one multiplication chain — the table explains itself:</span>
 4090:   128 SMs × 1,536 threads/SM = <b>196,608 in flight</b> ÷ 256 (our T) = <b>768 of our blocks resident</b>
 5090:   170 SMs × 1,536            = <b>261,120</b>           ÷ 256           = <b>1,020</b></pre>
@@ -369,7 +369,7 @@
           <svg id="pairSvg" viewBox="0 0 760 210" class="responsive" role="img" aria-label="Eight value slots with arcs connecting the pairs of the selected stage, or a strided pick of even slots running two stages alone"></svg>
         </div>
         <div class="coef-label" id="pairCaption"></div>
-        <div class="w-note">Every element belongs to exactly one pair per stage — the four butterflies share <b>nothing</b>. Four cooks, zero talking, any order. The fourth button is pass 1 of the real port in miniature (chapter 4).</div>
+        <div class="w-note">Every position belongs to exactly one pair in this stage. These four butterflies read and write separate values, so they can run in any order. The fourth button demonstrates a small version of pass 1 from chapter 4.</div>
       </div>
       <p>Butterflies in one stage write disjoint positions, so their execution order does not affect the result. Synchronize before the next stage reads those positions.</p>
       <p>A distance-d butterfly stays inside a group of 2d values. This lets one block keep several stages local, provided every dependency stays in its group.</p>
@@ -382,12 +382,13 @@
       <div class="sec-head"><div class="sec-num">04</div><h2>Split the NTT into two passes</h2></div>
       <p>A full N=65536 tower needs 512 KiB, which exceeds the shared-memory capacity available to one block. Split it into smaller groups:</p>
       <div class="widget">
-        <div class="w-title">where "1.5 MB" comes from · why the data can't sit on one counter</div>
+        <div class="w-title">Why three towers need 1.5 MiB · compare one tower with block memory</div>
         <pre class="code" style="box-shadow:none; margin:10px 0;">1 value (one coefficient, one limb)   = 64 bits  = <b>8 bytes</b>
-one limb   = 2¹⁶ values × 8 bytes      = 524,288 B = <b>512 KB</b>
-this repo  = 3 limbs  × 512 KB         = 1,536 KB ≈ <b>1.5 MB</b>
-real FHE   = ~40 limbs × 512 KB        ≈ <b>20 MB</b>  = 427× a block's whole 48 KB counter</pre>
-        <div class="w-note">More limbs ≠ harder: each limb is one independent column of the grid (the <b>y</b> address) doing the identical dance — real coefficients are thousands of bits, kept as ~40 machine-word residues, one transform each.</div>
+one tower  = 2¹⁶ values × 8 bytes      = 524,288 B = <b>512 KiB</b>
+3 towers   = 3 × 512 KiB              = 1,536 KiB = <b>1.5 MiB</b>
+40 towers  = 40 × 512 KiB             = <b>20 MiB</b>
+1 KiB = 1,024 bytes; 1 MiB = 1,024 KiB</pre>
+        <div class="w-note">A limb, or tower, stores the polynomial modulo one prime. More towers mean more data and more transforms, but each tower uses the same independent NTT algorithm. The grid’s <b>y</b> coordinate chooses the tower; it is separate from the column index inside a tower. Forty towers are an example workload, not a requirement of all ciphertexts.</div>
       </div>
       <p>The two-pass design follows from four choices:</p>
       <div class="ladder">
@@ -442,14 +443,14 @@ choose:           256 values  (= 2 KB of the 48) — and 65,536 = 256 × 256</pr
           <span class="s">PASS 2 — the contiguous tiles</span>&nbsp; (d = 128 … 1)<br>
           →&nbsp; 256 tiles of 256 each gather, run 8 stages, scatter
         </div>
-        <p class="why">Both passes run the same butterflies as the CPU reference. Pass 1 handles far pairs; pass 2 handles near pairs. This is four logical value movements, but pass 1 currently uses strided, uncoalesced addresses, so the hardware may issue many more memory transactions.</p>
+        <p class="why">Both passes preserve the CPU reference’s paired positions and final result. The default CUDA butterfly has different intermediate values. Pass 1 handles far pairs; pass 2 handles near pairs. This is four logical value movements, but pass 1 currently uses strided, uncoalesced addresses, so the hardware may issue many more memory transactions.</p>
       </div>
     </section>
 
     <!-- ============================ 5 ============================ -->
     <section id="s5" class="reveal">
       <div class="sec-head"><div class="sec-num">05</div><h2>Keep a group in shared memory</h2></div>
-      <p>A block loads one group from global memory, runs its stages in shared memory, then stores the group back:</p>
+      <p>A block copies its assigned group from device-wide global memory into shared memory. All its threads can then access that group during several stages. After the final stage, the block copies the group back:</p>
       <div class="widget">
         <div class="w-title">one block, one group · the kernel's whole life</div>
         <div class="svg-wrap">
@@ -493,7 +494,7 @@ choose:           256 values  (= 2 KB of the 48) — and 65,536 = 256 × 256</pr
         <div class="coef-label">① 256 cooks gather 256 values (1 each) &nbsp;·&nbsp; ② roll call — values land on the counter &nbsp;·&nbsp; ③ eight butterfly stages, barrier between &nbsp;·&nbsp; ④ carry the results back</div>
         <div class="w-note">Naive code reads and writes VRAM at every stage. The two-pass design loads and stores each group once per pass. That reduces logical traffic, but pass 1 still needs a coalesced transpose or Four-Step layout to make those accesses efficient.</div>
       </div>
-      <p>A 256-value group uses 2&nbsp;KB of shared memory per limb, leaving room for several blocks to reside on an SM. Actual occupancy on the RTX 5090 must be measured after register use and launch limits are known.</p>
+      <p>A 256-value group uses 2&nbsp;KiB of shared memory per block. An SM is one of the GPU processors that schedules blocks; it may hold several blocks at once. Actual occupancy on the RTX 5090 must be measured after register use and launch limits are known.</p>
       <h3 style="font-family:var(--display); font-size:24px; margin:34px 0 4px;">The same trick, taken twice</h3>
       <p>The same staging pattern is used twice: once for strided columns and once for contiguous rows.</p>
       <div class="widget">
@@ -699,7 +700,7 @@ forward_contiguous_tile_kernel&lt;&lt;&lt;<span class="f">dim3</span>(n/<span cl
     <!-- ============================ 9 ============================ -->
     <section id="s9" class="reveal">
       <div class="sec-head"><div class="sec-num">09</div><h2>Current baseline and next optimizations</h2></div>
-      <p>The CPU simulator checks shared stage logic, while native tests check actual CUDA results and execution. The current modular multiply uses a wide product followed by remainder. Its device instruction cost needs profiling; it is not one native 128-bit divide instruction.</p>
+      <p>The CPU simulator checks shared stage logic, while native tests check actual CUDA results and execution. The current modular multiplication first forms the full product in a wider integer type, then takes its remainder modulo q. Its device instruction cost needs profiling; it is not one native 128-bit divide instruction.</p>
       <p>The <a href="batch40-native-analysis.md">temporary Ada results</a> establish the tested baseline. Candidate improvements include division-free Shoup/Barrett arithmetic, coalesced loads and more register work. Test and measure each change separately.</p>
       <p class="dim">RTX 5090 validation remains pending. The newer resident runtime also needs its own native lifetime, failure and sanitizer checks.</p>
     </section>

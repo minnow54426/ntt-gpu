@@ -20,7 +20,7 @@
     const el=(tag,value)=>{const n=document.createElement(tag);n.textContent=value;return n;};
     function render(){
       const g=layout(select.value);out.replaceChildren();
-      out.appendChild(el('p',g.L+' active Q towers; '+g.beta+' active digit'+(g.beta===1?'':'s')+'. The digit width stays at 3, and P keeps all three towers.'));
+      out.appendChild(el('p',g.L+' Q prime towers remain. They form '+g.beta+' digit'+(g.beta===1?'':'s')+', each containing at most 3 Q towers. The auxiliary P basis still has all three towers.'));
       const wrap=document.createElement('div');wrap.className='site-table-scroll';wrap.tabIndex=0;wrap.setAttribute('role','region');wrap.setAttribute('aria-label','Active towers and full evaluation-key indices');
       const table=document.createElement('table'),head=document.createElement('thead'),body=document.createElement('tbody');
       const headers=document.createElement('tr');['Array','Tower order'].forEach(v=>{const th=el('th',v);th.scope='col';headers.appendChild(th);});head.appendChild(headers);
@@ -28,7 +28,7 @@
       g.parts.forEach((p,d)=>{rows.push(['Digit '+d+' original towers',p.own.join(', ')]);rows.push(['Digit '+d+' complement',p.complement.join(', ')]);});
       rows.forEach(row=>{const tr=document.createElement('tr');row.forEach(v=>tr.appendChild(el('td',v)));body.appendChild(tr);});
       table.append(head,body);wrap.appendChild(table);out.appendChild(wrap);
-      out.appendChild(el('p','One KeySwitchCore: '+g.inverseNtts+' inverse NTTs and '+g.forwardNtts+' forward NTTs, counted per tower. Digit outputs request '+g.digitBytes.toLocaleString('en-US')+' bytes; the two QlP accumulators request '+g.macBytes.toLocaleString('en-US')+' bytes. These are array payloads, excluding keys and temporary storage.'));
+      out.appendChild(el('p','One KeySwitchCore: '+g.inverseNtts+' inverse NTTs and '+g.forwardNtts+' forward NTTs, counted per tower. Digit outputs request '+g.digitBytes.toLocaleString('en-US')+' bytes; the two QlP accumulators request '+g.macBytes.toLocaleString('en-US')+' bytes. These sizes count stored array values only. Keys and temporary buffers require additional memory.'));
     }
     select.addEventListener('change',render);render();
   });

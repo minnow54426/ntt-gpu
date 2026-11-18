@@ -2,9 +2,10 @@
 
 # Collect GPU and CPU measurements separately
 
-Use the rental for GPU checks and timings; collect the OpenFHE CPU baseline
-locally. Both runs use the same polynomial parameters and seeded inputs, while
-retaining their own machine and build records.
+Run GPU tests and timings on the rented machine. Measure OpenFHE on your
+local CPU to provide a baseline for comparison. Both runs use the same
+polynomial parameters and random-number seed, so they generate the same
+inputs. Each report identifies its own machine and build.
 
 The [November 14 batch](batch40-native-analysis.md) exercised an earlier CUDA
 baseline. The November 16 collector and [resident runtime](resident-operation-chain.md)
@@ -16,7 +17,9 @@ and hardware setup.
 
 ## Collector and validation
 
-From a reviewed clean checkout with pinned OpenFHE installed, run on the GPU:
+A collector is a script that runs checks and saves measurements and logs.
+Before starting, use the intended source revision with no uncommitted changes,
+and install the required OpenFHE version. Then run this on the GPU machine:
 
 ```sh
 python3 scripts/gpu_session.py --mode gpu \
@@ -61,8 +64,9 @@ K=1/3/8/16/24/32/40: **140 workloads**.
 Add `--benchmark` to collect timings. Direct GPU collector commands default to
 `all`; the rental helper `scripts/autodl_setup.sh` defaults to `gpu`.
 Set `--benchmark-scope all` or `NTT_BENCHMARK_SCOPE=all` for a combined rental run.
-GPU-only selection runs the native CTest group with its OpenFHE references
-and fixtures, followed by the requested sanitizers. Run standalone CPU
+The GPU-only selection runs the tests labelled for real GPU execution,
+including their OpenFHE reference calculations and test inputs. It then
+runs the requested memory and threading error checks. Run standalone CPU
 checks and CPU timing on the local host.
 
 Use `--benchmark-dimensions 65536 --benchmark-towers 3 40` for a bounded
@@ -94,9 +98,10 @@ To recompute a saved summary:
 python3 scripts/benchmark_report.py /path/to/benchmark-n65536-k3-b30-public.log
 ```
 
-Record validation checks consistency; exactness tests establish arithmetic
-correctness. Hashes detect changes or corruption, not fabricated measurements.
-The source and hardware record are still required.
+The report validator checks that the saved records are complete and
+consistent. Separate exact-answer tests check the arithmetic. A hash can
+show that a file changed or was corrupted; it cannot prove that a measurement
+was honestly collected. Keep the source and hardware details too.
 
 ### Restart and preserve partial results
 
@@ -133,9 +138,10 @@ later work.
 
 ## Raw measurement protocol
 
-The CLI protocols use a parameter file's exact N/q/root list and the same
-fixed seed. Reset and packing occur **before** every warmup/sample timer,
-including inverse. Output includes individual samples, summaries and an
+The command-line programs read N, primes and roots from a parameter file.
+They use a fixed random seed to generate repeatable inputs. Before timing
+each warmup or sample, they restore and pack the input arrays. This also
+applies to inverse transforms. Output includes individual samples, summaries and an
 explicit completion marker. Percentiles use linear interpolation at
 `(count−1)*fraction`.
 
@@ -171,15 +177,19 @@ not performance.
 
 ## Resident events and CPU baseline
 
-The event experiment excludes setup, allocation, input upload/reset and output
-download/validation from resident timing. Each iteration drains the default
-stream after reset, records start/stop events and waits for the stop event.
-Results are checked afterward. Multi-launch intervals can include submission
-gaps; they are not isolated per-kernel instruction times.
+The event experiment times operations while their data are already on the
+GPU. It excludes setup, memory allocation, input upload/reset, result download
+and answer checks. After restoring the input, each iteration waits for
+earlier work on the default stream to finish. It places start/stop events
+around the selected work and waits for the stop event. A multi-kernel
+interval can include gaps between submissions, so it is not a sum of isolated
+kernel instruction times.
 
-Pinned H2D and D2H copies use preallocated host memory and `cudaMemcpyAsync`.
-Their times are separate experiments, not an additive breakdown of the
-pageable public call. The public wrapper remains synchronous. There is no
+H2D means host-to-device (CPU-to-GPU); D2H is the reverse. The copy experiment
+uses preallocated pinned CPU memory, which the operating system keeps in
+place for transfers, and `cudaMemcpyAsync`. The public call uses ordinary
+pageable memory. These separate experiments cannot be added or subtracted
+to obtain an exact breakdown of the public call. The public wrapper remains synchronous. There is no
 measured copy/compute overlap or multi-stream throughput here. See NVIDIA's
 [event API](https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__EVENT.html)
 and [timing guidance](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html).
@@ -223,8 +233,9 @@ exercise this actual ownership code with a host-memory adapter.
 50-bit towers and verifies successful CUDA frees after pre-call injection.
 That probe passed in the older Ada batch.
 
-Synthetic exceptions do not reproduce driver OOM, a partial DMA failure,
-wrong-device restoration or a destroyed context. Those tests remain open.
+Throwing a test exception does not reproduce a real GPU out-of-memory
+error, a partially completed memory transfer, incorrect device restoration
+or a destroyed GPU context. Those cases still need hardware tests.
 Ordinary destructor cleanup is nonthrowing and cannot report errors to its
 caller; a diagnostic trace is not a production recovery interface.
 

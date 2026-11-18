@@ -4,15 +4,18 @@
 
 **Accepted November 12, 2026 · D10/P1 design decision**
 
-Keep polynomial data on the device behind immutable handles: inputs stay
-unchanged and operations return fresh results. Each handle carries checked
-representation and ownership metadata; queued work retains the resources it
-needs until completion.
+An architecture decision record (ADR) explains a design choice and its
+constraints. This decision keeps polynomial arrays on the GPU and gives
+callers handles to them. Inputs stay unchanged; operations allocate new
+results. Each handle records the primes, array format, owner and dependencies.
+Queued GPU work keeps its required resources alive until it finishes.
 
-Integrate OpenFHE first through an opt-in DCRT format-conversion adapter.
-Build a private host result and replace the original only after success.
-An explicitly allowed CPU route may be selected before GPU submission, never
-as an automatic retry after partial submission.
+The first OpenFHE adapter will convert a DCRT polynomial, which stores one
+array per prime, between coefficients and evaluations. Callers must choose
+to use it. The adapter builds a separate CPU result and replaces the original
+only when every step succeeds. If permitted, it may choose the CPU before
+submitting GPU work. It must not automatically retry on CPU after GPU work
+may already have started.
 
 This accepts the D7–D9 contracts and [backlog](implementation-backlog.md).
 It accepts a design, not native safety or speed. See the
@@ -41,7 +44,8 @@ The existing [CUDA wrapper](cuda-buffer-dataflow.md) remains a synchronous
 correctness baseline. The proposed interfaces in
 [backend_api.hpp](../include/ntt/backend_api.hpp) have no runtime implementation
 or factory. `ntt::proposal` stays in place until implementation tests justify
-promotion. This ADR freezes behavioral invariants, not a stable public C++ ABI.
+promotion. This record fixes the required behavior. It does not promise that the public
+C++ types or binary interface will remain unchanged.
 
 Implementation update 2026-11-16: a separate
 [bounded resident-chain prototype](resident-operation-chain.md) exercises these
@@ -51,7 +55,10 @@ the OpenFHE adapter, or establish native CUDA/runtime acceptance.
 
 ## 2. Freeze the representation and operation boundary
 
-Accept these rules without reinterpretation:
+These rules define what later implementations must preserve. A basis is an
+ordered list of primes; Q holds ciphertext primes and P holds auxiliary
+primes. Canonical residues are the integers 0 through q−1. The domain says
+whether an array contains coefficients or evaluations.
 
 - A deep immutable context carries N, the full ordered Q/P moduli and exact
   primitive roots, and the full-context digit width α.
@@ -77,8 +84,9 @@ its entries do not retain enough root identity to detect such external usage
 after the fact (see [`GetTables`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/transformnat-impl.h#L718-L730)). Broader custom-root support requires a new reviewed contract
 and fixtures.
 
-Out-of-place results may require an additional device-to-device copy when using
-the current kernels. Record that copy in memory and timing results. Public
+Returning a separate output buffer is called an out-of-place operation.
+With the current kernels it may require an extra copy inside GPU memory.
+Include that copy in memory and timing reports. Public
 in-place writes, partial-tower strides, peer transfers and cross-device handles
 are excluded from the initial API.
 
@@ -88,7 +96,8 @@ The first adapter is an explicit opt-in DCRT operation with [`SetFormat`](https:
 behavior. It packs towers through [`ConvertToInt()`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/math/hal/intnat/ubintnat.h#L1420-L1424), performs a backend transform,
 imports a private candidate, and commits the candidate only after complete
 success. It does not globally replace [`DCRTPoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1956-L1969) or patch NativePoly storage.
-The first adapter transaction is synchronous to its caller.
+Although GPU work may be queued internally, this first adapter waits before
+returning to its caller. One such complete call is called a transaction.
 
 Validate the DCRT label, each tower's label, dimension, ordered q/ψ pairs,
 length and canonical values, including on a same-format request. Verify both
@@ -119,9 +128,11 @@ allocation paths; no universal out-of-memory rollback claim is accepted.
 
 ## 4. Close the partial-submission lifetime gap
 
-D9 establishes leases through completion. D10 additionally requires those leases
-to exist **before the first enqueue-capable call**, including when no completion
-handle is ever returned.
+A lease keeps a resource alive; a pin is a lease held by queued work. D9
+requires them until completion. D10 adds an important error rule: create
+these ownership references **before any call that could queue GPU work**.
+That call may fail after partially submitting work, before the caller receives
+a completion handle.
 
 | Stage | Required ownership and error behavior |
 |---|---|
@@ -132,11 +143,13 @@ handle is ever returned.
 | Completed successfully | Make readiness visible and release operation pins; external handles retain their own leases |
 | Failed, quiescence not established | Poison the backend session, reject further submission and quarantine affected resources until safe teardown |
 
-A producer on the same stream uses FIFO order. A pending producer on another
-stream needs the exact event wait. Only earlier submitted operation IDs are
-valid dependencies; IDs/generations must never wrap into reusable identities.
-A failed producer fails its consumers. Event failure is not proof of device
-quiescence, and dropping a completion is not cancellation.
+A stream executes work in submission order (first in, first out). A consumer
+on another stream must wait for the exact producer event. Dependencies may
+refer only to earlier operations, preventing circular waits. IDs and generation
+numbers must never wrap around and accidentally identify old resources.
+If a producer fails, its consumers fail too. An error does not prove that
+the GPU stopped accessing memory, and discarding a completion does not
+cancel work.
 
 The registry validates all allocation, stream and event identities against its
 own session; user-supplied structs are not authority. Constructor unwinding uses
@@ -166,7 +179,8 @@ MiB means 2²⁰ bytes.
 | Initial adapter concurrency | One host adapter transaction at a time per session |
 | Admission when limits cannot be met | Fail immediately with a specific error; no hidden waiting or automatic budget growth |
 
-These are ceilings, not eager allocations. A second initial stream or concurrent
+These numbers are maximum budgets. Creating a session does not immediately
+allocate all that memory. A second initial stream or concurrent
 adapter transaction reports a resource-limit/busy error. The accepted dependency
 model supports later multi-stream execution, but that capability remains disabled
 until its race/failure tests pass. Pure metadata helpers remain portable.
@@ -191,9 +205,11 @@ requirements before enqueue; a later operation can still fail after an earlier
 operation has submitted, which forbids automatic fallback for that transaction.
 Preserve the original host object in either case.
 
-Cache lookup uses D9's complete semantic keys. One mutex-protected pending entry
-coordinates each upload. Evict least-recently-used eligible entries only after
-external leases and operation pins are zero and quiescence is proven. If eviction
+A cached table or key can be reused only when all of D9’s identifying fields
+match. A lock protects one pending entry per upload so concurrent requests
+do not duplicate it. To free space, remove the oldest unused eligible entries.
+An entry is eligible only when no caller or queued operation retains it
+and no GPU work can still access it. If eviction
 cannot admit a request, return `CacheBudgetExceeded`; if output/staging credits
 are unavailable, report the corresponding resource limit. Budget reduction is
 atomic: if the new limit cannot be met, retain the previous limit.

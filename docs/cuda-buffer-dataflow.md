@@ -2,9 +2,12 @@
 
 # Where the CUDA wrapper stores and moves data
 
-The synchronous `CudaNttTransform` accepts host vectors. Each call uploads
-inputs, runs kernels and downloads the result. Its fused `multiply()` keeps
-intermediate operations on the device; separate public calls repeat transfers.
+`CudaNttTransform` accepts arrays in CPU memory, called host vectors. Each
+call copies its inputs to GPU memory, runs GPU functions called kernels,
+and copies the result back before returning. This makes the interface
+synchronous. Its `multiply()` combines several operations in one call,
+keeping their intermediate arrays on the GPU. Separate calls copy those
+arrays back and forth.
 
 This page maps the [interface](../include/ntt/cuda_ntt.hpp) and
 [implementation](../src/cuda/ntt_kernels.cu). It describes the baseline wrapper,
@@ -250,8 +253,9 @@ references remain.
 
 ## Persistent allocation and ownership map
 
-For N=65536/K=3, define S=1,572,864 B, T=1,572,888 B, R=24 B.
-In general, \(S=8KN,\ T=8K(N+1),\ R=8K\) bytes.
+To shorten the formulas, use S for one operand’s bytes, T for one twiddle
+table’s bytes, and R for one small constant array’s bytes. At N=65536/K=3,
+S=1,572,864 B, T=1,572,888 B and R=24 B. In general, \(S=8KN,\ T=8K(N+1),\ R=8K\) bytes.
 Every stored element is `uint64_t`.
 
 | Device allocation | Elements / bytes | Layout and role | Writer / reader |
@@ -263,13 +267,13 @@ Every stored element is `uint64_t`.
 | `device_moduli` | 3 / 24 B | q for each limb | Constructor uploads; arithmetic kernels read |
 | `device_inverse_transform_lengths` | 3 / 24 B | N-inverse modulo each q | Constructor uploads; final scale kernel reads |
 
-`CudaNttTransform` owns `unique_ptr<Impl>`; `Impl` owns a shared-logic
-`SetupResources<CudaSetupRuntime>` allocation owner. The six named pointers
-are private aliases into that owner's allocation list:
-callers cannot retain a borrowed device-buffer view. Copy construction and
-copy assignment are deleted. No move operations are declared; this class is
-not currently movable either. Do not use one instance concurrently: public
-operations share and overwrite A/B and there is no locking or per-call scratch.
+`CudaNttTransform` keeps its implementation in a `unique_ptr<Impl>`, which
+ensures one owner. Inside `Impl`, `SetupResources<CudaSetupRuntime>` tracks
+the six GPU allocations and releases them. The named pointers refer to
+those privately owned buffers; callers cannot keep direct buffer views.
+The transform object cannot be copied or moved. Use an instance from only
+one caller at a time, because its methods overwrite the same A/B buffers
+without locks or separate scratch space.
 
 On destruction or constructor failure, the allocation owner releases acquired
 pointers in reverse order while selecting/restoring their owning device.
@@ -316,12 +320,13 @@ K*N entries and recover the limb by integer division by N.
 | `pointwise_multiply(left,right)` | Matching bit-reversed evaluations → same order | Replaces left; right is a const input | H2D A+B, pointwise, D2H A: 3 copies, 1 launch |
 | `multiply(left,right)` | Natural coefficients → natural negacyclic product | Left is passed by value; returns its result buffer | H2D A+B, 2 forwards + pointwise + inverse, D2H A: 3 copies, 8 launches |
 
-Inputs must contain K*N residues in their corresponding `[0,q[k])` ranges.
-Methods now check lengths and scan canonical residue ranges before upload, then
-select the owning device. They do not store a runtime coefficient/evaluation tag.
-The caller is responsible for representation and
-parameter compatibility. A vector from another modulus set with the same
-length is not rejected merely for having different provenance.
+Each input must contain exactly K×N values. Values in tower k must be from
+0 to q[k]−1. Before uploading, the methods check the length and every value,
+then select the GPU that owns the buffers. They do not record whether an
+array currently contains coefficients or evaluations. The caller must choose
+the correct operation and supply matching primes and roots. An array made
+under a different prime set can pass these checks if its length and values
+happen to fit; the wrapper does not track where it came from.
 
 `n()` and `limbs()` return scalar geometry without a device copy. `q(k)` and
 `ref(k)` use bounds-checked host vectors; `ref(k)` is a borrowed const reference
@@ -346,16 +351,18 @@ GPU allocation or transfer data.
 <div class="flow-host"><strong>HOST · returned left</strong><p>196,608 residues · 1.5 MiB · natural coefficient order</p></div>
 </div>
 
-For this three-tower example, each transform launch has a 256×3 grid,
+In the diagram, H2D means CPU-to-GPU and D2H means GPU-to-CPU. A block is
+a group of threads that can share a small memory area. For this three-tower
+example, each transform launch has a 256×3 grid,
 256 threads per block, and 2 KiB shared memory per block. The pointwise and
 scale grids each have 768 blocks. A complete multiply uses **eight launches
 and three operand copies, totaling 4,718,592 B (4.5 MiB)**.
 
 
 The four constant buffers are read throughout this chain; they are not
-re-uploaded per operation. B is scratch after the call, not a cached operand
-that the next public operation is entitled to reuse. Every new `multiply()`
-uploads both input operands again.
+re-uploaded per operation. After the call, B is temporary working storage. A later call cannot assume
+it still contains a reusable input. Every `multiply()` uploads both inputs
+again.
 Passing an lvalue as left creates a host copy; passing a moved vector can
 transfer its host allocation into the by-value parameter instead.
 
@@ -417,7 +424,8 @@ bounds, parameter assumptions, and adversarial exactness.
 [Source-contract tests](../tests/docs/test_cuda_dataflow.py) check that this map
 matches current allocation sizes, frees, public copy directions, operation
 ordering and host-only interface shape. They also pin the N=65536 arithmetic
-above. These are deliberately **static source checks**, not CUDA-runtime tests
-or proof of constructor failure safety. Existing CTests verify CPU arithmetic
+above. These tests read the source text; they do not execute CUDA. They can catch
+a mismatch between the document and code, but cannot prove that cleanup
+works after a real GPU failure. Existing CTests verify CPU arithmetic
 and shared stage helpers. No new claim of actual GPU support/performance is
 made by completing D5.

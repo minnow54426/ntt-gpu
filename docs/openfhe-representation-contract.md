@@ -2,9 +2,9 @@
 
 # Match OpenFHE's polynomial representation
 
-A GPU result must match both the values and their positions in OpenFHE's
-arrays. This page defines that boundary for OpenFHE 1.6.1, NativeInteger 64,
-at N=65536. The pinned commit is `b59e1f291965f14fbee5172cd83a20f5b856204f`.
+A GPU result must match both the values and their positions in OpenFHE’s
+arrays. This page specifies how to store and interpret those numbers for
+OpenFHE 1.6.1 with 64-bit native integers and N=65536 coefficients. The pinned commit is `b59e1f291965f14fbee5172cd83a20f5b856204f`.
 
 A `NativePoly` stores one polynomial modulo one prime. A `DCRTPoly` stores
 several such arrays, called towers, with different primes. **Format** says
@@ -31,8 +31,14 @@ and `DCRTPolyImpl` in the source. Linked excerpts are © 2022 OpenFHE, under
 | Inverse | Bit-reversed evaluations → natural coefficients; N-inverse normalization included |
 | GPU buffer order | `values[limb*N + index]`, preserving the supplied tower list |
 
-These evaluation indices are **not CKKS's decoded complex-slot indices**.
-Encoding/decoding uses another embedding and is outside this NTT contract.
+In the table, a ring means that coefficients are reduced modulo q and
+powers are reduced using x^N=−1. A canonical residue is the stored remainder
+from 0 to q−1. A primitive 2N-th root is a modular number whose powers first
+return to 1 after 2N steps.
+
+The evaluation positions here are **not the complex-number slots seen by a
+CKKS user**. Encoding and decoding between user values and polynomial
+coefficients are separate operations, outside this page’s scope.
 
 ## 2. What each format means
 
@@ -65,7 +71,8 @@ The two branches call different transform entry points; changing the format is a
 
 Our reference and CUDA entry points do not store an OpenFHE format flag.
 The caller must know the current domain before invoking `forward()` or
-`inverse()`. Calling forward twice is not an idempotent format assignment.
+`inverse()`. Calling `forward()` twice transforms the numbers twice; it does not simply
+ensure that the array has an evaluation label.
 
 No explicit input twist or output permutation is needed at this boundary.
 The negacyclic twist is already folded into the butterfly schedule. Ordinary
@@ -278,8 +285,9 @@ one term of the inverse formula.
 | \(a(x)=x^{N-1}\) | Slot k is \(r_k^{N-1}\) |
 | Evaluation array with 1 only at slot s | Coefficient i is \(N^{-1}r_s^{-i}\) |
 
-These closed forms distinguish order and scaling errors that a shared
-forward/inverse round trip could conceal. The D7 gate checks all N outputs,
+These formulas give expected answers without running our forward transform.
+They can expose ordering or scaling mistakes even when a matching mistake
+in the inverse makes a round trip recover the input. The D7 gate checks all N outputs,
 not just the first few slots. See the upstream [inverse normalization loop][normalization]
 for the scaling implementation, and [our CPU reference](../include/ntt/ntt.hpp)
 for the matching transform convention.
@@ -381,8 +389,10 @@ own modulus, root, format, and value allocation. The
 [ILDCRTParams constructor][params] retains the provided modulus/root order and
 forms the composite modulus Q as their product.
 
-The polynomial's composite Q can exceed 64 bits. It is not a native tower
-modulus and must not be truncated into the CUDA modulus array.
+Multiplying all tower primes gives the composite modulus Q, which may need
+more than 64 bits. Each CUDA modulus entry must hold one tower’s prime q.
+Putting a shortened 64-bit version of Q there would describe a different
+calculation.
 
 For N=65536, each row below is copied from its own NativePoly allocation:
 
@@ -411,17 +421,19 @@ interpolation is needed to run the per-tower NTT itself.
 with the placeholder root 1. That root is not a valid primitive 2N-th root;
 do not use the interpolated object's placeholder to configure an NTT backend.
 
-OpenFHE's separate tower allocations are not one contiguous host buffer.
-Copy values tower by tower into the flat buffer; do not reinterpret-cast the
-DCRT object or assume its NativeInteger objects have the GPU's scalar ABI.
+OpenFHE allocates each tower separately. Copy its numbers tower by tower
+into the flat GPU input array. Treating the whole DCRT object as a
+`uint64_t*` would read object storage rather than the intended packed numbers;
+the C++ integer objects need not have the same memory layout as GPU scalars.
 The [D5 dataflow map](cuda-buffer-dataflow.md) describes the current host-vector
 API and the ownership/stream design subsequently specified in
 [D9](device-backend-contract.md) and accepted by [D10](architecture-decision.md).
 
 ## 7. Pointwise products and active levels
 
-With matching q, ψ, format, and slot order, pointwise evaluation multiplication
-followed by inverse gives the negacyclic ring product. D7 multiplies a full
+If both arrays use the same q, ψ, format and position order, multiply their
+corresponding evaluation values and then run the inverse. The result is the
+polynomial product reduced using x^N=−1, called the negacyclic product. D7 multiplies a full
 three-tower DCRT polynomial by x and checks the independent coefficient rule:
 
 \[

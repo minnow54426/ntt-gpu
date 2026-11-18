@@ -11,7 +11,9 @@ runtime, that still need native verification. D11/P2 remains open on the
 
 ## 1. What is ready
 
-Observed on the November 16 source increment, in a driverless Linux workspace:
+The following results were observed using the November 16 source version
+on Linux, without a GPU driver. They describe that version; they do not
+claim that later changes have run on a GPU:
 
 | Check | Result |
 |---|---|
@@ -31,9 +33,10 @@ then recheck the actual offer and profiling permissions.
 ## 2. Reproduce the offline preparation
 
 Use Linux x86_64, Python 3.12+, CMake 3.24+ and a compatible C++20 host compiler.
-The pinned installer downloads NVIDIA's compiler/runtime/header components,
-verifies each SHA-256, retains component notices and installs under `build/`.
-It installs no driver and changes no system packages or shell configuration.
+The installer downloads specific versions of NVIDIA’s compiler, runtime
+libraries and headers into `build/`. It checks each download’s SHA-256 hash
+(a file fingerprint) and keeps the license notices. It does not install a
+GPU driver or change system packages or shell settings.
 
 From the repository root, with `cmake`/`ctest` on PATH:
 
@@ -71,17 +74,20 @@ before the session, or rebuild it on the GPU machine.
 
 ## 3. Fixes made before rental
 
-The [synchronous wrapper](cuda-buffer-dataflow.md) now owns partial allocations
-through RAII: resources are released when their owner is destroyed. It selects
-the owning device for operations and cleanup, validates dimensions/moduli/roots,
-and rejects wrong-length or noncanonical input before upload. The first nvcc
+The [synchronous wrapper](cuda-buffer-dataflow.md) now gives every allocated
+buffer an owner that releases it automatically when destroyed. This C++
+technique is called RAII, and it also handles failures partway through setup.
+The wrapper selects the device that owns the buffers, checks N, primes and
+roots, and rejects arrays with the wrong length or values outside 0…q−1
+before copying them to the GPU. The first nvcc
 build also repaired a namespace closure and private-type launcher issue;
 transform arithmetic and stage order were retained.
 
 Host tests and CUDA-linked invalid-constructor tests pass without allocating
 device memory. Native pre-call setup-failure checks passed in the older Ada
-batch. Actual driver OOM, partial-transfer errors, wrong-device restoration
-and cleanup under a failed context remain separate open tests. A nonthrowing
+batch. Real GPU tests must still cover out-of-memory errors, interrupted copies,
+restoring the caller’s selected device, and cleanup after the GPU context
+fails. A nonthrowing
 destructor cannot report cleanup errors to its caller.
 
 These fixes do not implement the full [backend proposal](device-backend-contract.md),
@@ -102,9 +108,10 @@ include:
   multiplication followed by inverse, and the complete negacyclic product;
 - exact complete-array comparisons and unchanged host inputs.
 
-The `--smoke` option limits that executable to the three-width context with zero
-and dense patterns for the four Compute Sanitizer tools. This is a bounded smoke
-scope, not the complete production sanitizer/parameter matrix. All GPU cases are
+The `--smoke` option runs a small subset: the three prime widths with zero
+and dense inputs, under each of the four Compute Sanitizer tools. A smoke
+test is a quick check for obvious failures. It does not replace checks for
+every supported parameter and error case. All GPU cases are
 compiled but **unrun** in this workspace.
 
 The current collector requires seven GPU-labelled gates: `cuda_verify`,
@@ -135,12 +142,14 @@ NTT_OPENFHE_PREFIX="$PWD/build/openfhe-compat/install" \
   bash scripts/autodl_setup.sh
 ```
 
-The helper no longer performs an implicit git pull or package installation.
-It records the selected commit, hardware/driver/clocks/power data and toolchain,
-requires a native CUDA build plus all OpenFHE/GPU tests, probes the actual device,
-runs the exact suite and four sanitizer tools on legacy, matrix and resident smoke scopes,
-then collects the 30/50/55/60-bit N=4096–65536, K=1/3/8/16/24/32/40 GPU-only batch
-in two timing scopes (140 workloads, 280 jobs). The helper now defaults to
+The helper uses the source and packages already present; it does not pull
+new commits or install dependencies. First it records the source revision,
+GPU, driver, clock speeds, power settings and build tools. Then it builds
+CUDA, verifies that the expected OpenFHE/GPU tests exist, checks the device,
+and runs the exact-answer tests. It runs four sanitizer tools on the legacy,
+benchmark-matrix and resident-chain smoke cases. Finally it measures
+30/50/55/60-bit primes, N=4096–65536 and K=1/3/8/16/24/32/40 towers. Each of
+the 140 workloads has two GPU timing scopes, giving 280 jobs. The helper now defaults to
 `--benchmark-scope gpu`; request `--benchmark-scope all` for the previous
 three-scope, 420-job combined collection.
 GPU mode rejects dirty source
@@ -192,8 +201,8 @@ B02 failure-path work, run D13 exactness, and collect the D14 measurements that
 are ready. Export all raw records before stopping the machine. Analyze and
 publish results offline for D15.
 
-The collector returning `GPU_CHECKS_PASSED` still leaves native failure injection,
-full production coverage, acceptance of raw event timings and Nsight analysis as explicit
-remaining gates. Completing this offline checklist does not automatically close
+A report of `GPU_CHECKS_PASSED` means the selected checks passed. Work still
+remains: deliberately trigger real GPU failures, cover production parameters,
+review the individual GPU-event timing samples, and analyze the Nsight profiles. Completing this offline checklist does not automatically close
 D11, B02, B03, D14 or P2. The [backlog](implementation-backlog.md) controls those
 acceptance criteria.

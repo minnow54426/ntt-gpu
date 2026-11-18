@@ -2,15 +2,16 @@
 
 **Checked November 13, 2026 · single-GPU CUDA development · N=65536**
 
-Start with a short, on-demand **RTX 5090** session. Compare RunPod Community
-Cloud with verified Vast.ai offers, then choose the machine that supports our
-toolchain and profiling work at the lowest complete session cost. Keep an RTX
+Start with a short **RTX 5090** rental billed as you use it (on-demand).
+Compare RunPod Community Cloud with verified Vast.ai offers. Choose a machine
+that supports our compiler and performance-measurement tools, then compare
+the cost of the whole session. Keep an RTX
 4090 as a compatibility control. H100/H200/B200 rentals become useful when a
 measured workload justifies their capacity or performance.
 
-This is a primary-source market survey, with a read-only marketplace sample.
-No machine was booked or tested. Prices are observations, not reserved capacity;
-the exact configuration and checkout total decide what a session will cost.
+This survey uses provider pages and a saved marketplace search. No machine
+was booked or tested. The observed prices do not reserve a GPU. Check the
+actual configuration and final total before renting.
 
 ## What we are renting for
 
@@ -37,9 +38,10 @@ actually used: see NVIDIA's
 Our offline build used CUDA 13.0; that does not establish a rental's compatibility.
 
 Use the [hardware assessment](gpu-selection-survey.md) for GPU specifications.
-Tensor FLOPS, image-generation throughput and LLM tokens per second do not rank
-our modular kernels. A MIG slice or a different regional GPU variant should
-not silently replace the named full-GPU baseline.
+Floating-point scores, image-generation speed and language-model token rates
+do not predict the speed of our exact integer calculations. MIG divides
+some GPUs into smaller instances; such a slice is not a full GPU. Record
+regional model variants separately too.
 
 ## How the market is divided
 
@@ -51,10 +53,11 @@ not silently replace the named full-GPU baseline.
 | Data-center GPU clouds, such as Lambda | Useful for later HBM/capacity comparisons; select the actual instance size |
 | Serverless endpoints and inference APIs | A different product; exclude their rates from an interactive CUDA development comparison |
 
-Choose **on-demand** for the first debugging session. Interruptible/spot capacity
-can make sense later for repeatable jobs that save results and tolerate restart.
-Monthly reservations are premature while our GPU use is intermittent. Renting
-also avoids buying a workstation before we know sustained utilization.
+Choose **on-demand** for the first debugging session so a provider does not
+interrupt the work to reclaim discounted capacity. Spot rentals may be useful
+later for repeatable jobs that save results and can restart. Monthly
+reservations make little sense until GPU use is regular. Renting first
+also lets us measure usage before buying a workstation.
 
 ## Published price snapshot
 
@@ -161,11 +164,12 @@ C_{\mathrm{session}} = r_{\mathrm{instance}}t_{\mathrm{billable}}
   + C_{\mathrm{disk}} + C_{\mathrm{transfer}} + C_{\mathrm{tax/fees}}.
 \]
 
-Billable time includes environment setup and rebuilding dependencies, not only
-the seconds spent inside a kernel. Add separately charged CPU/RAM to the
-instance rate. An account top-up is prepaid balance, not automatically the cost
-of this experiment. Check region, tax, minimum credit and billing granularity
-on the final quote.
+In the formula, r is the hourly price of the whole machine and t is the
+billable time. You pay while setting up software and building dependencies
+as well as while running kernels. Add any separate CPU, RAM, disk, transfer
+and tax charges. Money added to an account is prepaid credit; the experiment
+may use only part of it. Check the region, minimum deposit and billing unit
+(per second, minute or hour) on the final quote.
 
 | Billing issue | What the official sources establish |
 |---|---|
@@ -227,10 +231,11 @@ GPU and product, and whether the provider enables the required host permissions.
 A full VM is worth considering when container restrictions block the experiment,
 but it also needs verification. A successful `nvidia-smi` is not that verification.
 
-Treat correctness, sanitizer coverage and profiling as separate observed results.
-If a host cannot provide counters, it may still serve the correctness session;
-schedule profiling on a host that can. Do not report the profiling gate complete
-from timing-only runs.
+Record three separate outcomes: whether the answers are correct, whether
+sanitizer tools found memory/threading errors, and whether profiling succeeded.
+A machine without hardware-counter access can still run correctness tests.
+Use another host for counter collection, and keep that task unfinished until
+its data exist.
 
 ## Recommended first rental
 

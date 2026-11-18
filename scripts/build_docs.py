@@ -400,7 +400,7 @@ def home_content(pages, entries):
 <div class="site-home-hero">
   <div><p class="site-eyebrow"><span class="site-status-dot"></span> An open engineering notebook</p>
     <h1>GPU NTT for CKKS</h1>
-    <p class="site-lede">Learn the transform, see what ran on the GPU, and follow the work toward OpenFHE integration.</p>
+    <p class="site-lede">Learn how the NTT helps multiply polynomials, see the GPU test results, and follow the work toward OpenFHE integration.</p>
     <div class="site-hero-actions"><a class="site-primary-link" href="batch40-native-analysis.html">Read the GPU results</a><a class="site-secondary-link" href="#all-pages">Browse all pages ↓</a></div>
     <div class="site-specs"><span>CKKS · Hybrid</span><span>N = 4,096–65,536</span><span>Target: RTX 5090</span></div>
   </div>
@@ -412,18 +412,29 @@ def home_content(pages, entries):
   </div>
 </div>
 <div class="site-evidence-strip">
-  <div><span class="site-evidence-label">Verified</span><strong><span class="site-status-dot"></span> Temporary GPU baseline passed</strong><p>Exact NTT checks, sanitizers and timings.</p></div>
+  <div><span class="site-evidence-label">Verified</span><strong><span class="site-status-dot"></span> Temporary GPU baseline passed</strong><p>Recorded answer checks, memory/threading checks and timings.</p></div>
   <div><span class="site-evidence-label">Still pending</span><strong><span class="site-pending-dot"></span> RTX 5090 validation</strong><p>Base conversion and key switching come later.</p></div>
   <div><span class="site-evidence-label">Current record</span><strong>{escape(latest)}</strong><p>Latest published journal entry.</p></div>
 </div>
 <section class="site-article" aria-labelledby="reading-path">
 <h2 id="reading-path">New to the project?</h2>
-<p>CKKS supports computation on encrypted data. OpenFHE is the cryptography library we aim to integrate with. The NTT is the polynomial transform this project accelerates first.</p>
+<p>CKKS is an encryption scheme that allows calculations on encrypted data. It represents data using polynomials. OpenFHE is the cryptography library we aim to integrate with. The Number Theoretic Transform (NTT) changes how a polynomial is represented so multiplication becomes easier. This project first aims to run that transform efficiently on a GPU.</p>
 <ol>
 <li><a href="butterfly-explained.html">Learn the NTT and butterflies</a> with small numerical examples.</li>
 <li><a href="gpu-ntt-explained.html">See how the GPU divides the work</a>, then trace one thread in the <a href="ntt-65536-work-distribution.html">65536-point explorer</a>.</li>
 <li><a href="batch40-native-analysis.html">Read the measured results</a> or <a href="project.html">build the project</a>.</li>
 </ol>
+<details><summary>Useful words before you start</summary>
+<ul>
+<li><strong>Modulo q:</strong> keep the remainder after division by q. For example, 20 modulo 17 is 3.</li>
+<li><strong>Coefficient:</strong> a number multiplying a power of x in a polynomial. An evaluation is the value obtained by substituting a point for x.</li>
+<li><strong>Tower:</strong> one polynomial represented under one prime. Several towers represent its coefficients under several primes.</li>
+<li><strong>Host / device:</strong> the CPU and its memory / the GPU and its memory. An upload copies host data to the device; a download copies it back.</li>
+<li><strong>Kernel / stream:</strong> a function executed by GPU threads / an ordered queue of GPU work.</li>
+<li><strong>Fixture / oracle:</strong> repeatable test inputs / a separate calculation used to check the answers.</li>
+<li><strong>Native check:</strong> a test that actually runs on the target hardware. Compiling CUDA alone does not run a GPU test.</li>
+<li><strong>Gate:</strong> a required check before work can be called complete. D labels a working milestone and P labels a phase.</li>
+</ul></details>
 </section>
 <div class="site-section-heading" id="all-pages"><h2>All pages</h2></div>
 <p class="site-directory-note">Choose a lesson, reference, plan, or dated journal entry.</p>
@@ -487,7 +498,7 @@ def concise_article(page, full_content):
     if journal:
         next_url = relative_url(page["url"], "openfhe-integration-plan.html")
         next_label = "Current roadmap"
-        brief += '<p>This is a dated record. Test counts and next steps describe that day.</p>'
+        brief += '<p>This is a dated record of work on its calendar date. Its test counts, design and next steps describe that time; use the current roadmap for today’s status.</p>'
     else:
         next_url = relative_url(page["url"], page["next_page"])
         next_label = "Next: " + page["next_title"]
@@ -560,7 +571,7 @@ def build():
                    "summary": "Dated outcomes, reasoning, verification, and next steps.",
                    "group": "Daily journal"}
         write_page(journal, f"""
-<div class="site-journal-intro"><h1>Daily journal</h1><p>What changed and what was checked on each date. Older entries keep their original evidence and intermediate status; use the <a href="openfhe-integration-plan.html">roadmap</a> for the current milestone.</p></div>
+<div class="site-journal-intro"><h1>Daily journal</h1><p>Read what changed, why it changed and which checks ran on each calendar date. An older entry may describe work that was unfinished then. Its results remain tied to the recorded source version and machine. Use the <a href="openfhe-integration-plan.html">current roadmap</a> to find today’s milestone; a roadmap working day is not a calendar date.</p></div>
 <section><h2>Entries</h2><div class="site-journal-list">{entry_cards(entries, 'journal.html')}</div></section>""")
         (output / "search-index.json").write_text(json.dumps(search, ensure_ascii=False))
         (output / "search-index.js").write_text(

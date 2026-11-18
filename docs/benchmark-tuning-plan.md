@@ -5,8 +5,11 @@
 **Workload target:** OpenFHE 1.6.1 CKKS with Hybrid key switching  
 **Primary ring dimension:** `65536`; regression/benchmark sweep: `4096`–`65536`
 
-Choose kernels using exact checks and measured latency or throughput at
-N=65536. Record the GPU, CKKS parameters, batch shape, and transfer boundary.
+A kernel is a function executed by many GPU threads. Choose between kernel
+versions by checking their answers and measuring them at N=65536. Latency
+means time for one operation; throughput means operations completed per
+second. Record the GPU, encryption parameters, number of polynomials and
+whether CPU–GPU transfers are included.
 
 The [full-matrix report](batch40-native-analysis.md) records the temporary Ada
 baseline. The [earlier diagnostic analysis](first-native-analysis.md) explains
@@ -15,8 +18,10 @@ result or an accepted hardware-counter bottleneck diagnosis.
 
 ## 1. Implementations to compare
 
-Each implementation must preserve the same transform convention and pass the
-same exact correctness gates.
+Every version must produce the same array values in the same order and pass
+the same exact-answer tests. A “gate” below means a check that must pass
+before the next step. Some proposed optimizations are named here before
+they are implemented:
 
 1. Current radix-2 two-pass implementation using reference modular arithmetic.
 2. Two-pass implementation with Shoup twiddle multiplication and Barrett or
@@ -26,8 +31,9 @@ same exact correctness gates.
 5. Coalesced Four-Step/transpose implementation.
 6. Fused variants used by base conversion and Hybrid key switching.
 
-Compare GPU-NTT and FIDESlib only when transform semantics, modulus limits,
-RNS workload, and timing boundaries match.
+Compare with the GPU-NTT and FIDESlib libraries only when they compute the
+same transform, accept the same prime sizes, process the same number of
+prime towers, and include the same work in their timings.
 
 ## 2. Workload matrix
 
@@ -77,8 +83,10 @@ Group experiments by the cost they change:
 
 Change one major factor at a time before combining winners.
 
-Retain `ptxas -v` reports and Nsight occupancy. Select by end-to-end performance,
-not register count alone.
+Save `ptxas -v` compiler reports and the Nsight occupancy measurement.
+Occupancy describes how many warps can remain active on a GPU processor.
+A lower register count alone does not prove a faster program; measure the
+complete operation.
 
 ## 4. Measurements
 
@@ -92,8 +100,10 @@ not register count alone.
 - complete encrypted-inference latency and peak device memory;
 - cold setup, warm steady state, and CUDA Graph replay separately.
 
-Report median, p5, and p95 after warm-up. Store raw samples so later summaries
-can be regenerated without rerunning the GPU.
+Run warmups before collecting samples. Report the median (middle sample),
+p5 (the fifth percentile) and p95 (the ninety-fifth percentile) to show both
+typical time and variation. Save the individual samples so summaries can be
+recomputed without another rental.
 
 ### Hardware counters
 
@@ -105,9 +115,10 @@ can be regenerated without rerunning the GPU.
 - SM and memory-pipeline utilization;
 - kernel-launch count and synchronization gaps.
 
-The current column pass must specifically record memory sectors per requested
-byte because its neighboring-thread coefficient addresses are 2,048 bytes
-apart.
+In the current column pass, neighboring threads request coefficients 2,048
+bytes apart. The GPU may fetch much more memory than the useful values.
+Record the number of memory sectors fetched for each requested byte to
+measure that overhead.
 
 ## 5. Reproducibility record
 
@@ -121,7 +132,8 @@ Every result row must include:
 - correctness-gate result and profiler command/version;
 - whether setup, allocation, transfers, and synchronization are included.
 
-Results without this header are exploratory and must not appear in published
+Without these details, a result cannot support a reproducible comparison.
+Keep it as an exploratory observation rather than putting it in the published
 comparison tables.
 
 ## 6. Tuning procedure

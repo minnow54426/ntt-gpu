@@ -117,7 +117,7 @@
   <header>
     <p class="eyebrow">CUDA execution · a worked example</p>
     <h1>How 65,536 coefficients<br>map to GPU threads.</h1>
-    <p class="lede">See how our 65536-point forward and inverse NTTs distribute data and butterflies. Start with what a block owns, then zoom into what a thread does.</p>
+    <p class="lede">Follow one polynomial through the forward and inverse NTT. A block is a team of GPU threads with shared memory. First see which values each block loads, then inspect the pairs assigned to one thread.</p>
     <div class="reading-path" aria-label="Execution hierarchy"><span>Polynomial</span><span>→</span><span>Pass</span><span>→</span><span>Block</span><span>→</span><span>Thread</span></div>
     <nav class="jump-links" aria-label="On this page"><a href="#whole-job">The whole job</a><a href="#two-passes">The two passes</a><a href="#larger-polynomial">Resources &amp; memory access</a><a href="#column-proof">Forward proof</a><a href="#inverse-proof">Inverse proof · D3</a><a href="#tile-proof">Row kernels &amp; coverage · D4</a><a href="#explore">Explore a thread</a><a href="#synchronization">Synchronization &amp; RNS</a></nav>
   </header>
@@ -134,10 +134,10 @@
   <section id="two-passes">
     <div class="section-title"><span class="section-number">02</span><h2>Divide the work by distance</h2></div>
     <div class="pass-grid">
-      <article class="pass"><div class="pass-label">Pass 1 · far stages</div><h3>One block owns one column</h3><span class="distances mono">32768 → 16384 → 8192 → 4096 → 2048 → 1024 → 512 → 256</span><p>These distances preserve the index modulo 256. Each block gathers 256 strided values into shared memory, executes eight stages, and scatters the results back.</p><p>256 blocks per modulus. Every block launches 256 threads: 256 load/store values; 128 compute butterflies at each stage.</p><small class="mono">256 values · 2 KiB shared memory / block</small></article>
+      <article class="pass"><div class="pass-label">Pass 1 · far stages</div><h3>One block owns one column</h3><span class="distances mono">32768 → 16384 → 8192 → 4096 → 2048 → 1024 → 512 → 256</span><p>Moving by any of these distances leaves the column number unchanged. Each block gathers its column’s 256 values, which are spaced 256 positions apart. It runs eight stages in shared memory, then writes the values back to their original addresses.</p><p>256 blocks per modulus. Every block launches 256 threads: 256 load/store values; 128 compute butterflies at each stage.</p><small class="mono">256 values · 2 KiB shared memory / block</small></article>
       <article class="pass"><div class="pass-label">Pass 2 · near stages</div><h3>One block owns one row</h3><span class="distances mono">128 → 64 → 32 → 16 → 8 → 4 → 2 → 1</span><p>These butterflies stay inside an aligned 256-value row. Each block loads its contiguous row into shared memory, executes eight stages, and writes it back.</p><p>256 blocks per modulus. All 256 threads load/store values; 128 compute butterflies at each stage.</p><small class="mono">256 values · 2 KiB shared memory / block</small></article>
     </div>
-    <p class="note">Both passes use twiddles from the <strong>same 65536-point transform</strong>. Threads 128–255 still load, store, and reach every barrier, even when they have no butterfly.</p>
+    <p class="note">A twiddle is the precomputed modular multiplier used by a butterfly. Both passes use twiddles from the <strong>same 65536-point transform</strong>. A barrier is a point where every thread in a block must wait for the others. Threads 128–255 still load, store and reach every barrier, even when they have no butterfly.</p>
   </section>
 
   <section id="larger-polynomial">
@@ -197,7 +197,7 @@
         </div>
       </div>
       <div class="memory-access-cycle" aria-label="Each pass loads a group, executes eight shared-memory stages, then stores back to its original addresses"><span>Load once</span><span aria-hidden="true">→</span><strong>8 stages in shared memory</strong><span aria-hidden="true">→</span><span>Store to the same global addresses</span></div>
-      <p class="note" id="memory-access-caption">The diagram uses the first column (r=0) and first row (b=0). Each block loads 256 values; only four are shown. Gaps are schematic. The column stride spreads neighboring reads apart; contiguous row reads can share memory transactions. Stores reverse the arrows.</p>
+      <p class="note" id="memory-access-caption">The diagram uses the first column (r=0) and first row (b=0). Each block loads 256 values; only four are shown. Gaps are schematic. Column reads are far apart in global memory. Row reads are adjacent, so the GPU can combine them into fewer memory transactions. When storing results, follow the arrows in reverse.</p>
     </figure>
     <p>In pass 1, adjacent loading threads access global addresses <strong>2048 bytes apart</strong> (256 × 8 bytes), but write adjacent 8-byte entries in shared memory. The scatter reverses this mapping. In pass 2, adjacent threads read and write adjacent 8-byte global entries. Each block loads once, reuses shared memory across all its stages, and stores once.</p>
     <p class="note">Two reads and two writes of the value array give a logical minimum of 4 × N × 8 bytes per forward transform: 2 MiB at N=65536, excluding twiddle/modulus reads and host transfers. This is requested array traffic, <strong>not measured DRAM traffic</strong>. Strided accesses, caches, registers, and occupancy need real-GPU profiling; 128 active butterfly threads out of 256 is not a hardware occupancy measurement.</p>
@@ -296,7 +296,7 @@ g&=LR/(2d)+g_{\rm local}.
     <p>Between passes, scatter must finish before the next gather. Same-stream kernel order provides that boundary. Gather/scatter changes block ownership; it does not transpose the stored array or perform another transform.</p>
     <h3 style="margin-top:24px">5. Executable evidence</h3>
     <p><a href="../tests/tile_mapping_tests.cpp">tile_mapping_check</a> checks the shared pair geometry and the legacy twiddle lookup with tagged inputs. <code>device_schedule_check</code> exercises the default group-twiddle arithmetic on CPU using the same helper as CUDA.</p>
-    <p>The same test checks forward and inverse stage lists and per-stage global endpoint coverage at N=65536, plus the small-size boundaries. Existing real-root schedule and inverse-normalization gates remain complementary checks. This is not a CUDA compile, barrier/race check, or GPU performance measurement.</p>
+    <p>The test also checks the order of stages and confirms that each stage visits every required pair at N=65536. Small-size tests cover the points where the schedule changes. Other tests check real roots and the inverse’s final scale. These tests execute on CPU: they do not test GPU compilation, thread races, barriers or speed.</p>
     <pre class="derivation">cmake -S . -B build
 cmake --build build
 ctest --test-dir build --output-on-failure</pre>
@@ -327,7 +327,7 @@ ctest --test-dir build --output-on-failure</pre>
 
   <section id="synchronization">
     <div class="section-title"><span class="section-number">08</span><h2>What keeps the work ordered?</h2></div>
-    <div class="sync-list"><div><h3>Inside a block</h3><p>All 256 threads reach <code>__syncthreads()</code> after loading and after each stage—even threads without a butterfly. This barrier synchronizes only that block.</p></div><div><h3>Between the passes</h3><p>The kernels use the same CUDA stream, so pass 2 starts after pass 1 finishes. Blocks within a pass are independent; SM scheduling does not guarantee they all execute simultaneously.</p></div></div>
+    <div class="sync-list"><div><h3>Inside a block</h3><p>All 256 threads reach <code>__syncthreads()</code> after loading and after each stage—even threads without a butterfly. This barrier synchronizes only that block.</p></div><div><h3>Between the passes</h3><p>A CUDA stream is an ordered work queue. Both kernels use the same stream, so pass 2 starts after pass 1 finishes. Blocks inside one pass are independent. The GPU’s processors (SMs) run them as resources become available, rather than necessarily running every block at once.</p></div></div>
     <p>For CKKS with multiple RNS primes, repeat this arrangement per limb. Storage is limb-major: <code>values[limb × N + index]</code>. The zero-based <code>limb</code> skips whole towers; <code>index</code> is the slot inside that tower. <code>blockIdx.y</code> selects the limb, and <code>blockIdx.x</code> selects the column or row for the current pass.</p>
   </section>
   <p class="closing">The mental model: <strong>a block owns a data subset; a thread computes a butterfly within it at each stage.</strong> Next, follow the <a href="cuda-buffer-dataflow.md">constructor, buffers, and host/device dataflow (D5)</a>.</p>

@@ -8,10 +8,10 @@
       "url": "next-gpu-rental.html",
       "title": "Next GPU rental queue",
       "group": "Plans",
-      "summary": "Prepare offline and bundle required RTX 5090 work into one rental.",
+      "summary": "Prepare one RTX 5090 session, with a clear order of tests and measurements.",
       "takeaways": [
-        "Prepare both NTT builds, resident-chain timing, and CPU basis-conversion fixtures before renting.",
-        "On the 5090, run exactness and sanitizers first, then matched timings and profiling."
+        "Compile both NTT versions and prepare CPU reference answers before renting, so paid time is spent running GPU work.",
+        "On the GPU, check answers and memory/threading errors first. Then compare timings, collect profiles and download the records."
       ],
       "next_page": "offline-test-tooling.html"
     },
@@ -20,10 +20,10 @@
       "url": "project.html",
       "title": "Project & setup",
       "group": "Start here",
-      "summary": "Build the project and understand what has been tested.",
+      "summary": "Build the CPU version first and learn which GPU results have been checked.",
       "takeaways": [
-        "Build and run the CPU checks first; a GPU is optional for getting started.",
-        "The tested CUDA baseline works on the recorded Ada workload. The newer resident runtime still needs native GPU validation."
+        "You can build and test this project without a GPU. Start with the CPU commands and the eight-value debugging example.",
+        "An earlier CUDA version passed the recorded Ada GPU tests. The newer code that chains operations on the GPU still needs its own hardware tests."
       ],
       "next_page": "vscode-debugging.html"
     },
@@ -32,10 +32,10 @@
       "url": "butterfly-explained.html",
       "title": "NTT & butterflies",
       "group": "Learn",
-      "summary": "Learn why polynomial evaluation can be built from repeated butterflies.",
+      "summary": "Learn how repeated two-value operations compute a polynomial transform.",
       "takeaways": [
-        "An NTT evaluates a polynomial at special points modulo a prime. Butterflies share work between those evaluations.",
-        "Start with the small examples, then follow the negacyclic form used by this project at N=65536."
+        "An NTT evaluates a polynomial at special points using remainders modulo a prime. A butterfly shares one multiplication between two outputs.",
+        "Follow the small examples first, then learn why high-degree terms wrap back with a minus sign in the project’s 65,536-coefficient polynomials."
       ],
       "next_page": "gpu-ntt-explained.html"
     },
@@ -44,10 +44,10 @@
       "url": "gpu-ntt-explained.html",
       "title": "From CPU to CUDA",
       "group": "Learn",
-      "summary": "See how threads, blocks and shared memory execute the same transform.",
+      "summary": "Learn how GPU threads cooperate to run the NTT.",
       "takeaways": [
-        "Threads compute independent butterfly pairs. A block keeps one group in shared memory across several stages.",
-        "At N=65536, columns handle far pairs and rows handle near pairs. Barriers and kernel order preserve the dependencies."
+        "A thread computes assigned pairs. A block is a team of threads that reuses a loaded group in shared memory across several stages.",
+        "At N=65536, columns handle far-apart pairs and rows handle nearby pairs. Threads wait at barriers between stages; kernel order separates the passes."
       ],
       "next_page": "ntt-65536-work-distribution.html"
     },
@@ -56,10 +56,10 @@
       "url": "ntt-65536-work-distribution.html",
       "title": "65536: work distribution",
       "group": "Learn",
-      "summary": "Trace one block and thread through the 65536-point forward and inverse NTT.",
+      "summary": "See which array positions each block and thread reads and writes.",
       "takeaways": [
-        "View one tower as a 256×256 array. Columns own the first eight forward stages; rows own the last eight.",
-        "Try block 3 and thread 5 in the explorer. Inverse reverses the passes and scales by the modular inverse of N."
+        "Picture one prime tower as 256 rows by 256 columns. Columns run the first eight forward stages; rows run the last eight.",
+        "Choose a stage, block and thread to inspect its pair. Inverse runs the passes in reverse order and finishes with a modular scale factor."
       ],
       "next_page": "cuda-buffer-dataflow.html"
     },
@@ -68,10 +68,10 @@
       "url": "cuda-buffer-dataflow.html",
       "title": "CUDA buffers & dataflow",
       "group": "Learn",
-      "summary": "Follow inputs, device buffers and transfers through the synchronous CUDA wrapper.",
+      "summary": "Follow polynomial values from CPU arrays to GPU buffers and back.",
       "takeaways": [
-        "A tower stores one polynomial modulo one prime. At N=65536 it takes 512 KiB in the current uint64 format.",
-        "Fused multiplication uploads two inputs and downloads one result. Separate public calls repeat transfers between operations."
+        "A tower stores one polynomial’s remainders under one prime. Its 65,536 eight-byte values use 512 KiB; three towers use 1.5 MiB.",
+        "One combined multiplication call uploads two inputs and downloads one result. Separate calls copy intermediate arrays between CPU and GPU."
       ],
       "next_page": "resident-operation-chain.html"
     },
@@ -80,10 +80,10 @@
       "url": "modular-arithmetic-contract.html",
       "title": "Arithmetic bounds & tests",
       "group": "Learn",
-      "summary": "Understand safe integer ranges and the tests that check exact arithmetic.",
+      "summary": "Learn why stored values and temporary products need different integer widths.",
       "takeaways": [
-        "Canonical means a value from 0 to q−1. Each current butterfly keeps that range.",
-        "A 60-bit value fits in uint64_t, but its product needs a wider temporary. Independent bigint checks test these operations."
+        "Canonical residues are integers from 0 to q−1. Each butterfly reduces its results back into that range.",
+        "A 60-bit value fits in a 64-bit word, but two such values can produce a 120-bit product. Independent calculations check that the code preserves it."
       ],
       "next_page": "openfhe-representation-contract.html"
     },
@@ -92,10 +92,10 @@
       "url": "openfhe-representation-contract.html",
       "title": "OpenFHE representation",
       "group": "Learn",
-      "summary": "Match OpenFHE primes, roots, array positions and format labels.",
+      "summary": "Match the values, prime parameters and array order used by OpenFHE.",
       "takeaways": [
-        "OpenFHE stores one prime-modulus array per tower. Copy them in their original order, with their exact roots.",
-        "Forward changes coefficients to bit-reversed evaluations. Changing a format label alone does not convert the values."
+        "OpenFHE keeps one array per prime, called a tower. Preserve each tower’s prime, root and position when copying its numbers.",
+        "Forward transforms coefficients into evaluations in bit-reversed index order. Changing the format label alone does not transform the values."
       ],
       "next_page": "openfhe-hybrid-operation-graph.html"
     },
@@ -104,10 +104,10 @@
       "url": "openfhe-hybrid-operation-graph.html",
       "title": "Hybrid operation graph",
       "group": "Learn",
-      "summary": "Follow digit extension, key products and reduction in pinned OpenFHE code.",
+      "summary": "Follow the arrays and source code in OpenFHE Hybrid key switching.",
       "takeaways": [
-        "Hybrid key switching extends digit arrays from Q to QP, accumulates two key products, then reduces them to Q.",
-        "The order and integer representatives matter. This page has exact CPU comparisons; GPU key switching is still future work."
+        "Hybrid key switching groups prime towers into digits, adds auxiliary prime towers, multiplies by key arrays, and reduces two accumulated outputs.",
+        "The exact order of conversion and reduction affects the arrays. CPU comparisons check this sequence; a GPU key-switch implementation is still planned."
       ],
       "next_page": "device-backend-contract.html"
     },
@@ -116,10 +116,10 @@
       "url": "device-backend-contract.html",
       "title": "Device backend contract",
       "group": "Learn",
-      "summary": "Specify what a GPU handle, dependency and buffer owner must preserve.",
+      "summary": "Specify what a stored GPU polynomial needs besides its memory address.",
       "takeaways": [
-        "A GPU polynomial needs its primes, format, array order, owner and readiness—not only a pointer.",
-        "This is the full design proposal. The separate resident prototype implements a bounded subset; the cache and OpenFHE adapter remain planned."
+        "A handle must identify the primes, array format, owner and unfinished work. A pointer and length cannot describe those facts.",
+        "This page proposes the full backend design. A separate resident prototype implements part of it; the cache and OpenFHE adapter remain planned."
       ],
       "next_page": "resident-operation-chain.html"
     },
@@ -128,10 +128,10 @@
       "url": "resident-operation-chain.html",
       "title": "Resident operation chain",
       "group": "Learn",
-      "summary": "Compose NTT operations without downloading their intermediate arrays.",
+      "summary": "Keep intermediate arrays on the GPU while composing polynomial operations.",
       "takeaways": [
-        "Upload two inputs, run forward transforms and pointwise multiplication, then inverse-transform and download the result.",
-        "The runtime owns queued resources and preserves inputs. Host tests and CUDA compilation pass; native GPU execution of this new path is pending."
+        "Upload two polynomials, transform both, multiply matching evaluations, inverse-transform, then download only the final result.",
+        "The prototype retains buffers until queued work finishes and leaves inputs unchanged. CPU tests and CUDA compilation pass; running this new path on a GPU is pending."
       ],
       "next_page": "implementation-backlog.html"
     },
@@ -140,10 +140,10 @@
       "url": "vscode-debugging.html",
       "title": "Run & debug",
       "group": "Learn",
-      "summary": "Run a small CPU example and inspect one butterfly at a time.",
+      "summary": "Pause a small CPU transform and inspect each pair of values.",
       "takeaways": [
-        "The N=8 example prints coefficients, evaluations and a recovered input. No CUDA device is needed.",
-        "Use a terminal on any supported CPU platform, or follow the supplied macOS VS Code debugger setup."
+        "The eight-coefficient example prints its input, evaluations and recovered coefficients. It runs without CUDA hardware.",
+        "Use the terminal commands on a supported CPU platform. The supplied VS Code debugger configuration targets macOS."
       ],
       "next_page": "butterfly-explained.html"
     },
@@ -152,10 +152,10 @@
       "url": "gpu-ntt-survey.html",
       "title": "GPU NTT implementations",
       "group": "Research",
-      "summary": "Compare published GPU NTT techniques and choose experiments to measure.",
+      "summary": "Learn what other GPU NTT implementations do and which ideas to test.",
       "takeaways": [
-        "Study integer reduction, coalesced memory access, register staging and keeping data on the device.",
-        "Published techniques suggest experiments. They do not establish a speedup for this implementation."
+        "Candidate improvements include faster modular products, nearby memory accesses, more values per thread and fewer CPU–GPU copies.",
+        "The papers and source code suggest experiments. Only matching tests and measurements can show whether those ideas improve this project."
       ],
       "next_page": "benchmark-tuning-plan.html"
     },
@@ -164,10 +164,10 @@
       "url": "gpu-selection-survey.html",
       "title": "Choosing the GPU",
       "group": "Research",
-      "summary": "Choose hardware using modular arithmetic, memory and complete-workload measurements.",
+      "summary": "Choose a GPU by measuring this integer workload and its memory needs.",
       "takeaways": [
-        "RTX 5090 is the primary target and RTX 4090 the planned control. Larger cards need a measured capacity or performance reason.",
-        "Peak bandwidth and Tensor throughput cannot predict this exact integer workload. Compare matched operations on named hardware."
+        "RTX 5090 is the development target; RTX 4090 is the planned comparison device. Consider larger cards when measured memory use or speed justifies them.",
+        "Published bandwidth and Tensor Core scores do not predict exact modular arithmetic speed. Compare complete operations with matching inputs."
       ],
       "next_page": "gpu-rental-market-survey.html"
     },
@@ -176,10 +176,10 @@
       "url": "gpu-rental-market-survey.html",
       "title": "GPU rental market",
       "group": "Research",
-      "summary": "Compare dated rental rates, whole-session costs and profiling requirements.",
+      "summary": "Compare dated rental prices and the total cost of a useful session.",
       "takeaways": [
-        "The November 13 snapshot favors comparing a suitable RunPod RTX 5090 with a verified Vast.ai offer. Recheck the live quote.",
-        "Confirm tools and profiler permissions, include storage and setup time, then export the complete evidence before ending billing."
+        "The November 13 survey compares RunPod RTX 5090 rates with a saved Vast.ai offer search. Recheck availability and the final quote before renting.",
+        "Check compiler tools and profiling permissions. Include setup and storage costs, and download all results before ending the rental."
       ],
       "next_page": "offline-gpu-preparation.html"
     },
@@ -188,10 +188,10 @@
       "url": "openfhe-integration-plan.html",
       "title": "Integration roadmap",
       "group": "Plans",
-      "summary": "Track completed evidence, the current native gate and later integration phases.",
+      "summary": "Read the sequence of work and the checks required to finish each phase.",
       "takeaways": [
-        "The order is NTT → base conversion → Hybrid key switching → OpenFHE. Working-day labels are milestones, not calendar dates.",
-        "D11/P2 remains open: the temporary Ada baseline is measured, while primary RTX 5090 and remaining runtime/profiling acceptance are pending."
+        "Build the NTT first, then prime-basis conversion, Hybrid key switching and OpenFHE integration. D labels a working milestone, not a calendar date.",
+        "The current milestone is D11/P2. Earlier Ada GPU measurements exist; RTX 5090 tests, newer runtime checks and full profiling remain unfinished."
       ],
       "next_page": "implementation-backlog.html"
     },
@@ -200,10 +200,10 @@
       "url": "architecture-decision.html",
       "title": "Architecture decision",
       "group": "Plans",
-      "summary": "Read the accepted ownership, integration and failure-handling rules.",
+      "summary": "Understand the accepted rules for ownership, errors and OpenFHE integration.",
       "takeaways": [
-        "Keep inputs immutable, return fresh results and retain resources until queued work has safely finished.",
-        "The proposed OpenFHE adapter replaces its host object only after success. CPU fallback is an explicit choice before GPU submission."
+        "Keep inputs unchanged and return new results. Queued work must retain every buffer it could still access.",
+        "The planned OpenFHE adapter replaces the caller’s object only after success. A permitted CPU path must be chosen before any GPU work is submitted."
       ],
       "next_page": "implementation-backlog.html"
     },
@@ -212,10 +212,10 @@
       "url": "implementation-backlog.html",
       "title": "Implementation backlog",
       "group": "Plans",
-      "summary": "Choose the next task and its observable acceptance checks.",
+      "summary": "Choose an implementation task and read the checks that will prove it complete.",
       "takeaways": [
-        "Verify the native baseline, then build resident NTT, conversion, key switching and the adapter in dependency order.",
-        "Each task records evidence and a completion criterion. Host preparation alone does not complete a native GPU milestone."
+        "Validate the GPU baseline, then implement resident operations, basis conversion, key switching and the OpenFHE adapter in dependency order.",
+        "Each task lists its required evidence. CPU preparation and successful compilation cannot replace a test that must run on an actual GPU."
       ],
       "next_page": "offline-gpu-preparation.html"
     },
@@ -224,10 +224,10 @@
       "url": "offline-gpu-preparation.html",
       "title": "Before renting a GPU",
       "group": "Plans",
-      "summary": "Prepare dependencies locally, then run the current native checks on a GPU.",
+      "summary": "Finish builds and CPU checks before paying for GPU time.",
       "takeaways": [
-        "Use CPU time for builds and host checks. Spend rental time on the actual device, exactness, sanitizers and measurements.",
-        "Older Ada results apply to their recorded source. Run the current checks, including the new resident chain, before accepting new timings."
+        "Use a CPU machine to install dependencies, compile code and prepare tests. Rent a GPU to run device checks and collect measurements.",
+        "Earlier Ada results apply to their recorded source revision. Later changes, including the resident chain, need new hardware checks."
       ],
       "next_page": "offline-test-tooling.html"
     },
@@ -236,10 +236,10 @@
       "url": "benchmark-tuning-plan.html",
       "title": "Benchmarks & tuning",
       "group": "Plans",
-      "summary": "Design fair comparisons before changing kernels or publishing speedups.",
+      "summary": "Design fair performance comparisons before changing the GPU code.",
       "takeaways": [
-        "Match inputs, widths, tower counts and hardware. Separate setup, public-call, device-event and CPU timing boundaries.",
-        "Tune one major cost at a time, then accept a variant only with exact results and complete-workload measurements."
+        "Use the same inputs, prime widths, tower counts and hardware. Report setup, complete-call and GPU-only times separately.",
+        "Change one major cost at a time. Keep an optimization only after its answers match and the relevant complete workload improves."
       ],
       "next_page": "offline-test-tooling.html"
     },
@@ -248,10 +248,10 @@
       "url": "first-native-analysis.html",
       "title": "First GPU run: analysis",
       "group": "Research",
-      "summary": "Audit the first diagnostic run and understand its limited timing sample.",
+      "summary": "Understand what the first GPU run established and what its timing cannot show.",
       "takeaways": [
-        "The first Ada run passed its selected native checks and saved one averaged 46-bit timing row.",
-        "That row cannot isolate kernels, transfers or variability. The later full-matrix report adds raw samples and a separate OpenFHE CPU baseline."
+        "The first Ada run passed its selected device tests and saved one average timing row using 46-bit primes.",
+        "That average cannot separate kernels from copies or show variation. The later matrix report adds individual samples and a separate OpenFHE CPU comparison."
       ],
       "next_page": "batch40-native-analysis.html"
     },
@@ -260,10 +260,10 @@
       "url": "batch40-native-analysis.html",
       "title": "Full GPU matrix: analysis",
       "group": "Research",
-      "summary": "Read the measured Ada baseline and the limits of its GPU/CPU comparison.",
+      "summary": "Read the measured GPU results together with their limits.",
       "takeaways": [
-        "Fused multiplication was faster than the unfused public chain in all 140 workloads, with a 2.36× median ratio.",
-        "Device-event time excludes uploads/downloads. The separate M1 CPU and temporary GPU results are not RTX 5090 or end-to-end CKKS measurements."
+        "Keeping intermediate arrays on the GPU made the combined public multiplication faster in all 140 workloads, with a median unfused/fused time ratio of 2.36.",
+        "GPU-event times exclude input and output copies. The M1 CPU and temporary Ada GPU results do not measure RTX 5090 or a complete CKKS application."
       ],
       "next_page": "resident-operation-chain.html"
     },
@@ -272,10 +272,10 @@
       "url": "offline-test-tooling.html",
       "title": "Offline test tooling",
       "group": "Plans",
-      "summary": "Run separate GPU and CPU collections with validated samples and safe resume.",
+      "summary": "Run the measurement scripts and check the records they save.",
       "takeaways": [
-        "Use GPU-only measurements on the rental and collect the OpenFHE CPU timings locally with matching parameters.",
-        "The collector keeps raw samples, provenance and failures. Resume reuses only matching, hash-checked records and reruns the required gates."
+        "Collect GPU measurements on the rental and matching OpenFHE CPU measurements locally. Keep each machine’s report separate.",
+        "The collector saves individual times, parameters and failures. Resume reuses only matching records after checking their contents and file fingerprints."
       ],
       "next_page": "batch40-native-analysis.html"
     },
@@ -284,10 +284,10 @@
       "url": "contributing-docs.html",
       "title": "Writing & publishing",
       "group": "Contribute",
-      "summary": "Edit source, check the notebook and export it to the personal website.",
+      "summary": "Edit notebook sources, preview them and publish the generated website.",
       "takeaways": [
-        "Write the purpose and result first; define unfamiliar terms and keep long evidence in labelled notes.",
-        "Build, validate links and inspect desktop/phone pages before exporting. A source push alone does not publish the personal website."
+        "Explain the purpose first, define unfamiliar words and place commands beside their expected results. Keep detailed evidence available in labelled notes.",
+        "Build and check the notebook, inspect desktop and phone views, then export and push the website. Pushing only the source repository does not update the personal site."
       ],
       "next_page": "project.html"
     }

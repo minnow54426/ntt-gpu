@@ -392,7 +392,7 @@
     <div>
       <div class="kicker">ntt-gpu · a beginner's field guide</div>
       <h1>NTT and <em>butterflies.</em></h1>
-      <p class="hero-sub">An NTT turns one expensive polynomial multiplication into many small, repeated butterfly operations.</p>
+      <p class="hero-sub">The NTT changes how a polynomial is represented so multiplication becomes easier. Small operations called butterflies compute this change efficiently.</p>
       <div class="hero-meta">
         <span class="chip"><b>no</b> prerequisites</span>
         <span class="chip">examples use mod <b>5</b> and mod <b>17</b></span>
@@ -465,7 +465,7 @@
     <!-- ============================ 1. THE DATA ============================ -->
     <section id="s1" class="reveal">
       <div class="sec-head"><div class="sec-num">01</div><h2>Start with coefficients</h2></div>
-      <p>The input is a <b>list of N numbers</b>. In this page, that list represents a polynomial:</p>
+      <p>The input is a list of N numbers called coefficients. Position 0 is the constant term, position 1 multiplies x, position 2 multiplies x², and so on. Together they describe a polynomial:</p>
       <div class="chips-row" aria-label="An example list of eight numbers as chips">
         <span class="numchip">3<small>slot 0</small></span><span class="numchip">7<small>slot 1</small></span>
         <span class="numchip">1<small>slot 2</small></span><span class="numchip">9<small>slot 3</small></span>
@@ -480,7 +480,7 @@
     <!-- ============================ 2. THE WHEEL ============================ -->
     <section id="s2" class="reveal">
       <div class="sec-head"><div class="sec-num">02</div><h2>Choose special modular points</h2></div>
-      <p>Modulo 17, start at 1 and keep multiplying by 2. After eight different values, the sequence returns to 1:</p>
+      <p>Modulo 17 means keep the remainder after division by 17: for example, 20 becomes 3 and −1 becomes 16. Start at 1, multiply by 2, and reduce after each step. After eight different values, the sequence returns to 1:</p>
       <div class="widget">
         <div class="w-title">The wheel — the eight powers of 2, mod 17 · start at 1, keep multiplying by 2</div>
         <div class="w-row">
@@ -530,10 +530,10 @@
       <details class="deep-dive">
         <summary>Optional: why these points make the NTT fast</summary>
       <div class="reasons">
-        <div class="reason"><div class="r-num">i.</div><h4>Closed: multiply = move</h4><p>Powers never leave the wheel: <span class="m">\(ω^{a}\,ω^{b} = ω^{a+b}\)</span> — multiplying just adds positions, a clock for multiplication (the logarithm trick). <b>Why:</b> one number generates all N plug-in points, one multiplication each.</p></div>
-        <div class="reason"><div class="r-num">ii.</div><h4>Distinct: nothing is lost</h4><p>A primitive root visits N <i>different</i> points, so N plugged-in values pin the list down exactly — the coordinates are reversible. <b>Why:</b> the transform has an inverse. The one demand on the prime: N | q−1 (<code class="inline">ntt.hpp:61</code>).</p></div>
+        <div class="reason"><div class="r-num">i.</div><h4>Closed: multiply = move</h4><p>Powers never leave the wheel: <span class="m">\(ω^{a}\,ω^{b} = ω^{a+b}\)</span>. Multiplying two powers adds their exponents. This lets us generate every evaluation point by repeatedly multiplying by one root.</p></div>
+        <div class="reason"><div class="r-num">ii.</div><h4>Distinct: nothing is lost</h4><p>A primitive root visits N <i>different</i> points. For a polynomial of degree less than N, those N values determine all its coefficients, so the transform can be reversed. This cyclic example needs N to divide q−1, written N | q−1 (<code class="inline">ntt.hpp:61</code>).</p></div>
         <div class="reason"><div class="r-num">iii.</div><h4>Halfway = minus</h4><p><span class="m">\(ω^{N/2} = -1\)</span>: opposite points are negatives (above: 1↔16, 2↔15, 4↔13, 8↔9 — each pair sums to 17). <b>Why:</b> the ± that makes output pairs — the butterfly's two wings (chapter 6).</p></div>
-        <div class="reason"><div class="r-num">iv.</div><h4>Squaring = a half wheel</h4><p>Every second point closes after N/2 steps: a half-size wheel with root ω². <b>Why:</b> wheels nest — the transform builds itself from half-size copies, the source of every "repeat" in chapter 5.</p></div>
+        <div class="reason"><div class="r-num">iv.</div><h4>Squaring = a half wheel</h4><p>Taking every second point gives N/2 distinct points before returning to 1. Their root is ω². This makes each smaller problem another NTT, so the split in chapter 5 can be repeated.</p></div>
       </div>
       <div class="callout">
         <h4>Why not just any N distinct numbers?</h4>
@@ -545,9 +545,9 @@
     <!-- ============================ 3. THE EQUATION ============================ -->
     <section id="s3" class="reveal">
       <div class="sec-head"><div class="sec-num">03</div><h2>What the NTT does</h2></div>
-      <p>A list like <span class="m">\((2, 1)\)</span> is a tiny machine: plug a number t in for x, get a value out. And plugged-in values multiply one by one:</p>
+      <p>A list like <span class="m">\((2, 1)\)</span> represents 2+x. Substituting a number t for x is called evaluation. To evaluate a product, evaluate each polynomial at t and multiply the two answers:</p>
       <div class="math typeset">\[(A\cdot B)(t) = A(t)\times B(t)\]</div>
-      <p><b>One multiplication, no crossing terms</b> — and it holds for <i>every</i> t. Both roads below use <span class="m">\(t = 2\)</span> (mod 5); change any coefficient and they still agree:</p>
+      <p><b>At one point, this needs just one multiplication of evaluated values.</b> The identity holds for every t. Both roads below use <span class="m">\(t = 2\)</span> (mod 5); change any coefficient and they still agree:</p>
       <div class="widget">
         <div class="w-title">Interactive · two roads, one answer (mod 5)</div>
         <div class="w-row" style="gap:18px;">
@@ -592,7 +592,7 @@
       </div>
       <div class="callout teal">
         <h4>Why "NTT" and not "FFT"?</h4>
-        <p>FFT implementations usually use floating-point complex values and incur rounding error. This NTT uses exact integers modulo a prime. A cyclic length-N transform needs N to divide q−1; our negacyclic form needs 2N to divide q−1.</p>
+        <p>The Fast Fourier Transform (FFT) usually operates on floating-point complex values, which can introduce rounding error. This Number Theoretic Transform (NTT) uses exact integers modulo a prime. A cyclic length-N transform needs N to divide q−1; our negacyclic form needs 2N to divide q−1.</p>
       </div>
     </section>
 
@@ -626,7 +626,7 @@
         </div>
         <div class="w-note" id="plotnote">hover the plot — at N = 65,536 the direct line stands 8,192× above the butterfly line</div>
       </div>
-      <p class="dim">This compares arithmetic counts, not measured speed. A cyclic butterfly and the current negacyclic CUDA butterfly each use one twiddle multiply; the legacy DIF butterfly uses two. Doubling N multiplies the direct count by 4, and the butterfly count by \(2(\log_2N+1)/\log_2N\).</p>
+      <p class="dim">This compares arithmetic counts, not measured speed. A twiddle is a precomputed modular multiplier. A cyclic butterfly and the current negacyclic CUDA butterfly each use one twiddle multiplication; the older DIF schedule uses two. Doubling N multiplies the direct count by 4, and the butterfly count by \(2(\log_2N+1)/\log_2N\).</p>
     </section>
 
     <!-- ============================ 5. EXPANSION ============================ -->
@@ -664,7 +664,7 @@ t &= \omega^k O_k \\[0.5em]
         <p><span class="m">\(ω^{2}\)</span> is an N/2-th root of unity, so E and O have exactly the same shape as the original problem, only half as large. Repeating the split reaches two-value problems. Each level contains N/2 butterflies, and there are log₂N levels.</p>
       </div>
       <h3 id="cyclic-dit-stage">What exactly happens in each stage?</h3>
-      <p>This is <strong>cyclic DIT</strong>: bit-reverse the input coefficients once, then merge short transforms into longer ones. Write \(X_i^{(s)}\) for the value in array slot \(i\) <em>before</em> stage \(s\), counting stages from zero. The superscript is a stage label, not a power.</p>
+      <p>This is <strong>cyclic DIT</strong>, short for decimation in time: split by input indices, then merge smaller results. First reverse the binary digits of each input index to arrange the coefficients; then merge short transforms into longer ones. Write \(X_i^{(s)}\) for the value in array slot \(i\) <em>before</em> stage \(s\), counting stages from zero. The superscript is a stage label, not a power.</p>
 
       <h4>1. Pick the group size</h4>
       <div class="math typeset">\[d=2^s,\qquad M=2d=2^{s+1}.\]</div>
@@ -922,7 +922,7 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
     <!-- ============================ 6. THE BUTTERFLY ============================ -->
     <section id="s6" class="reveal">
       <div class="sec-head"><div class="sec-num">06</div><h2>Meet the butterfly</h2></div>
-      <p>A butterfly takes two inputs and produces a sum and a weighted difference. The crossing wires give the circuit its name. These two common forms place the multiplier on different legs:</p>
+      <p>A butterfly combines two input values into two outputs using a multiplier, an addition and a subtraction. Its drawing resembles a butterfly. DIT means decimation in time: split input indices. DIF means decimation in frequency: split output indices. Their cyclic forms place the multiplier on different sides:</p>
       <div class="widget" style="padding:26px;">
         <div style="max-width:840px; margin:0 auto;">
           <svg viewBox="0 0 720 200" width="100%" role="img" aria-label="DIT butterfly: inputs a and b; first multiply b by w, then add and subtract; outputs a plus b w and a minus b w">
@@ -983,14 +983,14 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
           </svg>
           <div class="coef-label" style="margin:6px 0 0;">DIF — ① add / subtract, ② multiply the <b>difference output</b> · the same unit, run the other way</div>
         </div>
-        <div class="w-note">Same two wings — only the <b>order</b> of multiply vs ± differs (the gold ①②). DIT multiplies before the crossing, DIF after it. (The CPU reference’s negacyclic forward adds one refinement on top of DIF — a ladder constant ψ^d on the input leg; that is chapter 10's loop.)</div>
+        <div class="w-note">The gold ①② marks the order of operations. DIT multiplies an input before adding and subtracting. DIF multiplies the difference afterward. For the negacyclic transform, the CPU reference also multiplies the lower input by ψ^d; chapter 10 shows that extra factor.</div>
       </div>
     </section>
 
     <!-- ============================ 7. THE NETWORK ============================ -->
     <section id="s7" class="reveal">
       <div class="sec-head"><div class="sec-num">07</div><h2>Connect butterflies into stages</h2></div>
-      <p>Eight wires, values flowing left to right; every X is one butterfly. <b>Press play</b> (arithmetic mod 17, ω = 2), or click any butterfly to inspect it. The partner distance doubles each stage — 1, 2, 4 — the recursion of chapter 5, unrolled one level more and laid out flat.</p>
+      <p>Each of the eight wires carries one value from left to right. Every X combines a pair. <b>Press play</b> to run the stages modulo 17 with ω=2, or click a butterfly to inspect its arithmetic. The distance between partners doubles from 1 to 2 to 4 as smaller transforms are merged.</p>
       <div class="widget">
         <div class="w-title">Interactive · the N = 8 butterfly network (mod 17)</div>
         <div class="w-row" style="justify-content:flex-start; gap:12px; margin-bottom:8px;">
@@ -1011,7 +1011,7 @@ E&=\frac{N}{2d}J,\qquad w=\omega_N^E=\psi^{(N/d)J},\qquad c=\psi^d,\\
       </div>
       <div class="callout">
         <h4>Why are the inputs scrambled?</h4>
-        <p>The leftmost values are in <b>bit-reversed</b> order (0,4,2,6,1,5,3,7 — index in binary, read backwards). That one upfront shuffle lets every stage read its partners from nearby positions and the outputs arrive in natural order. The CPU reference uses the mirror image: a DIF <i>forward</i> (natural inputs, bit-reversed <b>outputs</b>) paired with a DIT inverse that consumes exactly that order — so in the real pipeline the two permutations cancel and <b>no bit-reversal pass exists at all</b> (<code class="inline">bitrev.hpp</code> documents the permutation itself).</p>
+        <p>The leftmost coefficients are arranged by <b>bit-reversed index</b>: reverse the three binary digits of each index to get 0,4,2,6,1,5,3,7. This initial rearrangement lets the cyclic DIT network produce outputs in ordinary order. The CPU reference instead starts with ordinary coefficients and produces bit-reversed evaluations. Its inverse expects that order directly, so <b>no separate array rearrangement is needed between forward, pointwise multiplication and inverse</b> (<code class="inline">bitrev.hpp</code> documents the permutation itself).</p>
       </div>
       <div class="callout teal">
         <h4>And the negacyclic variant?</h4>

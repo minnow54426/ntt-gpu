@@ -4,7 +4,8 @@
 
 Edit Markdown or the three interactive HTML lessons in this repository.
 Build and check the notebook, then export it to the personal website.
-The exported HTML is generated output; edit its source here.
+The HTML in the website repository is generated from these files. Make
+content changes here so the next export preserves them.
 
 ## Preview locally
 
@@ -54,9 +55,11 @@ only when a milestone's acceptance checks pass.
 
 ## Add or edit an article
 
-Register an article in `docs/site.json` with its source, URL, title, group,
-summary, one to three takeaways and a `next_page` route. Keep its route and existing heading anchors
-stable. Relative source links become HTML routes or revision-pinned GitHub links.
+Add an entry to `docs/site.json` for each new article. Include its source file,
+web address, title, group, summary, one to three takeaways, and the address of
+the next page. Keep existing page addresses and section bookmarks stable so
+old links continue to work. The builder turns relative links into notebook
+pages or GitHub links to the exact source revision.
 
 Lead with the page's purpose and main result. Define unfamiliar terms before
 using abbreviations. Put commands beside their expected outcome; keep long
@@ -97,8 +100,9 @@ their existing stylesheets.
 node --test tests/docs/*.test.cjs
 ```
 
-The build checks catalog coverage, metadata, routes, local links and fragments.
-The Node tests run the actual lesson scripts and require Node.js 22+.
+The build checks that every article is listed, required description fields
+exist, and local page and section links point to real targets. The Node
+tests execute the lesson scripts and require Node.js 22+.
 Inspect changed pages in a browser at desktop and phone widths, including
 expanded notes, math, controls, search and long tables.
 

@@ -2,10 +2,11 @@
 
 **Measured on November 14, 2026 · temporary sm_89 GPU · M1 Pro CPU baseline**
 
-The tested NTT baseline passes its executed correctness checks. Keeping
-intermediate arrays on the GPU reduces the measured multiplication time.
-Next, validate the newer resident API and measure the remaining public-call
-costs before adding base conversion or key switching.
+The NTT version used in this run passed the tests that were executed.
+Multiplication was faster when intermediate arrays stayed on the GPU.
+The newer resident API, which lets callers chain operations without copying
+those arrays back to the CPU, still needs its own GPU tests. Measure its
+complete cost before adding base conversion or key switching.
 
 The rental reports **RTX 4080 SUPER, compute capability 8.9**. These are
 **not RTX 5090 results**.
@@ -32,17 +33,21 @@ N=65536, K=40, 60-bit primes. All times below are **medians in milliseconds**.
 | Pointwise multiply | 11.858 | 0.048 | 3.115 |
 | Complete polynomial multiply | 12.431 | 1.723 | 65.687 |
 
-Public calls include host validation and transfers. The resident experiment
-excludes input upload and output validation/download; it is **not end-to-end
-latency**. Its difference from public time is not pure PCIe overhead.
+A public call starts with CPU arrays, checks them, transfers them to the
+GPU, and returns a result to the CPU. The resident experiment times work
+with data already on the GPU; it excludes input upload, result download and
+result validation. It therefore measures a smaller interval. Subtracting the
+two times does not isolate the cost of the PCIe connection.
 
 M1-versus-GPU numbers compare different platforms, not same-host acceleration
 or the best possible parallel CPU implementation.
 
 ## Three findings
 
-**1. Keep data on the GPU.** Directly measured fused multiplication beats the
-unfused chain in all 140 workloads: **2.36× median benefit**, ranging from
+**1. Keep data on the GPU.** A fused call performs both forward
+transforms, pointwise multiplication and the inverse before returning the
+result. The unfused chain makes a separate public call for each operation.
+The directly measured fused call was faster in all 140 workloads: **2.36× median benefit**, ranging from
 1.77× to 3.03×. At the largest 60-bit workload, it reduces 33.412 ms to
 12.431 ms. It removes repeated host roundtrips, not NTT kernel launches.
 Preserve this residency when adding base conversion and key switching.
@@ -88,13 +93,15 @@ The original mixed batch was cancelled after 366 completed jobs. The fresh
 280-job GPU batch is separate; the cancelled run is not labelled a full pass.
 The archived benchmark-only patch changes timing selection, not device kernels.
 
-The M1 baseline uses sequential OpenFHE NativeVector/CRT-FTT, OpenMP OFF and
-native optimization OFF. It is not a tuned parallel DCRT or CKKS baseline.
+The M1 baseline runs OpenFHE’s NativeVector arithmetic and CRT-FTT transform
+one tower at a time. OpenMP parallel execution and native compiler
+optimizations are OFF. It does not measure a tuned, parallel multi-tower
+implementation or a complete CKKS application.
 
 Only one ordered run per workload was collected. At the largest 60-bit workload,
 public product p95 is 20.732 ms versus a 12.431 ms median; close differences and
-non-monotonic public timings need repeated runs. Sample percentiles are not
-confidence intervals.
+non-monotonic public timings need repeated runs. These percentiles describe the collected samples; they do not quantify
+how accurately one run estimates the performance of future runs.
 
 Large pinned-copy experiments reach approximately 13.0 GB/s H2D and 13.5 GB/s
 D2H payload rates. They do not decompose the pageable public-call measurements.

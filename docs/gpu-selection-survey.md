@@ -1,9 +1,10 @@
 # Choosing a GPU for CKKS
 
-Hardware assessment recorded on 2026-11-06. The RTX 5090 choice is provisional;
-production selection requires the benchmark gate below. The working set means
-all arrays, keys and scratch that must stay resident together. Specifications and
-historical prices are reference values, not current quotes or kernel timings.
+This hardware assessment was recorded on November 6, 2026. RTX 5090 is the
+development choice; choosing production hardware still requires the tests
+below. The working set is all the arrays, keys and temporary buffers that
+must fit in GPU memory at the same time. The listed specifications and old
+prices provide context; they are not live quotes or measured program speeds.
 
 ## Decision
 
@@ -21,8 +22,10 @@ resident memory and end-to-end Hybrid key switching.
 
 ## Measure integer arithmetic and memory
 
-These kernels perform exact modular `u32`/`u64` arithmetic and move RNS data.
-Tensor TOPS do not measure that workload. NVIDIA's
+These GPU functions compute exact remainders using 32- or 64-bit unsigned
+integers (`u32`/`u64`). RNS stores each polynomial under several primes, with
+one array per prime. Tensor TOPS measures trillions of operations per second
+for supported Tensor Core arithmetic; it does not measure these modular operations. NVIDIA's
 [Tensor Core type table](https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/compute-capabilities.html#features-and-technical-specifications)
 does not list arbitrary `u32`/`u64` modular operations.
 
@@ -34,9 +37,12 @@ Shoup/Barrett instruction chains rather than deriving an “INT64 TOPS” rankin
 
 ## Official specification comparison
 
-Bandwidth is a peak specification. INT32 is published non-Tensor throughput,
-not modular multiplication performance. “—” means no comparable value was
-published in the cited product material.
+Read the table as hardware specifications, not a ranking of NTT speed.
+Bandwidth is the maximum published memory-transfer rate. L2 is the GPU’s
+shared cache; CC means compute capability, which selects a CUDA architecture.
+INT32 TOPS is peak ordinary 32-bit integer throughput, not modular-product
+throughput. ECC is memory error correction. A dash means the cited source
+did not publish a comparable number.
 
 | GPU | Memory | Peak bandwidth | L2 | CC | INT32 TOPS | Power |
 |---|---|---|---|---|---|---|
@@ -100,8 +106,10 @@ Prices are volatile, regional, and not directly comparable between a bare card a
 | H200/B200 versus RTX | Larger HBM and higher bandwidth | Modular arithmetic, cache behavior, and end-to-end cost |
 
 At N=65536, a 40-tower polynomial uses `65536 × 40 × 8 = 20 MiB`.
-Evaluation keys, QP temporaries, twiddles, and concurrent ciphertexts can consume
-much more. Record peak memory with all keys resident before choosing capacity.
+This is only one polynomial. Evaluation keys, temporary arrays under both
+Q and auxiliary P primes, precomputed NTT multipliers (twiddles), and other
+ciphertexts all need memory too. Measure the peak with all required keys
+loaded before choosing the GPU’s capacity.
 
 ## Recommended acquisition strategy
 
@@ -133,11 +141,12 @@ records. Keep kernel-only and transfer-inclusive timing separate.
 
 ### Selection rule
 
-Keep RTX 5090 as primary if the complete resident set fits and its end-to-end
-latency is within 15% of the fastest tested card. If only capacity blocks it,
-compare RTX PRO 6000 with H200 rental and deployment costs. Use profiling to
-separate memory-layout limits from modular-multiply limits before redesigning
-arithmetic or selecting hardware.
+Keep RTX 5090 as the primary choice if all required data fit in its memory
+and the complete operation takes no more than 15% longer than on the fastest
+tested card. If memory capacity is the only problem, compare RTX PRO 6000
+with the rental and deployment cost of H200. Use profiling to learn whether
+memory access or modular multiplication causes the main delay before
+changing the arithmetic or buying different hardware.
 
 <div id="bottom-line" aria-hidden="true"></div>
 

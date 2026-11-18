@@ -2,10 +2,11 @@
 
 **2026-11-14 · offline analysis · source 19cc285 · N=65536**
 
-The supplied Ada machine passed the prepared correctness tests. This establishes a
-CUDA baseline **for the executed cases**, not a
-production backend or a measured RTX 5090 implementation. Prepare better
-measurement and failure-path tooling offline before paying for another session.
+The supplied GPU uses NVIDIA’s Ada architecture. It passed the prepared
+correctness tests for the cases that were run. This gives us a starting
+CUDA result on that machine; it does not validate a production backend or
+measure an RTX 5090. Prepare better timing and error-handling tests locally
+before paying for another session.
 
 This is the historical analysis of source `19cc285`, using exported logs.
 The later [full-matrix report](batch40-native-analysis.md) adds raw samples and
@@ -16,9 +17,10 @@ archive checksum and local report paths.
 
 ## 1. Exactness: what the comparison count means
 
-The archive checksum matches. Its report contains 17 successful stages, a clean
-checkout, native compilation and `GPU_CHECKS_PASSED`. The complete log confirms
-23/23 CTests passed; **four execute GPU work**, not 23 separate GPU tests.
+The archive’s file fingerprint matches the supplied checksum. Its report
+records 17 successful collection stages, unmodified source, a CUDA build and
+`GPU_CHECKS_PASSED`. The full log shows that all 23 CTests passed. Only four
+of those tests execute GPU work; the others run on the CPU.
 
 The strongest native check is
 [cuda_openfhe_tests.cpp](../tests/cuda_openfhe_tests.cpp):
@@ -37,8 +39,10 @@ independent inverse, GPU independent inverse, CPU/OpenFHE square, GPU
 pointwise/inverse, GPU complete square and host-source immutability. The total
 is **not 169 million independent random cases**.
 
-Arbitrary evaluation input tests inverse independently of forward. OpenFHE
-comparison checks actual ordering/root/scaling, not merely mutual invertibility.
+Some inverse tests start with independently chosen evaluation arrays rather
+than output from our forward transform. This prevents matching forward and
+inverse mistakes from hiding each other. Comparison with OpenFHE also checks
+array order, root choice and final scaling.
 The separate `cuda_verify` also uses distinct left/right operands against the
 CPU reference; the direct OpenFHE product matrix primarily tests squares.
 
@@ -58,7 +62,8 @@ failure, failed-context cleanup or asynchronous ownership verification.
 ## 2. Latency: useful baseline, limited comparison
 
 One session, three synthetic **46-bit** towers, ten timed repetitions per
-operation. The code preserves means, not individual samples.
+operation. The saved output contains only the arithmetic mean for each operation,
+not the ten individual times.
 
 | Operation | Printed mean | Timing scope |
 |---|---:|---|
@@ -108,7 +113,8 @@ One operand has `S=8×65536×3=1,572,864 B` (1.5 MiB). From the
 | Public forward(A), forward(B), pointwise, inverse | 9S = 13.5 MiB | 8 |
 | Public multiply(A,B) | 3S = 4.5 MiB | 8 |
 
-Fusion removes six operand copies, not six kernels. It also reduces public
+Using one fused public call avoids six CPU–GPU operand copies. It still
+launches the same eight GPU kernels. It also reduces public
 validation/guard paths, although multiply has the host-copy cost above. Thus
 1.49319 ms for multiply is plausible even though two separately timed forward
 means sum to 1.572586 ms. It is not evidence that the individual timings fail.
@@ -118,9 +124,10 @@ standalone pointwise call. Their ratio to multiply is about 1.59, but this is
 **not a measured fusion speedup**: it combines unmatched measurements and omits
 a stage. Benchmark the complete unfused and fused chains under one protocol.
 
-Architecturally, preserve device-resident chains when adding basis conversion
-and Hybrid operations. Avoid unnecessary host roundtrips; measure residency
-benefits explicitly rather than projecting this scalar ratio onto inference.
+When adding basis conversion and Hybrid operations, keep intermediate
+arrays on the GPU where possible. Measure the benefit for the complete
+chain. The ratio against this simple CPU reference does not predict the
+speedup of encrypted inference.
 
 ## 4. Bottleneck hypotheses, not a measured winner
 
@@ -145,9 +152,9 @@ shared memory and host/device copies. These are not measured DRAM traffic or
 bandwidth. Do not divide them by full public-call latency to infer utilization.
 
 The source calls integer remainder slow, but this session contains no
-instruction profile or alternative-reduction comparison. Arithmetic, strided
-memory, transfers and launch overhead cannot yet be ranked. Change one major
-factor at a time after profiling; otherwise a speedup cannot be attributed.
+instruction profile or alternative-reduction comparison. The saved evidence cannot tell us whether arithmetic, widely spaced memory
+accesses, transfers or kernel launches cost the most time. Profile first,
+then change one major factor at a time so an improvement has an identifiable cause.
 
 ## 5. Hardware and reproducibility limits
 
@@ -188,6 +195,7 @@ No implementation changes are included in this analysis. Proposed order:
 6. **Then optimize one factor:** choose reduction, coalesced staging or
    residency/launch work from evidence, and retain an exact same-device A/B test.
 
-This is partial B04/D15 analysis, not a completed bottleneck/performance gate.
-Primary-device evidence, failure verification, production coverage and later
-GPU base conversion/Hybrid/inference remain open.
+This report completes part of tasks B04 and D15. It does not yet identify
+the dominant performance cost. Remaining work includes tests on the primary
+GPU, real failure handling, production parameters, and GPU base conversion,
+Hybrid key switching and inference.

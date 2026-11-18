@@ -6,8 +6,9 @@ For a prime q, a **canonical residue** is an integer from 0 to q−1. For exampl
 −1 is stored as 16 modulo 17. Every butterfly in this implementation starts
 and ends with canonical values.
 
-The main target is N=65536 with 50–60-bit primes in `uint64_t`. A 60-bit
-value fits in that type; multiplying two such values does not. This page
+The main target is N=65536 coefficients with 50–60-bit primes. Each stored
+value uses `uint64_t`, an unsigned 64-bit integer. One 60-bit value fits,
+but the product of two can need 120 bits. This page
 explains the temporary widths, input assumptions and independent checks.
 Read the [buffer map](cuda-buffer-dataflow.md) for where arrays live.
 Sources: [mod_arith.hpp](../include/ntt/mod_arith.hpp),
@@ -15,8 +16,9 @@ Sources: [mod_arith.hpp](../include/ntt/mod_arith.hpp),
 
 ## 1. What callers must supply
 
-Canonical means an integer in \([0,q)\). None of the hot arithmetic functions
-validates this range at runtime.
+The notation \([0,q)\) includes 0 and excludes q: it means integers
+0, 1, …, q−1. These small arithmetic functions run inside the main loops,
+so they assume their inputs are in range instead of checking every call.
 
 | Operation | Required input | Output |
 |---|---|---|
@@ -34,7 +36,9 @@ For a transform, also require a power-of-two N≥2, prime q with \(2N\mid(q-1)\)
 and the same primitive 2N-th root ψ as the comparison implementation. At the
 target N, \(2N=131072\) and q>N. Forward consumes canonical coefficients in
 natural order; inverse consumes canonical evaluations in bit-reversed order.
-There is no Montgomery representation or lazy residue format in this code.
+The code stores ordinary residues. It does not use Montgomery encoding
+(an alternative arithmetic representation) or lazy reduction (temporarily
+allowing values above q−1).
 
 The raw CPU `NegacyclicNtt` constructor checks size, divisibility and
 ψᴺ=q−1, but assumes primality and the documented width. Its array methods
@@ -267,12 +271,14 @@ Setup powers/table generation are additional work.
 
 The old arithmetic-header comment counted the CPU loop incorrectly; D6 fixes
 that comment without changing the algorithms. `__uint128_t` remainder is
-the correctness baseline. Its CUDA lowering and cost must be checked in a
-native build/profile, not inferred as one hardware division instruction.
+the correctness baseline. The CUDA compiler may translate this remainder expression into many
+instructions. Inspect the generated GPU code and profile it; one source
+expression does not imply one hardware division instruction.
 
 ## 4. Executable adversarial coverage
 
-Two gates run in the normal CPU CTest suite:
+Two required checks, called gates, run in the ordinary CPU CTest suite.
+They use difficult boundary inputs as well as normal examples:
 
 | Gate | Inputs and comparison | What it establishes |
 |---|---|---|
@@ -290,9 +296,11 @@ modular-inverse algorithm, and confirms the host exception for zero/multiples
 of q. Parameter generation is reused; this is not an independent primality
 certification test.
 
-The six transform patterns are zero, all q-1, alternating zero/q-1, a final
-coefficient impulse, ramp and deterministic pseudorandom. A roundtrip alone
-cannot prove spectral ordering or OpenFHE compatibility; use the other gates.
+The six transform inputs are all zero, all q−1, alternating zero/q−1,
+one nonzero final coefficient, increasing values, and repeatable pseudorandom
+values. A forward/inverse round trip may hide matching mistakes in the two
+directions. Independent evaluation checks are also needed to establish the
+required order and OpenFHE compatibility.
 
 ```sh
 cmake -S . -B build

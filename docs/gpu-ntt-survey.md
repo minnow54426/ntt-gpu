@@ -7,14 +7,21 @@
 
 ## Executive conclusions
 
-Preserve exact OpenFHE arrays while testing three potential costs: wide modular
-remainder, strided memory access and repeated host transfers. Profiling must
-establish which limits a given workload.
+The aim is to produce exactly the same arrays as OpenFHE, then make that
+work faster. Three costs are worth measuring: reducing wide integer products
+modulo a prime, reading values far apart in memory, and repeatedly copying
+arrays between CPU and GPU. A profiler must establish which cost dominates.
 
-- **Arithmetic:** Shoup for fixed twiddles; Barrett/Montgomery for variable products.
-- **Layout:** compare the baseline with a coalesced transpose/Four-Step path.
-- **Thread work:** test 4/8 register-held values and fewer block barriers.
-- **Integration:** keep buffers, keys, and the Hybrid `Q → QP → Q` pipeline on GPU.
+- **Arithmetic:** test Shoup multiplication for fixed NTT multipliers, called
+  twiddles. Test Barrett or Montgomery reduction for products of two changing
+  values. These methods replace expensive remainder operations with bounded
+  integer calculations.
+- **Layout:** test a transpose/Four-Step schedule that places neighboring
+  threads’ data together. The GPU can combine these accesses (coalescing).
+- **Thread work:** let each thread keep four or eight values in its registers,
+  and test whether this reduces waits between threads.
+- **Integration:** keep buffers and keys on the GPU through Hybrid key switching:
+  extend from Q primes to Q plus auxiliary P primes, compute, then return to Q.
 - **Evidence:** use FIDESlib as the closest CKKS/OpenFHE comparison; measure
   complete operations as well as individual NTTs.
 
@@ -27,7 +34,12 @@ this repository.
 
 ### 1.1 Sourced facts from this repository
 
-The CUDA backend uses a negacyclic transform with folded twisting and the following schedule:
+This subsection describes the historical source snapshot named above. The
+current default butterfly has since changed; see the
+[butterfly invariant](modular-arithmetic-contract.md#3-the-invariant-through-every-butterfly).
+The historical CUDA code computes products modulo x^N+1. It folds the root
+factors, or twist, into its butterflies rather than making a separate pass.
+Its schedule is:
 
 - Forward: DIF column pass followed by a DIF contiguous-tile pass.
 - Inverse: DIT contiguous-tile pass followed by a DIT column pass and a separate scale kernel.
@@ -61,8 +73,9 @@ Primary code: [`ntt_kernels.cu`](../src/cuda/ntt_kernels.cu), [`dev_core.hpp`](.
 | Fixed 256-thread split | Tune launch shape for N=65536 and real tower/batch counts |
 | Host vectors and synchronous copies | Add device views, stream ownership, and reusable scratch |
 
-Keep the reference path as an oracle. Four logical array movements alone do
-not establish efficient DRAM access.
+Keep the simple reference implementation as a way to check answers.
+Reading and writing an array only a few times does not prove that the GPU
+uses memory efficiently: widely spaced requests may fetch many unused bytes.
 
 <a id="2-representative-implementations-and-transferable-techniques"></a>
 
@@ -84,11 +97,11 @@ not establish efficient DRAM access.
 
 ### 2.1 FIDESlib: the closest match to the project target
 
-FIDESlib describes itself as a server-side CKKS GPU library interoperable with OpenFHE. Its current release states support for OpenFHE 1.6.1, Hybrid key switching, CUDA 12/13, and `sm_70` through `sm_120`; it also states that GPU operations are compared bit-for-bit to a patched OpenFHE CPU reference. These are precisely this project's scheme, integration, key-switch, and GPU targets. See the [official README](https://github.com/CAPS-UMU/FIDESlib/tree/597a0b3ab072dbbe061d8cacea216411208359d2#readme) and its [bit-compatibility design record](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/BITCOMPAT.md).
+FIDESlib is a server-side GPU library for CKKS that can exchange data with OpenFHE. The cited release states support for OpenFHE 1.6.1, Hybrid key switching, CUDA 12/13 and GPU architectures sm_70 through sm_120. It says its GPU arrays are compared bit for bit with a patched OpenFHE CPU reference. These claims make it a close reference for our encryption scheme, library version and target GPU. See the [official README](https://github.com/CAPS-UMU/FIDESlib/tree/597a0b3ab072dbbe061d8cacea216411208359d2#readme) and its [bit-compatibility design record](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/BITCOMPAT.md).
 
-Its current 1D NTT uses CT butterflies for forward and GS butterflies for inverse, shared-memory staging, warp-level synchronization below a warp, vectorized 16-byte loads/stores, and Shoup/Barrett arithmetic selected by templates. More importantly, the NTT mode is templated to fuse downstream work including rescale, plaintext multiplication, ModDown, and key-switch dot/accumulate operations. See [`NTT_1D.cu`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/NTT_1D.cu), [`INTT_1D.cu`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/INTT_1D.cu), [`NTTfusions.cuh`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/NTTfusions.cuh), and [`ModMult.cuh`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/ModMult.cuh).
+Its forward transform uses Cooley–Tukey (CT) butterflies; inverse uses Gentleman–Sande (GS) butterflies. The code loads groups into shared memory, coordinates nearby threads within a warp, and reads/writes 16 bytes at a time. Templates select Shoup or Barrett modular arithmetic. Other template choices combine an NTT with the next operation, such as rescaling, plaintext multiplication, ModDown or key-product accumulation. This can avoid storing and reloading an intermediate array. See [`NTT_1D.cu`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/NTT_1D.cu), [`INTT_1D.cu`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/INTT_1D.cu), [`NTTfusions.cuh`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/NTTfusions.cuh), and [`ModMult.cuh`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/ModMult.cuh).
 
-FIDESlib's Hybrid pipeline has dedicated decomposition/ModUp and ModDown kernels, per-device limb partitions, CUDA streams/events, and graph capture in its multi-GPU/scheduling layer. Its high-level RNS object tracks whether a polynomial is in the extended basis and exposes fused key-switch operations. See [`Conv.cu`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/CKKS/Conv.cu), [`LimbPartition.cu`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/CKKS/LimbPartition.cu), and [`RNSPoly.cpp`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/CKKS/RNSPoly.cpp).
+Its Hybrid pipeline has separate kernels for digit decomposition, extending the prime basis (ModUp), and reducing it (ModDown). It assigns prime towers to devices and tracks dependencies with CUDA streams and completion events. The scheduling code can record repeated work as a CUDA Graph. The high-level polynomial object records whether auxiliary primes are present and offers combined key-switch operations. See [`Conv.cu`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/CKKS/Conv.cu), [`LimbPartition.cu`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/CKKS/LimbPartition.cu), and [`RNSPoly.cpp`](https://github.com/CAPS-UMU/FIDESlib/blob/597a0b3ab072dbbe061d8cacea216411208359d2/src/CKKS/RNSPoly.cpp).
 
 **For this project:** Use FIDESlib to study exact OpenFHE interoperability and transform-boundary fusion. Preserve QP towers and compare the complete Hybrid operation, not only NTT latency.
 
@@ -96,9 +109,9 @@ FIDESlib's Hybrid pipeline has dedicated decomposition/ModUp and ModDown kernels
 
 ### 2.2 GPU-NTT / HEonGPU: Merge NTT and Four-Step NTT
 
-Özcan and Savaş present two GPU algorithms: an iterative “Merge NTT” and a Four-Step NTT. Their target ranges include `2^12..2^16` for HE and larger sizes for proving. They optimize kernel count and block shape for coalesced global access, and report both single-transform latency and concurrent-transform throughput. The paper reports that the iterative form can outperform Four-Step for HE throughput despite Four-Step's locality. See the author paper, [Two Algorithms for Fast GPU Implementation of NTT](https://eprint.iacr.org/2023/1410), especially its design and evaluation sections.
+Özcan and Savaş compare an iterative “Merge NTT” with a Four-Step NTT. Their homomorphic-encryption tests include lengths 2^12 through 2^16; proving workloads use larger lengths. They choose kernel counts and block shapes to make neighboring memory accesses combine efficiently. Their results distinguish time for one transform from transforms completed per second. The paper reports cases where iterative Merge has higher throughput despite Four-Step’s more local accesses. See the author paper, [Two Algorithms for Fast GPU Implementation of NTT](https://eprint.iacr.org/2023/1410), especially its design and evaluation sections.
 
-The current official GPU-NTT repository supports 32- and 64-bit Barrett arithmetic, rejecting moduli above 30 and 61 bits respectively. It specializes ring sizes at compile time, uses per-size kernel configuration tables, supports RNS transforms and batches, accepts CUDA streams, and has different low-ring and multi-stage paths. See the [official repository](https://github.com/Alisah-Ozcan/GPU-NTT), [`ntt_launch_impl.cuh`](https://github.com/Alisah-Ozcan/GPU-NTT/blob/eaeed82aaac869f7548ad1c743b3d7c08e0f6a40/src/lib/ntt_merge/ntt_launch_impl.cuh), and [`modular_arith.cuh`](https://github.com/Alisah-Ozcan/GPU-NTT/blob/eaeed82aaac869f7548ad1c743b3d7c08e0f6a40/src/include/gpuntt/common/modular_arith.cuh).
+The cited GPU-NTT source provides Barrett arithmetic for 32- and 64-bit integers, with modulus limits of 30 and 61 bits respectively. Transform lengths are specialized at compile time, and configuration tables choose kernels for each size. The library supports prime towers, batches and caller-selected CUDA streams. It uses different execution paths for smaller rings and larger transforms. See the [official repository](https://github.com/Alisah-Ozcan/GPU-NTT), [`ntt_launch_impl.cuh`](https://github.com/Alisah-Ozcan/GPU-NTT/blob/eaeed82aaac869f7548ad1c743b3d7c08e0f6a40/src/lib/ntt_merge/ntt_launch_impl.cuh), and [`modular_arith.cuh`](https://github.com/Alisah-Ozcan/GPU-NTT/blob/eaeed82aaac869f7548ad1c743b3d7c08e0f6a40/src/include/gpuntt/common/modular_arith.cuh).
 
 HEonGPU uses GPU-NTT inside a GPU-resident BFV/CKKS library. Its paper describes a GPU memory pool, pinned host pool, and multi-stream execution in addition to the NTT itself. See [HEonGPU](https://eprint.iacr.org/2024/1543) and the [official repository](https://github.com/enCRYPTON-labs/HEonGPU).
 
@@ -106,7 +119,7 @@ HEonGPU uses GPU-NTT inside a GPU-resident BFV/CKKS library. Its paper describes
 
 ### 2.3 CKKS-GPU-CORE: memory-centric CKKS and 8-point-per-thread NTT
 
-Jung et al.'s memory-centric CKKS work keeps up to eight NTT values per thread in registers, exchanges through shared memory between local subtransforms, and pads shared memory to reduce bank conflicts. Its basis conversion launches across output limbs and coefficients and accumulates input-limb products before Barrett reduction. See [Over 100x Faster Bootstrapping in Fully Homomorphic Encryption through Memory-Centric Optimization with GPUs](https://scale.snu.ac.kr/papers/2021-09-Conference-CHES-100x.pdf) and the [official CKKS-GPU-CORE repository](https://github.com/scale-snu/ckks-gpu-core).
+Jung et al. keep up to eight NTT values in each thread’s private registers. Threads exchange values through shared memory between their small local transforms. Extra padding changes shared-memory addresses to reduce bank conflicts, where accesses compete for the same memory bank. For basis conversion, threads cover output primes and coefficients, add input-tower products, and then apply Barrett reduction. See [Over 100x Faster Bootstrapping in Fully Homomorphic Encryption through Memory-Centric Optimization with GPUs](https://scale.snu.ac.kr/papers/2021-09-Conference-CHES-100x.pdf) and the [official CKKS-GPU-CORE repository](https://github.com/scale-snu/ckks-gpu-core).
 
 The source implements two NTT phases, register arrays of eight coefficients per thread, Shoup butterflies, padded shared memory, batched ModUp, and fused ModDown/NTT epilogues. See [`NttImple.cu`](https://github.com/scale-snu/ckks-gpu-core/blob/1eb16b667fc27684d82957c52b09777a8e350c0e/src/public/NttImple.cu) and [`Context.cu`](https://github.com/scale-snu/ckks-gpu-core/blob/1eb16b667fc27684d82957c52b09777a8e350c0e/src/public/Context.cu).
 
@@ -114,7 +127,7 @@ The source implements two NTT phases, register arrays of eight coefficients per 
 
 ### 2.4 PhantomFHE: radix-8 NWT, lazy Shoup butterflies, and scheme-level fusion
 
-Phantom implements BFV, BGV, and CKKS on CUDA. Its 1D path handles small transforms in one block; its larger 2D path performs radix-8 work with eight register-held values per thread, padded shared-memory exchanges, and two phases. Forward CT butterflies use Shoup multiplication and lazy `[0, 2q)`/`[0, 4q)` ranges; inverse GS butterflies defer final reduction/scaling. See the [official repository](https://github.com/encryptorion-lab/phantom-fhe), [`ntt_1d.cu`](https://github.com/encryptorion-lab/phantom-fhe/blob/1f4a198443b3af77118e51f53d5b8f332154b875/src/ntt/ntt_1d.cu), [`fntt_2d.cu`](https://github.com/encryptorion-lab/phantom-fhe/blob/1f4a198443b3af77118e51f53d5b8f332154b875/src/ntt/fntt_2d.cu), and [`butterfly.cuh`](https://github.com/encryptorion-lab/phantom-fhe/blob/1f4a198443b3af77118e51f53d5b8f332154b875/include/butterfly.cuh).
+Phantom supports the BFV, BGV and CKKS encryption schemes on CUDA. Small transforms run in one block. Larger transforms use two phases, eight values per thread and padded shared-memory exchanges. Its CT forward butterflies use Shoup multiplication and temporarily allow residues in [0,2q) or [0,4q). This is lazy reduction: postponing some reductions rather than keeping every intermediate below q. Its GS inverse also postpones final reduction and scaling. See the [official repository](https://github.com/encryptorion-lab/phantom-fhe), [`ntt_1d.cu`](https://github.com/encryptorion-lab/phantom-fhe/blob/1f4a198443b3af77118e51f53d5b8f332154b875/src/ntt/ntt_1d.cu), [`fntt_2d.cu`](https://github.com/encryptorion-lab/phantom-fhe/blob/1f4a198443b3af77118e51f53d5b8f332154b875/src/ntt/fntt_2d.cu), and [`butterfly.cuh`](https://github.com/encryptorion-lab/phantom-fhe/blob/1f4a198443b3af77118e51f53d5b8f332154b875/include/butterfly.cuh).
 
 The Phantom paper describes intra-kernel fusion that reuses register temporaries and inter-kernel fusion across operations such as NWT plus scaling and ModDown plus correction. Its key-switch path connects ModUp, evaluation-key inner product, and ModDown on a supplied stream. See [Phantom: A CUDA-Accelerated Word-Wise Homomorphic Encryption Library](https://eprint.iacr.org/2023/049) and [`eval_key_switch.cu`](https://github.com/encryptorion-lab/phantom-fhe/blob/1f4a198443b3af77118e51f53d5b8f332154b875/src/eval_key_switch.cu).
 
@@ -122,7 +135,7 @@ The Phantom paper describes intra-kernel fusion that reuses register temporaries
 
 ### 2.5 TensorFHE: tensor-core NTT and operation-level batching
 
-TensorFHE maps a decomposed 32-bit NTT to tensor-core matrix multiplications and emphasizes throughput rather than single-operation latency. It batches CKKS operations and changes layout from `(batch, limb, N)` to `(limb, batch, N)` so equal-limb data from different operations is contiguous. It also assigns independent matrix multiplications to separate streams. See the author paper, [TensorFHE](https://arxiv.org/abs/2212.14191), especially Sections IV-C and IV-D.
+TensorFHE breaks a 32-bit NTT into matrix multiplications for Tensor Cores. Its aim is high throughput across many CKKS operations, rather than minimum time for one operation. It changes the layout from (batch, limb, N) to (limb, batch, N), placing the same prime tower from different operations together in memory. Independent matrix products use separate streams. See the author paper, [TensorFHE](https://arxiv.org/abs/2212.14191), especially Sections IV-C and IV-D.
 
 **For this project:** Measure operation batching and limb/batch layouts for throughput. Tensor arithmetic is a separate experiment with different width and exactness requirements.
 
@@ -146,7 +159,7 @@ cuFHE implements TFHE gates and credits cuHE's GPU NTT; its API supports CUDA st
 
 ### 2.8 Theodosian: RTX 5090 changes the optimization priority
 
-Theodosian profiles CKKS on RTX 5090 and reports that optimized NTT and basis-conversion kernels are L2-bandwidth-bound. Its NTT uses two kernels; on-the-fly twiddle generation trades arithmetic for fewer twiddle loads. It finds small limb counts underutilize the GPU, uses L2-aware batching until the working set approaches cache capacity, applies multi-polynomial caching and complementary pipelining to Hybrid key-switch stages, and uses CUDA Graphs to reduce launch overhead for static FHE graphs. See [Theodosian](https://arxiv.org/abs/2512.18345).
+Theodosian profiles CKKS on RTX 5090. It reports that its optimized NTT and basis-conversion kernels are limited by how fast data move through the L2 cache. Its NTT uses two kernels and can generate twiddles during execution, trading extra arithmetic for fewer table reads. Small tower counts leave GPU capacity unused, so it batches work while the data still fit effectively in L2. For Hybrid key switching, it reuses multiple polynomials in cache and schedules complementary work. CUDA Graphs reduce repeated launch setup for fixed operation sequences. See [Theodosian](https://arxiv.org/abs/2512.18345).
 
 The paper reports that batching can hurt after the footprint exceeds the 5090's effective L2 capacity, and that key switching benefits more from cache-aware multi-polynomial execution and graph scheduling than from additional local kernel fusion once the baseline is already heavily fused.
 
@@ -169,7 +182,10 @@ The paper reports that batching can hurt after the footprint exceeds the 5090's 
 
 **Sourced observation:** CKKS-GPU-CORE and Phantom use up to eight values per thread and radix-8 local transforms; GPU-NTT notes higher-radix butterflies as a further optimization.
 
-**Recommendation:** implement radix-4 first, then radix-8:
+**Recommendation:** implement radix-4 first, then radix-8. Radix describes
+how many values a local transform combines at once. Registers are private
+storage for one thread; shared memory lets threads in a block exchange values.
+Test this sequence:
 
 1. Load 4/8 values per thread using coalesced vectorized transactions.
 2. Execute the local stages in registers.
@@ -177,7 +193,9 @@ The paper reports that batching can hurt after the footprint exceeds the 5090's 
 4. Use warp shuffles where partner lanes remain within a warp.
 5. Store once at the end of the phase.
 
-This directly reduces table loads, barriers, and shared-memory operations relative to one butterfly per thread per stage.
+This schedule can reduce multiplier-table reads, block-wide waits (barriers),
+and shared-memory accesses compared with assigning only one butterfly to each
+thread per stage. Measure register use and speed to check the benefit.
 
 ### 3.3 Modular multiplication
 
@@ -214,7 +232,11 @@ The CPU reference can continue to build a simple power table; a packing step sho
 poly[component][digit-or-batch][limb][coefficient]
 ```
 
-with `coefficient` contiguous. This gives coalesced coefficient loads for one limb and makes modulus-specific constants uniform across a block. Provide views/strides so operation-level batching can switch the middle dimensions without copying.
+Here adjacent coefficients are adjacent in memory. A limb is one prime
+tower. Neighboring threads can then load nearby coefficients for the same
+prime, and all threads in a block can use the same modulus constants. Views
+should describe the spacing between dimensions so batches can be interpreted
+without copying the arrays.
 
 ### 4.2 Extended-basis state
 
@@ -225,7 +247,11 @@ with `coefficient` contiguous. This gives coalesced coefficient loads for one li
 - `QP, coefficient`
 - `QP, evaluation`
 
-Each buffer view should carry active Q tower count, P tower count, level, ordering, device, and stream/event ownership. This prevents accidental truncation or redundant transforms at the OpenFHE boundary.
+Q denotes the ciphertext primes; P denotes extra primes used during key
+switching. “Coefficient” and “evaluation” identify what the stored numbers
+mean. A buffer view must record the active Q and P counts, current level,
+array order, device and queued-work dependencies. Otherwise the adapter could
+drop needed towers or transform values that are already transformed.
 
 ### 4.3 Target Hybrid pipeline
 
@@ -241,7 +267,10 @@ input c2 in Q/evaluation
   -> add/fold c0 as required by the exact OpenFHE operation
 ```
 
-The exact transform placement and rounding order must be derived from the pinned OpenFHE 1.6.1 source and frozen in compatibility tests. Do not substitute an algebraically equivalent formulation if bit equality is the goal.
+Read the selected OpenFHE 1.6.1 source to determine exactly where transforms
+and rounding occur, then test those boundaries. Two formulas can describe
+the same modular result yet select different intermediate integers. Exact
+array compatibility requires OpenFHE’s choices at each checked step.
 
 ### 4.4 Fusion candidates
 
@@ -253,7 +282,10 @@ High-value, low-ambiguity experiments:
 - INTT or NTT boundary + ModDown correction.
 - Pointwise accumulation across Hybrid digits, deferring reduction only under a proved bound.
 
-**Caution:** fusion can lower occupancy by increasing registers/shared memory and can prevent cache-friendly scheduling. Theodosian shows additional fusion is not automatically beneficial on RTX 5090. Require profiler evidence for every fused variant.
+Combining operations in one kernel (fusion) can save memory traffic. It can
+also use more registers or shared memory, leaving room for fewer active
+threads, or make cache reuse worse. Theodosian reports that more fusion is
+not always faster on RTX 5090. Measure each combined version.
 
 <a id="5-streams-transfers-allocation-and-launch-strategy"></a>
 
@@ -290,7 +322,8 @@ Separate setup, resident-device events, transfer-inclusive calls and complete
 operations. Report latency and throughput across ring sizes, widths and tower
 counts. Retain raw samples, named hardware, peak memory and profiler counters;
 [the collector guide](offline-test-tooling.md) explains the implemented scopes.
-Kernel time must not be compared with another implementation's complete call.
+A kernel-only time excludes CPU–GPU copies and other call costs. Compare
+it only with a measurement that excludes the same work.
 
 ### 6.3 Baselines
 

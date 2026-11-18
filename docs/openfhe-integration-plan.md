@@ -3,9 +3,11 @@
 # Roadmap to OpenFHE integration
 
 Build in this order: **NTT → base conversion → Hybrid key switching → OpenFHE**.
-NTT accelerates polynomial multiplication. Base conversion changes the set of
-prime moduli; Hybrid key switching combines those operations to change a
-ciphertext's key representation.
+The Number Theoretic Transform (NTT) helps multiply polynomials by turning
+that task into separate products at special evaluation points. Base
+conversion changes which primes represent each coefficient. Hybrid key
+switching combines these operations with evaluation-key arrays to change a
+ciphertext’s key representation without decrypting it.
 
 The estimate is **95 working days plus 15 reserve days**. D labels a working-day
 milestone and P labels a phase; neither is a calendar date or a continuous
@@ -14,7 +16,7 @@ acceptance checks pass.
 
 Target OpenFHE 1.6.1, N=65536, RTX 5090 primary and RTX 4090 control. Baseline
 benchmarks also span N=4096–65536 and 30/50/55/60-bit primes in `uint64_t`.
-Last reviewed: 2026-11-17 (Asia/Shanghai).
+Last reviewed: 2026-11-18 (Asia/Shanghai).
 
 ## Live tracker
 
@@ -22,9 +24,9 @@ Last reviewed: 2026-11-17 (Asia/Shanghai).
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Compile both CUDA schedules in driverless CI, then run the bundled RTX 5090 session |
-| Next gate | P2: native CUDA/OpenFHE exactness and named-hardware baseline (D11–D15) |
-| Overall state | In progress; additional Ada hardware verified, primary-device and remaining P2 gates open |
+| Active task | Compile both CUDA versions without a GPU, then run the prepared tests and measurements on RTX 5090 |
+| Next gate | P2: compare CUDA and OpenFHE answers on real hardware, then record the GPU and baseline measurements (D11–D15) |
+| Overall state | In progress; the temporary Ada GPU was tested, while primary-device and other required P2 checks remain unfinished |
 
 See the [next GPU rental queue](next-gpu-rental.md) for the offline work and
 the order of the bundled native checks.
@@ -32,7 +34,11 @@ the order of the bundled native checks.
 Hardware: RTX 5090 primary, RTX 4090 control. Use larger-memory hardware only
 when measurements justify it; see the [GPU comparison](gpu-selection-survey.md).
 
-Status vocabulary: `DONE`, `IN PROGRESS`, `NOT STARTED`, `BLOCKED`.
+Read the tracker as follows: `DONE` means its acceptance checks passed;
+`IN PROGRESS` means some work or evidence is missing; `NOT STARTED` means
+implementation has not begun; `BLOCKED` means a dependency prevents progress.
+An exit gate is the set of checks required to finish a phase. An oracle is
+a separate reference calculation used to check answers.
 
 | Phase | Working days | Status | Exit artifact |
 |---|---:|---|---|
@@ -49,11 +55,13 @@ Status vocabulary: `DONE`, `IN PROGRESS`, `NOT STARTED`, `BLOCKED`.
 
 ## Definition of exact compatibility
 
-Given the same parameters, input arrays, ciphertext components, and evaluation
-keys, the GPU path must produce the same per-tower arrays as the pinned OpenFHE
-implementation. Approximate CKKS decryption agreement is a secondary test, not
-the compatibility criterion. Key generation randomness is outside this rule;
-the fixed generated key is part of the test input. The concrete upstream path is
+Use the same parameters, input arrays, ciphertext components and evaluation
+keys in both programs. The GPU must then produce exactly the same values
+in every prime tower as the selected OpenFHE version. CKKS decrypts to
+approximate numbers, so similar decrypted answers are a useful second check
+but cannot prove exact array compatibility. Generate a key once and use
+those same key arrays for both paths; independently generated random keys
+are different inputs. The concrete upstream path is
 [`NativePoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474) for transforms and
 [`KeySwitchCore`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L295-L298) → [`EvalFastKeySwitchCoreExt`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L389-L421) → [`ApproxModDown`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1020-L1055) for Hybrid contributions.
 
@@ -150,8 +158,9 @@ measurements and collect the CPU baseline locally.
 
 [B01–B04](implementation-backlog.md#2-p2-establish-the-native-baseline) define
 the acceptance criteria. Native ownership/failure tests and exact arrays must
-pass before accepting timings. Event timings and a captured timeline are useful,
-but do not replace the missing memory-sector, L2/DRAM and occupancy evidence.
+pass before accepting timings. GPU-event timings and a timeline show how long work takes and when it runs.
+We still need counters showing how much memory is fetched, how the L2 cache
+and GPU memory are used, and how many warps can remain active (occupancy).
 
 Minimum cases: zero, one, `q-1`, alternating bounds, deterministic random,
 forward, inverse, round-trip, evaluation-domain inverse, and polynomial
@@ -326,9 +335,9 @@ Use only for work that blocks a preceding exit gate:
 - primary-GPU compiler or architecture problems;
 - cross-GPU dispatch regressions.
 
-Do not schedule new features in the reserve. Cipher inference begins only after
-P8 is green; it is a separate plan covering model operators, rescaling,
-rotations, graph scheduling, accuracy, and end-to-end latency.
+Do not schedule new features in the reserve. Running an encrypted inference model begins only after P8’s checks pass.
+That needs a separate plan for model operations, scale changes, rotations,
+execution order, numerical accuracy and the time for a complete request.
 
 ## Progress log
 

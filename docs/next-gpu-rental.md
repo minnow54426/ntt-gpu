@@ -1,17 +1,20 @@
 # Bundle the next RTX 5090 session
 
-**Status: local preparation complete. Run the compiler-only CI matrix before
-provisioning.** The native RTX 5090 gates are still open.
+**Status: local preparation is complete. Before paying for a GPU, run the
+automated build checks for both CUDA versions.** These checks compile code
+without running it. The tests that must run on an RTX 5090 are still unfinished.
 
-- The paired collector validates separate group-twiddle and legacy builds
-  and matches inputs, device identity, and output records.
+- The collector runs two versions: the new group-twiddle schedule and the
+  older, or legacy, schedule. It checks that both use the same inputs and GPU,
+  and saves each version’s results separately.
 - The resident benchmark checks each result against an exact CPU product.
   The deferred host driver exercises the protocol and labels its output as
   simulation. The native collector rejects that output.
-- The standalone CPU oracle passed pinned OpenFHE ApproxModUp and
-  ApproxModDown at N=65,536 with one through five active Q towers and three P
-  towers. This prepares B09. A GPU base-conversion kernel is outside this
-  rental batch.
+- An independent CPU calculation matches the selected OpenFHE version’s
+  ApproxModUp and ApproxModDown operations. These change the set of primes
+  used to represent a polynomial. Tests use N=65,536, one to five active Q
+  primes and three auxiliary P primes. This prepares task B09; this rental
+  does not include implementing GPU base conversion.
 
 ## One rental, ordered GPU work
 
@@ -24,10 +27,10 @@ provisioning.** The native RTX 5090 gates are still open.
 | 5 | Measure the resident operation chain and capture a selected profile | End-to-end chain versus an intentionally host-roundtripped chain; device timeline and hardware counters if permitted |
 
 Use a small first timing block: N=4,096 and 65,536; K=3 and 40 towers;
-30- and 60-bit primes. That gives eight shapes per build. Keep geometry,
-reduction, input seed, warmups and sample counts identical. Log clocks during
-the run. Reverse run order in a follow-up repetition if thermal drift affects
-the comparison. Expand to 50/55-bit primes and
+30- and 60-bit primes. These choices give eight workloads per build. Use the
+same thread layout, modular arithmetic, random-input seed, warmup count and
+measurement count for both versions. Record GPU clock speeds. If temperature
+changes affect the results, repeat with the versions run in the opposite order. Expand to 50/55-bit primes and
 the remaining dimensions only after the required block is saved. The small
 timing block does not replace the full native exactness matrix.
 
@@ -80,8 +83,9 @@ Both child runs must pass their exactness and sanitizer gates before their
 own timings. `comparison.json` only reports matched runs when the two
 manifests agree on the environment and the actual workload records match
 (including the roots and seed). The two sets of raw records stay separate.
-The first run uses the default schedule, the second the legacy schedule.
-They are not interleaved, so order and thermal drift are still confounders.
+The collector finishes the default schedule before starting the legacy one.
+Temperature or clock changes between runs could therefore affect the
+comparison, even with matching inputs.
 Use `--ntt-schedule` to collect separately controlled repeats or a separate
 profiler capture. The combined command takes fresh directories and does not
 resume or profile. One failed child does not erase the other child's results.
@@ -123,8 +127,9 @@ tar -tzf bench-results-ntt-ab-5090.tar.gz > /dev/null
 
 ## When to rent, and when to stop
 
-The driverless sm_120 compile is the remaining pre-rental check. Confirm a
-time budget and profiling permissions before provisioning.
+Before renting, confirm that the code compiles for sm_120, the RTX 5090
+architecture, without requiring a GPU driver. Set a rental time budget and
+check that the provider allows the profiling tools and counters you need.
 
 Run correctness before timing. If a required gate fails, save the failure
 evidence and skip timing that build. If counters are unavailable,

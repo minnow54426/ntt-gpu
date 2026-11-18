@@ -1,7 +1,8 @@
 # Run and debug the NTT in VS Code
 
-Use the N=8 CPU example to watch coefficients become evaluations and return
-to the original values. No CUDA hardware is needed. The terminal commands work
+Use the N=8 CPU example to follow an eight-coefficient polynomial. The forward
+transform computes its values at eight special points; the inverse recovers
+the coefficients. No CUDA hardware is needed. The terminal commands work
 on supported CPU platforms; the supplied VS Code debugger setup targets macOS.
 
 ## One-time setup
@@ -13,7 +14,8 @@ on supported CPU platforms; the supplied VS Code debugger setup targets macOS.
    - LLDB DAP
 3. Wait for CMake Tools to finish configuring `build/debug`.
 
-The workspace uses Xcode's `lldb-dap`; check that Xcode command-line tools are installed.
+The workspace uses Xcode's `lldb-dap`, the program that lets VS Code control
+the debugger. Install the Xcode command-line tools before using this configuration.
 
 ## Run the small example
 
@@ -49,13 +51,14 @@ roundtrip passed
 7. Press `F11` to step into `NegacyclicNtt::forward` in `include/ntt/ntt.hpp`.
 8. Use `F10` to advance one source line at a time.
 
-Watch `values`, `upper_index`, `lower_index` and `twiddle_power` first.
-Add `stage_pair_distance`, `group_start_index` and `pair_offset` when tracing
-how a pair is chosen.
+Start by watching `values` (the array), `upper_index` and `lower_index` (the
+two positions being combined), and `twiddle_power` (their modular multiplier).
+Then inspect `stage_pair_distance`, `group_start_index` and `pair_offset`
+to understand how the loops choose that pair.
 
 For `N=8`, the forward transform has three stages with pair distances
 `4`, `2`, and `1`. Expand `values` after each butterfly to see the array
-change in place.
+change. The code overwrites the same array rather than creating a new one.
 
 ## Other shared commands
 
