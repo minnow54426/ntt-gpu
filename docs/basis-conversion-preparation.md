@@ -14,12 +14,16 @@ Let Q be the product of all active source primes, and let p_j be one target
 prime. The coefficient at position k is converted with
 
 \[
-\widehat Q_i = Q/q_i, \qquad
-u_i(k) = a_i(k)\widehat Q_i^{-1}\bmod q_i,
+\begin{aligned}
+\widehat Q_i &= Q/q_i, \\
+u_i(k) &= a_i(k)\widehat Q_i^{-1}\bmod q_i.
+\end{aligned}
 \]
 \[
-b_j(k) =
-\left(\sum_i u_i(k)(\widehat Q_i\bmod p_j)\right)\bmod p_j.
+\begin{aligned}
+b_j(k) &= \Bigl(\sum_i u_i(k) \\
+&\qquad\cdot(\widehat Q_i\bmod p_j)\Bigr)\bmod p_j.
+\end{aligned}
 \]
 
 Here a_i(k) is the input residue under q_i. The inverse of the product of the
@@ -39,9 +43,11 @@ Its constants depend on that complete source product.
 The source scaling uses a precomputed constant w. Store
 
 \[
-w' = \left\lfloor\frac{w2^{64}}q\right\rfloor,\qquad
-h = \left\lfloor\frac{xw'}{2^{64}}\right\rfloor,\qquad
-r = xw-hq.
+\begin{aligned}
+w' &= \left\lfloor\frac{w2^{64}}q\right\rfloor, \\
+h &= \left\lfloor\frac{xw'}{2^{64}}\right\rfloor, \\
+r &= xw-hq.
+\end{aligned}
 \]
 
 x is the input residue, w is the inverse above, and q is its source prime.
