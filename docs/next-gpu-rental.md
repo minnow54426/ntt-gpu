@@ -1,8 +1,10 @@
 # Bundle the next RTX 5090 session
 
-**Status: local preparation is complete. Before paying for a GPU, run the
-automated build checks for both CUDA versions.** These checks compile code
-without running it. The tests that must run on an RTX 5090 are still unfinished.
+**Status: the expanded batch passed on November 19 on a server reporting
+RTX 4080 SUPER / compute 8.9.** Both schedules also compiled for sm_120.
+The results and CUDA timeline were copied to the M1 Pro and verified.
+RTX 5090 hardware acceptance remains open. The queue below can be reused for
+that device after the next group of changes is ready.
 
 - The collector runs two versions: the new group-twiddle schedule and the
   older, or legacy, schedule. It checks that both use the same inputs and GPU,
@@ -13,18 +15,20 @@ without running it. The tests that must run on an RTX 5090 are still unfinished.
 - An independent CPU calculation matches the selected OpenFHE version’s
   ApproxModUp and ApproxModDown operations. These change the set of primes
   used to represent a polynomial. Tests use N=65,536, one to five active Q
-  primes and three auxiliary P primes. This prepares task B09; this rental
-  does not include implementing GPU base conversion.
+  primes and three auxiliary P primes. The reusable converter now also has
+  a broader all-dimension CPU comparison and prepared CUDA correctness probes.
+  See [conversion preparation](basis-conversion-preparation.md).
 
 ## One rental, ordered GPU work
 
 | Order | GPU-only item | Evidence to bring home |
 |---|---|---|
 | 1 | Preflight the actual RTX 5090, toolkit, driver, and profiler tools | Device identity, commit, build options and tool versions |
-| 2 | Verify the new default CUDA path and resident chain | Native exactness against pinned OpenFHE, lifecycle/failure checks, and the three smoke scopes under all four sanitizers |
+| 2 | Verify the new default CUDA path and resident chain | Native exactness against pinned OpenFHE, lifecycle/failure checks, and the NTT/resident smoke scopes under all four sanitizers |
 | 3 | Verify the legacy control build before timing | Native exactness and appropriate sanitizer smoke, with separate binary hashes and logs |
-| 4 | Compare legacy versus group twiddles on matched inputs | Raw paired resident forward/inverse samples first; public-call timings reported separately |
-| 5 | Measure the resident operation chain and capture a selected profile | End-to-end chain versus an intentionally host-roundtripped chain; device timeline and hardware counters if permitted |
+| 4 | Check Shoup and approximate basis conversion | Native integer and pinned OpenFHE comparisons, plus all four sanitizer tools |
+| 5 | Compare legacy versus group twiddles on matched inputs | Raw paired resident forward/inverse samples first; public-call timings reported separately |
+| 6 | Measure the resident operation chain and capture a selected profile | End-to-end chain versus an intentionally host-roundtripped chain; device timeline and hardware counters if permitted |
 
 Use a small first timing block: N=4,096 and 65,536; K=3 and 40 towers;
 30- and 60-bit primes. These choices give eight workloads per build. Use the
@@ -36,8 +40,8 @@ timing block does not replace the full native exactness matrix.
 
 ### Commands to prepare before provisioning
 
-The compiler-only CI matrix builds both schedules for sm_89 and sm_120 with
-no driver. For a local dry run that also links pinned OpenFHE, use a Linux
+The compiler-only CI matrix builds pinned OpenFHE and both schedules for
+sm_89 and sm_120, including the new native test executables, with no driver. For a local dry run that also links pinned OpenFHE, use a Linux
 host with the toolkit installed:
 
 ```sh
@@ -79,6 +83,8 @@ python3 scripts/gpu_session.py --mode gpu --compare-ntt --benchmark \
   --benchmark-warmups 2 --benchmark-samples 10
 ```
 
+Both child runs include the new arithmetic and conversion probes. A conversion
+failure is retained with its test output and prevents timing that build.
 Both child runs must pass their exactness and sanitizer gates before their
 own timings. `comparison.json` only reports matched runs when the two
 manifests agree on the environment and the actual workload records match

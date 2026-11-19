@@ -11,8 +11,9 @@ defines the behavior each task must preserve.
 **Current state:** D11/P2 remains open. The temporary Ada baseline is measured;
 RTX 5090 acceptance and remaining native failure/profiling checks are pending.
 Tasks B01–B04 have local preparation and some results from real GPU runs.
-B06 has a limited prototype tested on CPU and compiled for CUDA. Production
-work on B05 and B07–B12 has not started. Preparing part of a later task does
+B06 has a limited prototype verified on reported compute 8.9. B05 and B09
+also have native arithmetic/conversion checks from the November 19 batch. Production
+work on B07–B12 remains open. Preparing part of a later task does
 not complete its phase. B labels a backlog task, P a phase, and D a
 working-day milestone; these are not calendar dates.
 
@@ -153,6 +154,13 @@ transfer-inclusive wall time as kernel-only time.
 
 ### B05 — arithmetic policies
 
+Offline preparation on November 19 adds canonical Shoup multiplication,
+independent bigint checks and a native CUDA intrinsic probe. That probe passed
+on reported compute 8.9 in the November 19 batch. The current NTT
+dispatch keeps its reference arithmetic while the candidate is validated.
+See [conversion preparation](basis-conversion-preparation.md).
+
+
 Keep the simple exact implementation for checking answers. Add Shoup
 multiplication for precomputed constant multipliers and Barrett reduction
 for two changing operands. Prove their valid input ranges and generate the
@@ -165,6 +173,11 @@ range/overflow tests and hardware-specific exactness evidence accompany each
 policy. Alternative encodings need a superseding contract, not a changed label.
 
 ### B06 — resident runtime and registry
+
+The November 19 batch passed the resident exactness and selected sanitizer
+checks on reported compute 8.9. Driver/context failure handling and primary
+RTX 5090 acceptance remain open.
+
 
 Offline preparation 2026-11-16: the [resident-chain prototype](resident-operation-chain.md)
 implements private handles, one-stream dependencies, immutable outputs, bounded
@@ -220,6 +233,14 @@ record, not one faster microbenchmark.
 ## 4. P4–P7: preserve exact conversion and Hybrid behavior
 
 ### B09 — base conversion
+
+Offline preparation on November 19 adds a reusable coefficient-domain switch,
+all-dimension CPU/OpenFHE fixtures through 40 towers and a prepared native CUDA
+probe. The native conversion probe passed its full OpenFHE matrix on
+reported compute 8.9 on November 19. Hybrid tests exercise the candidate's digit lifts and P-to-Q correction
+against independent BigInteger answers. Resident GPU composition and primary-device
+acceptance remain open.
+
 
 Upstream entry points: [`ApproxSwitchCRTBasis`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L938-L982) and [`ApproxModDown`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1020-L1055).
 

@@ -36,6 +36,8 @@ def main():
                 check("add", first, second, modulus, (first + second) % modulus)
                 check("sub", first, second, modulus, (first - second) % modulus)
             check("mul", first, second, modulus, first * second % modulus)
+            if 1 < modulus < 1 << 63:
+                check("shoup", first, second, modulus, first * second % modulus)
         for first in sorted(edges) + [(1 << 64) - 1]:
             for exponent in [0, 1, 2, 63, 64, (1 << 64) - 1]:
                 check("pow", first, exponent, modulus,

@@ -13,13 +13,12 @@ polynomials. Operations leave their inputs unchanged. Queued work keeps input
 buffers alive even if the caller discards a handle. An upload first copies the
 caller’s array into a temporary CPU buffer owned by the session.
 
-**Status:** a CPU driver simulates delayed work to test array values, buffer
-lifetimes and error handling at N=65536. Those tests agree exactly with
-OpenFHE. The CUDA adapter compiles for the sm_89/sm_120 GPU architectures,
-but has not run on a GPU. This completes only part of
-[B06 preparation](implementation-backlog.md#b06-resident-runtime-and-registry).
-The D11/P2 milestone still requires real GPU checks before this can become
-a production backend or support a speedup claim.
+**Status:** CPU tests cover delayed work, ownership and failure handling.
+On November 19, native OpenFHE and sanitizer checks passed on a server
+reporting RTX 4080 SUPER / compute 8.9. Both schedules also compiled for sm_120.
+The [daily record](journal/2026-11-19.md#native-gpu-batch-completed) contains the
+measurement and export results. B06 preparation continues with production
+ownership requirements, driver/context failure handling and RTX 5090 acceptance.
 
 ## What is implemented
 
@@ -175,7 +174,7 @@ The [exact fixture](../tests/resident_openfhe_tests.cpp) uses real OpenFHE
 [`NativePoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474)
 through the format API. Root/modulus selection comes from the pinned OpenFHE
 implementation; complete arrays are compared, not approximate CKKS decryptions.
-The CUDA variant uses the same fixture, but is **unrun** here.
+The CUDA variant passed this fixture on reported compute 8.9 on November 19.
 
 ## Reproduce and verify next
 
@@ -199,5 +198,5 @@ Compute Sanitizer tools. Skipping sanitizers remains an explicit limited run.
 On the next RTX 5090 rental, run the current GPU answer and error-handling
 tests, the new resident CUDA test, and the memory/threading sanitizer tools.
 Then use a profiler to measure where execution time goes.
-[D11/P2](openfhe-integration-plan.md) remains unfinished until those results
-are recorded; CPU tests and successful compilation do not run this GPU path.
+[D11/P2](openfhe-integration-plan.md) remains open for primary-device acceptance,
+driver/context failure handling and hardware-counter profiling.

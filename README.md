@@ -109,16 +109,17 @@ Default CUDA uses one OpenFHE-style group twiddle per butterfly, with the same
 two-pass thread mapping. Configure a separate build with
 `-DNTT_CUDA_LEGACY_BUTTERFLY=ON` for the old two-multiply baseline.
 GPU JSONL records identify the choice as `group_twiddle_ct` or `legacy_dif`.
-The previous native benchmark measured the legacy path, not the new default.
+The [November 19 paired run](docs/journal/2026-11-19.md#native-gpu-batch-completed)
+measured both schedules on a server reporting RTX 4080 SUPER / compute 8.9.
 
 ## Design
 
 The [resident operation-chain prototype](docs/resident-operation-chain.md) adds
 polynomial handles whose inputs cannot be changed, one ordered GPU work queue
 (a stream), and temporary CPU buffers owned by the session. A limited operation
-log retains resources needed by unfinished work. Its CPU test driver passes exact OpenFHE tests;
-the CUDA adapter is compiled but not executed here. This experimental API does
-not replace the synchronous baseline or enable the production OpenFHE backend.
+log retains resources needed by unfinished work. Its CPU driver and CUDA adapter
+pass exact OpenFHE comparisons. The November 19 native Ada batch also passed
+the selected sanitizer checks. Production OpenFHE integration remains planned.
 
 Both backends use the same negacyclic transform convention:
 

@@ -12,6 +12,7 @@
 #include "openfhe.h"
 #include "keyswitch/keyswitch-hybrid.h"
 #include "ntt/ntt.hpp"
+#include "ntt/basis_conversion.hpp"
 #include "ntt/backend_contract.hpp"
 
 namespace {
@@ -91,6 +92,21 @@ Rows lift(const Rows& source, const Params& from, const Params& to) {
         result[0][i] != sum.Mod(product).Mod(BigInteger(modulus(to, 0))).ConvertToInt())
       ++noncanonical_witnesses;
   }
+  // The reusable candidate must preserve every residue of the independent
+  // unreduced BigInteger lift, including shortened Hybrid digits.
+  std::vector<uint64_t> source_moduli, target_moduli, input;
+  for (size_t tower = 0; tower < source.size(); ++tower) {
+    source_moduli.push_back(modulus(from, tower));
+    input.insert(input.end(), source[tower].begin(), source[tower].end());
+  }
+  for (size_t tower = 0; tower < result.size(); ++tower)
+    target_moduli.push_back(modulus(to, tower));
+  const ntt::ApproximateBasisPlan candidate(std::move(source_moduli), std::move(target_moduli));
+  const auto converted = candidate.convert(N, input);
+  for (size_t tower = 0; tower < result.size(); ++tower)
+    for (size_t index = 0; index < N; ++index)
+      require(converted[tower * N + index] == result[tower][index],
+              "candidate basis switch differs from independent Hybrid CRT lift");
   return result;
 }
 uint64_t mix(uint64_t x) {

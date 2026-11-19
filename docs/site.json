@@ -8,10 +8,10 @@
       "url": "next-gpu-rental.html",
       "title": "Next GPU rental queue",
       "group": "Plans",
-      "summary": "Prepare one RTX 5090 session, with a clear order of tests and measurements.",
+      "summary": "Read the completed Ada batch and prepare the primary RTX 5090 session.",
       "takeaways": [
-        "Compile both NTT versions and prepare CPU reference answers before renting, so paid time is spent running GPU work.",
-        "On the GPU, check answers and memory/threading errors first. Then compare timings, collect profiles and download the records."
+        "Both NTT versions passed the November 19 native Ada checks and compiled for sm_120.",
+        "The verified batch includes 48 measurement jobs, 40 sanitizer checks and a CUDA timeline. RTX 5090 acceptance remains open."
       ],
       "next_page": "offline-test-tooling.html"
     },
@@ -23,7 +23,7 @@
       "summary": "Build the CPU version first and learn which GPU results have been checked.",
       "takeaways": [
         "You can build and test this project without a GPU. Start with the CPU commands and the eight-value debugging example.",
-        "An earlier CUDA version passed the recorded Ada GPU tests. The newer code that chains operations on the GPU still needs its own hardware tests."
+        "The November 19 Ada run passed the resident chain and new arithmetic/conversion checks. The primary RTX 5090 test remains open."
       ],
       "next_page": "vscode-debugging.html"
     },
@@ -131,7 +131,7 @@
       "summary": "Keep intermediate arrays on the GPU while composing polynomial operations.",
       "takeaways": [
         "Upload two polynomials, transform both, multiply matching evaluations, inverse-transform, then download only the final result.",
-        "The prototype retains buffers until queued work finishes and leaves inputs unchanged. CPU tests and CUDA compilation pass; running this new path on a GPU is pending."
+        "The prototype preserves inputs and retains queued buffers. Native OpenFHE and sanitizer checks passed on compute 8.9 on November 19."
       ],
       "next_page": "implementation-backlog.html"
     },
@@ -146,6 +146,18 @@
         "Use the terminal commands on a supported CPU platform. The supplied VS Code debugger configuration targets macOS."
       ],
       "next_page": "butterfly-explained.html"
+    },
+    {
+      "source": "docs/basis-conversion-preparation.md",
+      "url": "basis-conversion-preparation.html",
+      "title": "Prepare basis conversion",
+      "group": "Learn",
+      "summary": "Check approximate CRT conversion and constant multiplication before the GPU session.",
+      "takeaways": [
+        "Preserve OpenFHE's unreduced CRT sum and source-tower order when constructing conversion plans.",
+        "The Shoup and conversion probes passed the November 19 native Ada batch and compiled for sm_120."
+      ],
+      "next_page": "next-gpu-rental.html"
     },
     {
       "source": "docs/gpu-ntt-survey.md",
@@ -191,7 +203,7 @@
       "summary": "Read the sequence of work and the checks required to finish each phase.",
       "takeaways": [
         "Build the NTT first, then prime-basis conversion, Hybrid key switching and OpenFHE integration. D labels a working milestone, not a calendar date.",
-        "The current milestone is D11/P2. Earlier Ada GPU measurements exist; RTX 5090 tests, newer runtime checks and full profiling remain unfinished."
+        "D11/P2 remains open. The current Ada batch passed, while RTX 5090 acceptance, driver/context failure handling and hardware counters remain pending."
       ],
       "next_page": "implementation-backlog.html"
     },

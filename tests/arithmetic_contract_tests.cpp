@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ntt/ntt.hpp"
+#include "ntt/shoup.hpp"
 #include "ntt/param_gen.hpp"
 
 namespace {
@@ -89,7 +90,11 @@ int main(int argc, char **argv) {
         std::cout << ntt::sub_mod(first, second, modulus);
       else if (operation == "mul")
         std::cout << ntt::mul_mod(first, second, modulus);
-      else if (operation == "pow")
+      else if (operation == "shoup") {
+        if (first >= modulus) throw std::invalid_argument("noncanonical Shoup input");
+        std::cout << ntt::shoup_multiply(first, second,
+            ntt::shoup_precompute(second, modulus), modulus);
+      } else if (operation == "pow")
         std::cout << ntt::pow_mod(first, second, modulus);
       else if (operation == "inv") {
         try {

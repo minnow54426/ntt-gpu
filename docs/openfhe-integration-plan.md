@@ -16,7 +16,7 @@ acceptance checks pass.
 
 Target OpenFHE 1.6.1, N=65536, RTX 5090 primary and RTX 4090 control. Baseline
 benchmarks also span N=4096–65536 and 30/50/55/60-bit primes in `uint64_t`.
-Last reviewed: 2026-11-18 (Asia/Shanghai).
+Last reviewed: 2026-11-19 (Asia/Shanghai).
 
 ## Live tracker
 
@@ -24,7 +24,7 @@ Last reviewed: 2026-11-18 (Asia/Shanghai).
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Compile both CUDA versions without a GPU, then run the prepared tests and measurements on RTX 5090 |
+| Active task | Analyze the November 19 Ada batch locally and prepare the next combined RTX 5090 session |
 | Next gate | P2: compare CUDA and OpenFHE answers on real hardware, then record the GPU and baseline measurements (D11–D15) |
 | Overall state | In progress; the temporary Ada GPU was tested, while primary-device and other required P2 checks remain unfinished |
 
@@ -139,9 +139,12 @@ blocked by the provider.
 
 Later [offline preparation](offline-gpu-preparation.md) and the
 [resident-chain prototype](resident-operation-chain.md) pass host tests and
-sm_89/sm_120 compilation. Native execution of the new runtime, primary-device
-acceptance, actual driver/context failure handling and full profiling remain
-open. Existing results establish only their recorded source and workload.
+sm_89/sm_120 compilation. The [November 19 batch](journal/2026-11-19.md#native-gpu-batch-completed)
+then passed the new resident, Shoup and conversion checks on reported compute
+8.9. Both schedules passed their native gates and 40 sanitizer stages across
+the pair. All 48 paired measurement jobs, four resident repeat runs and a CUDA
+timeline were exported and verified locally. Primary-device acceptance, actual
+driver/context failure handling and hardware-counter profiling remain open.
 
 Next session: run the current native checks, resident sanitizer scope and
 per-pass profiling on an actual RTX 5090. Use the

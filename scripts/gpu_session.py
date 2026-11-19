@@ -13,9 +13,9 @@ from benchmark_batch import (DIMENSIONS, MAX_TOWERS, PRIME_BITS, TOWER_COUNTS, S
                              atomic_json, benchmark_scope, collect_batch, collect_profiles)
 
 ROOT = Path(__file__).resolve().parents[1]
-GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection', 'cuda_benchmark_matrix_exact', 'resident_cuda_exact'}
-OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph', 'openfhe_basis_conversion', 'openfhe_benchmark_protocol', 'resident_openfhe_host'}
-HOST_TESTS = {'cuda_host_validation', 'setup_ownership_host', 'measurement_host', 'resident_runtime_host', 'resident_benchmark_host'}
+GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection', 'cuda_benchmark_matrix_exact', 'resident_cuda_exact', 'cuda_basis_exact', 'cuda_shoup_exact'}
+OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph', 'openfhe_basis_conversion', 'basis_openfhe_exact', 'openfhe_benchmark_protocol', 'resident_openfhe_host'}
+HOST_TESTS = {'cuda_host_validation', 'setup_ownership_host', 'measurement_host', 'resident_runtime_host', 'resident_benchmark_host', 'basis_conversion_bigint'}
 NTT_SCHEDULES = {'group_twiddle_ct': 'OFF', 'legacy_dif': 'ON'}
 
 
@@ -233,8 +233,12 @@ class Session:
                             '--error-exitcode', '1', build / 'ntt_cuda_openfhe_tests', '--matrix-smoke'])
                         self.run('sanitizer-resident-' + sanitizer, ['compute-sanitizer', '--tool', sanitizer,
                             '--error-exitcode', '1', build / 'ntt_resident_cuda_tests', '--smoke'])
+                        self.run('sanitizer-basis-' + sanitizer, ['compute-sanitizer', '--tool', sanitizer,
+                            '--error-exitcode', '1', build / 'ntt_basis_cuda_tests', '--smoke'])
+                        self.run('sanitizer-shoup-' + sanitizer, ['compute-sanitizer', '--tool', sanitizer,
+                            '--error-exitcode', '1', build / 'ntt_shoup_cuda_tests'])
                     self.report['sanitizers'] = 'SMOKE_MATRIX_PASS'
-                    self.report['sanitizer_scopes'] = ['baseline_smoke', 'matrix_smoke', 'resident_smoke']
+                    self.report['sanitizer_scopes'] = ['baseline_smoke', 'matrix_smoke', 'resident_smoke', 'basis_smoke', 'shoup_exact']
                 else:
                     self.report['sanitizers'] = 'EXPLICITLY_SKIPPED'
                 if args.benchmark:
