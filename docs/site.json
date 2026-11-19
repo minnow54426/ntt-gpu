@@ -148,54 +148,6 @@
       "next_page": "butterfly-explained.html"
     },
     {
-      "source": "docs/fhe-gpu-asic-inference-benchmarks.md",
-      "url": "fhe-gpu-asic-inference-benchmarks.html",
-      "title": "GPU 与 ASIC 的密态推理基准",
-      "group": "Research",
-      "summary": "比较单密文 CKKS 自举和 ResNet、BERT 的推理延迟。",
-      "takeaways": [
-        "单次密文刷新、单请求延迟和批内摊销各有不同的计时口径。",
-        "Cinnamon 的网络延迟来自仿真，HERACLES 则提供已流片的操作吞吐。"
-      ],
-      "next_page": "ckks-fourier-functional-bootstrap.html"
-    },
-    {
-      "source": "docs/fhe-three-topics.md",
-      "url": "fhe-three-topics.html",
-      "title": "FHE 的三个进展",
-      "group": "Research",
-      "summary": "可编程自举、可验证求值和机密合约的技术与落地。",
-      "takeaways": [
-        "比较整数查表与实数功能自举，并看 ReLU 的误差和成本。",
-        "沿一笔密封报价辨别输入证明、计算正确性与门限解密。"
-      ],
-      "next_page": "fhe-progress-2024-2026.html"
-    },
-    {
-      "source": "docs/fhe-progress-2024-2026.md",
-      "url": "fhe-progress-2024-2026.html",
-      "title": "FHE 近两年进展",
-      "group": "Research",
-      "summary": "2024 年 11 月至 2026 年 11 月的 FHE 算法、软硬件和应用进展。",
-      "takeaways": [
-        "功能自举、编译器和显存调度共同推动了 CKKS 密文推理。",
-        "对本项目最值得验证的是 RTX 5090 上的设备常驻链和完整 Hybrid 密钥切换。"
-      ],
-      "next_page": "gpu-ntt-survey.html"
-    },
-    {
-      "source": "docs/ckks-fourier-functional-bootstrap.md",
-      "url": "ckks-fourier-functional-bootstrap.html",
-      "title": "OpenFHE 的 CKKS 功能自举",
-      "group": "Research",
-      "summary": "追踪 OpenFHE 的 Fourier extension 实现，检查 ReLU 近似与普通自举的成本。",
-      "takeaways": [
-        "通过复指数的周期性消去升模溢出，Fourier 多项式同时计算逐槽函数。",
-        "硬 ReLU 可近似嵌入。折角影响误差，阶数与所保留的输出层数影响成本。"
-      ],
-      "next_page": "fhe-progress-2024-2026.html"
-    },
-    {
       "source": "docs/basis-conversion-preparation.md",
       "url": "basis-conversion-preparation.html",
       "title": "Prepare basis conversion",
