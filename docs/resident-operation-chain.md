@@ -20,6 +20,11 @@ The [daily record](journal/2026-11-19.md#native-gpu-batch-completed) contains th
 measurement and export results. B06 preparation continues with production
 ownership requirements, driver/context failure handling and RTX 5090 acceptance.
 
+November 20 preparation adds resident approximate basis conversion and
+ModUp/ModDown composition. Its new host checks and CUDA compilation are
+recorded separately in the [conversion guide](basis-conversion-preparation.md#keep-modup-and-moddown-in-the-resident-chain).
+This new path still requires native execution after the November 19 source.
+
 ## What is implemented
 
 | Part | Concrete implementation |
@@ -42,6 +47,12 @@ Use one host thread per session, including handle access and destruction.
 The API is separate from the abstract [proposed Backend](../include/ntt/backend_api.hpp).
 It supplies no production OpenFHE adapter, cache, CPU fallback, cross-device
 operation or multi-stream execution.
+
+For conversion, an explicit-layout `upload(layout, values)` can select a
+contiguous whole-tower subset of the session's basis. Coefficients use natural
+order; an explicitly declared evaluation layout uses bit-reversed order.
+The runtime validates parameter equality, tower order, length and every
+uploaded residue before queuing the copy.
 
 ## Compose a product
 
@@ -155,16 +166,23 @@ cache or a replacement for [B07 admission/cache work](implementation-backlog.md#
 
 ## Observed checks
 
-- **293 host control checks** cover independent negacyclic convolution,
+- **450 host control checks** cover independent negacyclic convolution,
   immutable inputs, owned uploads, explicit/implicit dependencies, nested views,
   foreign/closed handles, budgets, every synchronous transport step, failures
   after enqueue, asynchronous errors, abandoned outputs and quarantine recovery.
+  The conversion additions check every transport failure point, every failure
+  after an enqueue, parameter-table budgets and retention through a failed drain.
 - The same control tests pass **AddressSanitizer, UndefinedBehaviorSanitizer
   and leak detection** on Linux.
-- The deferred host transport matches pinned OpenFHE on **4,456,448 residues**
+- The original NTT/product fixture matches pinned OpenFHE on **4,456,448 residues**
   at N=65536 with an unsorted 55/50/60-bit basis. Cases cover zero, bounds,
   monomials and dense values, forward, independent inverse, roundtrip, product,
   input immutability and tower views.
+- The extended [conversion fixture](../tests/support/resident_conversion_cases.hpp)
+  checks both ModUp input formats, an independently generated ModDown input,
+  composed operations, unchanged inputs and nonzero-offset tower views. It
+  covers N=64/4096/65536, five active Q levels, mixed 30/50/55/60-bit primes,
+  four coefficient patterns and an additional 40-Q/three-P dense case.
 - Stock CUDA 13 compiles the adapter and the prepared native test for
   **sm_89 and sm_120**. Five invalid CUDA-linked factory inputs reject without
   requiring a driver. These checks execute no device arithmetic.
@@ -174,7 +192,9 @@ The [exact fixture](../tests/resident_openfhe_tests.cpp) uses real OpenFHE
 [`NativePoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474)
 through the format API. Root/modulus selection comes from the pinned OpenFHE
 implementation; complete arrays are compared, not approximate CKKS decryptions.
-The CUDA variant passed this fixture on reported compute 8.9 on November 19.
+The CUDA variant passed the earlier NTT/product fixture on reported compute
+8.9 on November 19. The new conversion cases compile in both CUDA schedules
+for sm_89/sm_120; executing those cases on a GPU is still pending.
 
 ## Reproduce and verify next
 

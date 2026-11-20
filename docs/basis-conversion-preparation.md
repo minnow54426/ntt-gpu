@@ -88,5 +88,93 @@ On November 19, both schedules compiled for sm_120, and the native probes
 passed on a server reporting RTX 4080 SUPER / compute 8.9. The conversion
 test compared 107,675,648 residues against pinned OpenFHE in each build.
 All four sanitizer tools passed the selected scopes. The
-[RTX 5090 session](next-gpu-rental.md) remains the primary-device check. Full resident ModUp/ModDown composition,
+[RTX 5090 session](next-gpu-rental.md) remains the primary-device check. Native validation of the new resident ModUp/ModDown composition,
 GPU Hybrid key switching, and tuned arithmetic remain later deliverables.
+
+## Keep ModUp and ModDown in the resident chain
+
+The resident prototype now connects the existing NTT and basis-conversion
+operations without downloading their intermediate polynomial arrays. A session
+uses one active Q prefix followed by all its P towers. Create a separate
+session when that active prefix changes.
+
+- `switch_basis(input, target_layout)` takes coefficients and computes the
+  unreduced approximate CRT sum under a disjoint destination basis. Both
+  bases must be contiguous selections from the session's parameter tables.
+- `mod_up(input)` accepts Q coefficients or Q evaluations. It preserves the
+  original Q values in evaluation format, computes the P coefficients from
+  Q coefficients, transforms P, and packs Q followed by P. Its output is
+  always in evaluation format, matching OpenFHE.
+- `mod_down(input)` accepts QP evaluations. It inverse-transforms only P,
+  converts P coefficients to the Q correction, transforms that correction,
+  subtracts it from the original Q evaluations, and multiplies by P-inverse.
+  The output contains Q evaluations.
+
+The [public API](../include/ntt/resident.hpp),
+[queue implementation](../src/resident.cpp), and
+[shared arithmetic helpers](../include/ntt/resident_conversion.hpp) show the
+actual implementation. Compare OpenFHE's pinned
+[`ApproxModUp`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L987-L1017)
+and [`ApproxModDown`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1020-L1055).
+This path follows CKKS with reduced-noise mode OFF; it does not implement
+the BGV correction factors or a complete Hybrid key switch.
+
+After importing and validating the exact Q/P parameters, the call sequence is:
+
+```cpp
+// qp_layout describes active Q followed by P, in coefficient format.
+auto session = ntt::resident::make_cuda_session(qp_layout);
+auto q_layout = qp_layout;
+q_layout.towers = ntt::proposal::q_prefix(*q_layout.parameters,
+                                        q_layout.active_q);
+auto q = session.upload(q_layout, coefficient_values);
+auto qp = session.mod_up(q);
+auto reduced = session.mod_down(qp);
+auto result = session.download(reduced);
+auto evaluation_values = result.wait_values();
+session.close();
+```
+
+Keep `result` alive while reading `evaluation_values`. ModDown changes scale
+using the modular inverse of P. Compare the composed result with OpenFHE's
+corresponding operations; do not assume it recovers the original input.
+
+### Temporary tables, memory and errors
+
+Inputs remain unchanged, and each result has a new allocation. Each basis
+switch builds and uploads a small parameter table; ModDown's final correction
+also uploads its moduli and P-inverse values. These copies contain parameters,
+not intermediate polynomial arrays. `Stats::parameter_uploads` counts them
+separately from polynomial uploads/downloads and device copies. An upload →
+ModUp → ModDown chain has one polynomial upload, three parameter uploads and
+one final polynomial download, excluding the session's fixed setup tables.
+
+The runtime reserves device memory for those parameter tables and CPU memory
+for their staging. These budgets count the requested table/staging payloads;
+temporary CPU plan objects and allocator overhead are separate. Queued
+operations retain the tables and staging through completion. If
+submission fails and the stream cannot be proved stopped, the existing
+quarantine keeps these resources alive too. Per-operation budgets apply;
+a composed call can fail after earlier operations were queued. The original
+input remains unchanged, and there is no automatic CPU retry.
+
+This prototype builds tables per operation. Reusable conversion-plan caches,
+allocation pools and performance selection remain later work. The new
+composition needs its own native CUDA and sanitizer run; the November 19
+standalone conversion results do not validate later code.
+
+### What has been checked locally
+
+All 29 CPU/OpenFHE CTests pass after adding the conversion chain. The resident
+control suite passes 450 checks, including injected failures and parameter-table
+memory limits, and passes AddressSanitizer, UndefinedBehaviorSanitizer and
+leak detection. The shared fixture checks both ModUp input formats and an
+independent ModDown input against the actual OpenFHE public operations.
+Cases include all five active prefixes of a five-Q/three-P context and a
+40-Q/three-P dense case, preserving the given prime order.
+
+Both default and legacy CUDA builds compile the extended fixture for sm_89
+and sm_120 with the stock CUDA 13 compiler. Driver-free constructor/factory
+preflight tests pass. No execution or timing of the new conversion kernels
+is claimed here. The next native `resident_cuda_exact` run and its sanitizer
+smoke will execute those prepared cases on the selected GPU.

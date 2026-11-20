@@ -2,6 +2,7 @@
 // All queued work uses the owned stream; intermediate arrays stay on device.
 // Boundary uploads/downloads use owned host staging.
 #include <array>
+#include "ntt/resident_conversion.hpp"
 namespace ntt::cuda {
 namespace resident_impl {
 using namespace ::ntt::proposal;
@@ -13,6 +14,20 @@ struct Plan {
   uint64_t *device_moduli, *device_inverse_transform_lengths;
   uint32_t contiguous_tile_block_count, elementwise_block_count;
 };
+__global__ void resident_basis_kernel(uint64_t *out, const uint64_t *in, uint64_t n,
+                                      uint64_t source_count, uint64_t target_count,
+                                      const uint64_t *table) {
+  const uint64_t i = uint64_t(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (i < n * target_count)
+    out[i] = ::ntt::resident::detail::resident_basis_value(in, n, i, source_count, target_count, table);
+}
+__global__ void resident_correction_kernel(uint64_t *out, const uint64_t *left,
+                                           const uint64_t *right, uint64_t n,
+                                           uint64_t count, const uint64_t *table) {
+  const uint64_t i = uint64_t(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (i < n * count)
+    out[i] = ::ntt::resident::detail::resident_correction_value(left[i], right[i], i/n, count, table);
+}
 struct Context : std::enable_shared_from_this<Context> {
   PolynomialLayout base;
   int device;
@@ -142,6 +157,15 @@ public:
     DeviceGuard guard(ordinal()); check_health();
     CHECK_CUDA(cudaMemcpyAsync(a.data, b.data + offset, n * sizeof(uint64_t), cudaMemcpyDeviceToDevice, context_->stream));
   }
+  void copy_range(transport::Buffer &out, size_t destination, const transport::Buffer &input,
+                   size_t source, size_t n) override {
+    const auto &a = buffer(out), &b = buffer(input);
+    require(destination <= a.elements && n <= a.elements-destination
+              && source <= b.elements && n <= b.elements-source, "CUDA range copy extent");
+    DeviceGuard guard(ordinal()); check_health();
+    CHECK_CUDA(cudaMemcpyAsync(a.data+destination, b.data+source, n*sizeof(uint64_t),
+                               cudaMemcpyDeviceToDevice, context_->stream));
+  }
   void transform(transport::Buffer &out, const PolynomialLayout &p, bool inverse) override {
     const auto &a = buffer(out); require(a.elements == bytes(p) / sizeof(uint64_t), "CUDA transform extent");
     auto plan = context_->plan(p); DeviceGuard guard(ordinal()); check_health();
@@ -156,6 +180,33 @@ public:
     DeviceGuard guard(ordinal()); check_health();
     pointwise_multiply_kernel<<<plan.elementwise_block_count, kThreadsPerBlock, 0, context_->stream>>>(
         a.data, b.data + offset, plan.device_moduli, plan.transform_length, plan.limb_count);
+    CHECK_CUDA(cudaGetLastError());
+  }
+  void switch_basis(transport::Buffer &out, const transport::Buffer &input, size_t offset,
+                     const transport::Buffer &constants, const PolynomialLayout &source,
+                     const PolynomialLayout &target) override {
+    const auto &a = buffer(out), &b = buffer(input), &table = buffer(constants);
+    (void)context_->plan(source); (void)context_->plan(target);
+    const auto n = target.parameters->n(), s = source.towers.size(), t = target.towers.size();
+    require(a.elements == n*t && offset <= b.elements && n*s <= b.elements-offset
+              && table.elements == 3*s+t+s*t, "CUDA basis extent");
+    DeviceGuard guard(ordinal()); check_health();
+    resident_basis_kernel<<<static_cast<uint32_t>((a.elements+255)/256), 256, 0, context_->stream>>>(
+        a.data, b.data+offset, n, s, t, table.data);
+    CHECK_CUDA(cudaGetLastError());
+  }
+  void correct(transport::Buffer &out, const transport::Buffer &left, size_t left_offset,
+                 const transport::Buffer &right, size_t right_offset, const transport::Buffer &constants,
+                 const PolynomialLayout &p) override {
+    const auto &a = buffer(out), &b = buffer(left), &c = buffer(right), &table = buffer(constants);
+    auto plan = context_->plan(p);
+    require(a.elements == p.parameters->n()*p.towers.size()
+              && left_offset <= b.elements && a.elements <= b.elements-left_offset
+              && right_offset <= c.elements && a.elements <= c.elements-right_offset
+              && table.elements == 2*p.towers.size(), "CUDA correction extent");
+    DeviceGuard guard(ordinal()); check_health();
+    resident_correction_kernel<<<plan.elementwise_block_count, 256, 0, context_->stream>>>(
+        a.data, b.data+left_offset, c.data+right_offset, plan.transform_length, plan.limb_count, table.data);
     CHECK_CUDA(cudaGetLastError());
   }
   void download(std::span<uint64_t> target, const transport::Buffer &input, size_t offset) override {

@@ -27,9 +27,17 @@ public:
   virtual std::unique_ptr<Event> make_event() = 0;
   virtual void upload(Buffer &, std::span<const uint64_t>) = 0;
   virtual void copy(Buffer &, const Buffer &, size_t offset, size_t elements) = 0;
+  virtual void copy_range(Buffer &, size_t destination_offset, const Buffer &,
+                          size_t source_offset, size_t elements) = 0;
   virtual void transform(Buffer &, const PolynomialLayout &, bool inverse) = 0;
   virtual void pointwise(Buffer &, const Buffer &, size_t offset,
                          const PolynomialLayout &) = 0;
+  virtual void switch_basis(Buffer &, const Buffer &, size_t source_offset,
+                            const Buffer &constants, const PolynomialLayout &source,
+                            const PolynomialLayout &target) = 0;
+  virtual void correct(Buffer &, const Buffer &, size_t left_offset,
+                       const Buffer &, size_t right_offset, const Buffer &constants,
+                       const PolynomialLayout &) = 0;
   virtual void download(std::span<uint64_t>, const Buffer &, size_t offset) = 0;
   virtual void record(Event &) = 0;
   virtual bool ready(Event &) = 0;

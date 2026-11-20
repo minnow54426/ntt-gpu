@@ -1,4 +1,5 @@
 #include "ntt/resident_driver.hpp"
+#include "ntt/resident_conversion.hpp"
 #include <atomic>
 #include <unordered_map>
 
@@ -38,18 +39,26 @@ struct HostStorage {
   HostStorage(std::shared_ptr<Budget> b, size_t count)
       : reservation(std::move(b), checked_product(count, sizeof(uint64_t)), true), values(count) {}
 };
+struct DeviceStorage {
+  Reservation reservation;
+  std::unique_ptr<Buffer> buffer;
+  DeviceStorage(std::shared_ptr<Budget> b, size_t count)
+      : reservation(std::move(b), checked_product(count, sizeof(uint64_t)), false) {}
+};
 struct Operation {
   CompletionRecord record;
   std::unique_ptr<Event> event;
   std::vector<std::shared_ptr<Allocation>> allocations;
   std::vector<std::shared_ptr<Operation>> dependencies;
   std::shared_ptr<HostStorage> staging;
+  std::shared_ptr<DeviceStorage> constants;
   explicit Operation(CompletionRecord r) : record(r) {}
   void unpin() noexcept {
     event.reset();
     allocations.clear();
     dependencies.clear();
     staging.reset();
+    constants.reset();
   }
 };
 uint64_t next_session() {
@@ -75,7 +84,7 @@ struct State : std::enable_shared_from_this<State> {
   std::exception_ptr error;
   std::exception_ptr drain_error = std::make_exception_ptr(std::runtime_error("resident quiescence unproven"));
   uint64_t allocation_id = 0;
-  size_t uploads = 0, downloads = 0, copies = 0;
+  size_t uploads = 0, downloads = 0, copies = 0, parameter_uploads = 0;
   bool closed = false, quiescent = true;
   State(std::shared_ptr<Driver> d, Limits limits)
       : driver(std::move(d)), base(driver->layout()), device{driver->ordinal(), next_session()},
@@ -91,6 +100,26 @@ struct State : std::enable_shared_from_this<State> {
     driver->attach_once();
   }
   void open() const { require(!closed && !error, "resident session closed or poisoned"); }
+  void compatible(const PolynomialLayout &p) const {
+    validate(p);
+    require(*p.parameters == *base.parameters && p.active_q <= base.active_q,
+            "foreign resident conversion parameters");
+    const auto it = std::find(base.towers.begin(), base.towers.end(), p.towers.front());
+    require(it != base.towers.end() && p.towers.size() <= static_cast<size_t>(base.towers.end() - it)
+              && std::equal(p.towers.begin(), p.towers.end(), it),
+            "layout is not a contiguous subset of the session basis");
+  }
+  void conversion_input(const PolynomialLayout &p, bool up) const {
+    compatible(p);
+    require(base.towers == qp_basis(*base.parameters, base.active_q)
+              && p.active_q == base.active_q && p.active_q <= 40
+              && base.parameters->p().size() <= 40,
+            "conversion requires a session with active Q then 1..40 P towers");
+    require(p.towers == (up ? q_prefix(*p.parameters, p.active_q)
+                            : qp_basis(*p.parameters, p.active_q)),
+            "conversion requires complete active Q or QP in original order");
+    require(up || p.domain == Domain::Evaluation, "ModDown requires evaluation input");
+  }
   void check(const Polynomial &p) const {
     require(p.state_.get() == this && p.allocation_ && p.producer_, "foreign or empty polynomial");
     const auto it = registry.find(p.view_.allocation.id);
@@ -223,7 +252,8 @@ Stats Session::stats() const {
   size_t pending = 0;
   for (const auto &op : state_->operations) pending += op->record.outcome == Outcome::Pending;
   return {state_->operations.size(), pending, state_->budget->device, state_->budget->host,
-          state_->uploads, state_->downloads, state_->copies, state_->closed, bool(state_->error), state_->quiescent};
+          state_->uploads, state_->downloads, state_->copies, state_->parameter_uploads,
+          state_->closed, bool(state_->error), state_->quiescent};
 }
 std::vector<CompletionRecord> Session::history() const {
   require(bool(state_), "moved session");
@@ -241,6 +271,12 @@ Polynomial Session::upload_evaluation(std::span<const uint64_t> values, std::spa
   auto layout = transform_layout(state_->base, false);
   validate_host_values(layout, values);
   return upload_checked(layout, values, waits);
+}
+Polynomial Session::upload(const PolynomialLayout &p, std::span<const uint64_t> values,
+                            std::span<const Completion> waits) {
+  require(bool(state_), "moved session"); state_->open(); state_->compatible(p);
+  validate_host_values(p, values);
+  return upload_checked(p, values, waits);
 }
 Polynomial Session::upload_checked(const PolynomialLayout &layout, std::span<const uint64_t> values,
                                     std::span<const Completion> waits) {
@@ -287,6 +323,112 @@ Polynomial Session::pointwise(const Polynomial &left, const Polynomial &right, s
     s.finish(op);
     return s.output(a, op);
   } catch (...) { s.fail(std::current_exception()); throw; }
+}
+Polynomial Session::switch_basis(const Polynomial &input, const PolynomialLayout &target,
+                                 std::span<const Completion> waits) {
+  require(bool(state_), "moved session"); auto &s = *state_; s.open(); s.check(input);
+  s.compatible(input.layout_); s.compatible(target);
+  require(input.layout_.domain == Domain::Coefficient && target.domain == Domain::Coefficient
+            && input.layout_.active_q == target.active_q,
+          "basis switching requires coefficient layouts at the same active level");
+  std::vector<uint64_t> from, to;
+  for (auto t : input.layout_.towers) from.push_back(target.parameters->tower(t).q);
+  for (auto t : target.towers) to.push_back(target.parameters->tower(t).q);
+  const auto packed = detail::pack_basis(ApproximateBasisPlan(std::move(from), std::move(to)));
+  auto staging = std::make_shared<detail::HostStorage>(s.budget, packed.size());
+  std::copy(packed.begin(), packed.end(), staging->values.begin());
+  auto constants = std::make_shared<detail::DeviceStorage>(s.budget, packed.size());
+  auto a = s.reserve(target);
+  auto op = s.begin({input.allocation_, a}, {input.producer_}, waits, staging);
+  op->constants = constants; // Retained before the first possible enqueue.
+  try {
+    op->event = s.driver->make_event();
+    a->buffer = s.driver->allocate(bytes(target) / sizeof(uint64_t));
+    constants->buffer = s.driver->allocate(packed.size());
+    require(bool(a->buffer) && bool(constants->buffer) && bool(op->event), "driver returned null resource");
+    s.driver->upload(*constants->buffer, staging->values); ++s.parameter_uploads;
+    s.driver->switch_basis(*a->buffer, *input.allocation_->buffer, s.offset(input),
+                            *constants->buffer, input.layout_, target);
+    s.finish(op);
+    return s.output(a, op);
+  } catch (...) { s.fail(std::current_exception()); throw; }
+}
+Polynomial Session::join(const Polynomial &left, const Polynomial &right) {
+  auto &s = *state_; s.open(); s.check(left); s.check(right);
+  require(*left.layout_.parameters == *right.layout_.parameters
+            && left.layout_.active_q == right.layout_.active_q
+            && left.layout_.domain == right.layout_.domain
+            && left.layout_.order == right.layout_.order, "incompatible join layouts");
+  auto layout = left.layout_;
+  layout.towers.insert(layout.towers.end(), right.layout_.towers.begin(), right.layout_.towers.end());
+  s.compatible(layout);
+  auto a = s.reserve(layout);
+  auto op = s.begin({left.allocation_, right.allocation_, a}, {left.producer_, right.producer_}, {});
+  try {
+    op->event = s.driver->make_event();
+    a->buffer = s.driver->allocate(bytes(layout) / sizeof(uint64_t));
+    require(bool(a->buffer) && bool(op->event), "driver returned null resource");
+    const auto first_count = bytes(left.layout_) / sizeof(uint64_t);
+    s.driver->copy_range(*a->buffer, 0, *left.allocation_->buffer, s.offset(left), first_count); ++s.copies;
+    s.driver->copy_range(*a->buffer, first_count, *right.allocation_->buffer, s.offset(right),
+                          bytes(right.layout_) / sizeof(uint64_t)); ++s.copies;
+    s.finish(op);
+    return s.output(a, op);
+  } catch (...) { s.fail(std::current_exception()); throw; }
+}
+Polynomial Session::correct(const Polynomial &left, const Polynomial &right) {
+  auto &s = *state_; s.open(); s.check(left); s.check(right);
+  const auto layout = pointwise_layout(left.layout_, right.layout_);
+  std::vector<uint64_t> packed;
+  for (auto t : layout.towers) packed.push_back(layout.parameters->tower(t).q);
+  const auto moduli = packed;
+  for (auto q : moduli) {
+    uint64_t product = 1;
+    for (auto p : layout.parameters->p()) product = mul_mod(product, p.q % q, q);
+    packed.push_back(inv_mod(product, q));
+  }
+  auto staging = std::make_shared<detail::HostStorage>(s.budget, packed.size());
+  std::copy(packed.begin(), packed.end(), staging->values.begin());
+  auto constants = std::make_shared<detail::DeviceStorage>(s.budget, packed.size());
+  auto a = s.reserve(layout);
+  auto op = s.begin({left.allocation_, right.allocation_, a}, {left.producer_, right.producer_}, {}, staging);
+  op->constants = constants;
+  try {
+    op->event = s.driver->make_event();
+    a->buffer = s.driver->allocate(bytes(layout) / sizeof(uint64_t));
+    constants->buffer = s.driver->allocate(packed.size());
+    require(bool(a->buffer) && bool(constants->buffer) && bool(op->event), "driver returned null resource");
+    s.driver->upload(*constants->buffer, staging->values); ++s.parameter_uploads;
+    s.driver->correct(*a->buffer, *left.allocation_->buffer, s.offset(left),
+                      *right.allocation_->buffer, s.offset(right), *constants->buffer, layout);
+    s.finish(op);
+    return s.output(a, op);
+  } catch (...) { s.fail(std::current_exception()); throw; }
+}
+Polynomial Session::mod_up(const Polynomial &input, std::span<const Completion> waits) {
+  require(bool(state_), "moved session"); auto &s = *state_; s.open(); s.check(input);
+  s.conversion_input(input.layout_, true);
+  auto p_layout = s.base;
+  p_layout.towers.erase(p_layout.towers.begin(), p_layout.towers.begin() + s.base.active_q);
+  Polynomial coefficients, evaluations;
+  if (input.layout_.domain == Domain::Coefficient) {
+    coefficients = input;
+    evaluations = forward(input, waits);
+  } else {
+    evaluations = input;
+    coefficients = inverse(input, waits);
+  }
+  auto p_coefficients = switch_basis(coefficients, p_layout);
+  return join(evaluations, forward(p_coefficients));
+}
+Polynomial Session::mod_down(const Polynomial &input, std::span<const Completion> waits) {
+  require(bool(state_), "moved session"); auto &s = *state_; s.open(); s.check(input);
+  s.conversion_input(input.layout_, false);
+  auto q = subview(input, 0, input.layout_.active_q, input.layout_.active_q);
+  auto p = subview(input, input.layout_.active_q, input.layout_.parameters->p().size(), input.layout_.active_q);
+  const auto q_coefficient = transform_layout(q.layout_, true);
+  auto correction = forward(switch_basis(inverse(p, waits), q_coefficient));
+  return correct(q, correction);
 }
 Polynomial Session::subview(const Polynomial &p, size_t first, size_t count, size_t active_q) {
   require(bool(state_), "moved session"); auto &s = *state_; s.open(); s.check(p);

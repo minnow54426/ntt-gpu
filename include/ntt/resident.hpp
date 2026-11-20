@@ -25,6 +25,7 @@ struct Limits {
 struct Stats {
   size_t submitted, pending, device_bytes, host_bytes;
   size_t uploads, downloads, device_copies;
+  size_t parameter_uploads;
   bool closed, poisoned, quiescent;
 };
 class Completion {
@@ -75,6 +76,8 @@ class Session {
   std::shared_ptr<detail::State> state_;
   Polynomial upload_checked(const PolynomialLayout &, std::span<const uint64_t>, std::span<const Completion>);
   Polynomial transform(const Polynomial &, bool inverse, std::span<const Completion>);
+  Polynomial join(const Polynomial &, const Polynomial &);
+  Polynomial correct(const Polynomial &, const Polynomial &);
 public:
   // Driver injection is a test/prototype seam. Only make_cuda_session creates
   // the real CUDA transport; no automatic host fallback exists.
@@ -88,11 +91,22 @@ public:
   Stats stats() const;
   std::vector<CompletionRecord> history() const;
   Polynomial upload(std::span<const uint64_t>, std::span<const Completion> waits = {});
+  // Explicit whole-tower subset of the session's precomputed basis.
+  Polynomial upload(const PolynomialLayout &, std::span<const uint64_t>,
+                    std::span<const Completion> waits = {});
   Polynomial upload_evaluation(std::span<const uint64_t>, std::span<const Completion> waits = {});
   Polynomial forward(const Polynomial &, std::span<const Completion> waits = {});
   Polynomial inverse(const Polynomial &, std::span<const Completion> waits = {});
   Polynomial pointwise(const Polynomial &, const Polynomial &,
                        std::span<const Completion> waits = {});
+  // Coefficient-domain unreduced approximate CRT; source/target are disjoint.
+  Polynomial switch_basis(const Polynomial &, const PolynomialLayout &target,
+                          std::span<const Completion> waits = {});
+  // CKKS / reduced-noise OFF. The session basis must be active Q followed by P.
+  // ModUp accepts coefficient or evaluation Q and returns evaluation QP.
+  // ModDown requires evaluation QP and returns evaluation Q.
+  Polynomial mod_up(const Polynomial &, std::span<const Completion> waits = {});
+  Polynomial mod_down(const Polynomial &, std::span<const Completion> waits = {});
   Polynomial subview(const Polynomial &, size_t first_tower, size_t count, size_t active_q);
   Download download(const Polynomial &, std::span<const Completion> waits = {});
   Download multiply(std::span<const uint64_t>, std::span<const uint64_t>);

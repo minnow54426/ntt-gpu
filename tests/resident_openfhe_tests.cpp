@@ -6,6 +6,7 @@
 #include "lattice/lat-hal.h"
 #include "math/math-hal.h"
 #include "math/nbtheory.h"
+#include "support/resident_conversion_cases.hpp"
 #include <bit>
 #include <iostream>
 
@@ -104,6 +105,7 @@ int main(int argc, char **argv) {
     const bool smoke = argc == 2 && std::string(argv[1]) == "--smoke";
     if (argc != 1 && !smoke) throw std::invalid_argument("usage: resident exact test [--smoke]");
     run(smoke);
+    comparisons += resident_conversion_cases::run(session, smoke);
 #ifdef NTT_RESIDENT_CUDA
     std::cout << "NATIVE CUDA RESIDENT EXACT CHECKS: ";
 #else

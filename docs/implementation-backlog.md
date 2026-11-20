@@ -241,6 +241,14 @@ reported compute 8.9 on November 19. Hybrid tests exercise the candidate's digit
 against independent BigInteger answers. Resident GPU composition and primary-device
 acceptance remain open.
 
+November 20 local preparation connects coefficient basis switching, ModUp
+and ModDown to the immutable resident session. Per-operation parameter tables
+are budgeted and pinned until completion, and no intermediate polynomial
+download is required. The shared host/native fixture compares both ModUp input
+formats and independent ModDown against OpenFHE; the new CUDA path requires
+its own native run. Full Hybrid execution, conversion-plan caching and
+production acceptance remain open.
+
 
 Upstream entry points: [`ApproxSwitchCRTBasis`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L938-L982) and [`ApproxModDown`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L1020-L1055).
 

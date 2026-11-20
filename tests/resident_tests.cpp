@@ -219,11 +219,99 @@ void query_failure_and_evaluation_input() {
   rejects([&] { close_error.close(); }, "close reports deferred cleanup errors");
   check(close_error.stats().poisoned && close_error.stats().closed, "cleanup error stops admission");
 }
+void conversion_chain_and_failures() {
+  auto p = layout(3, 2), q = p;
+  q.towers = q_prefix(*p.parameters, 3);
+  auto driver = std::make_shared<HostDriver>(p); Session s(driver);
+  auto values = input(p, 17);
+  auto uploaded = s.upload(p, values);
+  auto source = s.subview(uploaded, 0, 3, 3);
+  auto extended = s.mod_up(source);
+  auto reduced = s.mod_down(extended);
+  check(s.stats().downloads == 0 && s.stats().uploads == 1 && s.stats().parameter_uploads == 3,
+        "ModUp/ModDown has no intermediate polynomial transfers; parameter copies are separate");
+  check(driver->trace->executed == 0, "conversion composition must not wait on the host");
+  auto output = s.download(reduced);
+  validate_host_values(q, output.wait_values());
+  equal(s.download(uploaded).wait_values(), values, "conversion must preserve all input towers");
+  auto up_values = s.download(extended);
+  auto second = s.mod_up(s.forward(source));
+  equal(s.download(second).wait_values(), {up_values.wait_values().begin(), up_values.wait_values().end()},
+        "coefficient and evaluation ModUp agree");
+  auto p_part = s.subview(uploaded, 3, 2, 3);
+  auto switched = s.switch_basis(p_part, q);
+  const auto &qs = p.parameters->q(); const auto &ps = p.parameters->p();
+  ntt::ApproximateBasisPlan reference({ps[0].q, ps[1].q}, {qs[0].q, qs[1].q, qs[2].q});
+  equal(s.download(switched).wait_values(), reference.convert(8, std::span<const uint64_t>(values).subspan(24)),
+        "basis switch respects nonzero allocation offset");
+  const auto before = driver->trace->calls;
+  rejects([&] { s.mod_down(uploaded); }, "ModDown rejects coefficient input");
+  rejects([&] { s.mod_up(uploaded); }, "ModUp rejects QP input");
+  rejects([&] { s.switch_basis(source, q); }, "overlapping conversion bases rejected");
+  rejects([&] { s.switch_basis(extended, q); }, "basis conversion rejects evaluation input");
+  auto wrong_level = q; wrong_level.active_q = 2; wrong_level.towers.resize(2);
+  rejects([&] { s.upload(wrong_level, std::span<const uint64_t>(values).first(8)); }, "subset upload length checked");
+  check(driver->trace->calls == before, "bad conversion metadata submits no transport work");
+
+  // New parameter buffers and queued staging must unwind across every actual
+  // driver step, including errors after work was enqueued but before an event.
+  auto chain = [&](Session &session) {
+    auto a = session.upload(q, std::span<const uint64_t>(values).first(24));
+    return session.download(session.mod_down(session.mod_up(a)));
+  };
+  auto baseline_driver = std::make_shared<HostDriver>(p);
+  { Session baseline(baseline_driver); chain(baseline).wait_values(); }
+  const auto calls = baseline_driver->trace->calls;
+  for (size_t step = 1; step <= calls; ++step) {
+    auto failing = std::make_shared<HostDriver>(p); failing->trace->fail_step = step;
+    bool failed = false;
+    { Session test(failing); try { chain(test).wait_values(); } catch (...) { failed = true; } }
+    check(failed, "injected conversion transport failure observed");
+    check(failing->trace->live_buffers == 0 && failing->trace->live_events == 0,
+          "failed conversion releases tables, outputs and events after drain");
+  }
+  for (auto step : baseline_driver->trace->enqueue_calls) {
+    auto failing = std::make_shared<HostDriver>(p); failing->trace->partial_step = step;
+    bool failed = false;
+    { Session retry(failing); try { chain(retry).wait_values(); } catch (...) { failed = true; } }
+    check(failed, "conversion failure after every enqueue is observed");
+    check(failing->trace->live_buffers == 0 && failing->trace->live_events == 0,
+          "partially submitted conversion drains before releasing resources");
+  }
+  auto partial = std::make_shared<HostDriver>(p);
+  Session test(partial); auto a = test.upload(q, std::span<const uint64_t>(values).first(24));
+  partial->trace->allow_drain = false;
+  // make_event, output allocation, parameter allocation, then parameter upload.
+  partial->trace->partial_step = partial->trace->calls + 4;
+  auto p_target = p; p_target.towers.erase(p_target.towers.begin(), p_target.towers.begin()+3);
+  rejects([&] { test.switch_basis(a, p_target); }, "partially submitted constant upload fails");
+  a = {};
+  check(test.stats().poisoned && partial->trace->live_buffers >= 3 && test.stats().host_bytes > 0,
+        "unproven drain keeps conversion constants, staging and input alive");
+  partial->trace->allow_drain = true;
+  rejects([&] { test.close(); }, "later successful drain still reports original failure");
+  check(partial->trace->live_buffers == 0 && test.stats().device_bytes == 0 && test.stats().host_bytes == 0,
+        "successful retry reclaims conversion budget and parameter resources");
+  auto limited = std::make_shared<HostDriver>(p); Session low(limited, {400, 4096, 100});
+  auto source_low = low.upload(q, std::span<const uint64_t>(values).first(24));
+  source_low.readiness().wait();
+  const auto prior_calls = limited->trace->calls;
+  rejects([&] { low.switch_basis(source_low, p_target); }, "conversion table bytes count against device limit");
+  check(limited->trace->calls == prior_calls && low.stats().device_bytes == 192 && !low.stats().poisoned,
+        "device admission failure restores credits without enqueue");
+  auto host_limited = std::make_shared<HostDriver>(p); Session low_host(host_limited, {4096, 256, 100});
+  auto source_host = low_host.upload(q, std::span<const uint64_t>(values).first(24));
+  const auto host_calls = host_limited->trace->calls;
+  rejects([&] { low_host.switch_basis(source_host, p_target); }, "queued parameter staging counts against host limit");
+  check(host_limited->trace->calls == host_calls && low_host.stats().host_bytes == 192 && !low_host.stats().poisoned,
+        "host admission failure preserves earlier queued uploads");
+}
 } // namespace
 int main() {
   try {
     chain_and_leases(); rejection_and_views(); budgets(); failure_matrix();
     partial_and_quarantine(); abandonment_and_bad_output(); query_failure_and_evaluation_input();
+    conversion_chain_and_failures();
     std::cout << checks << " RESIDENT HOST CONTROL CHECKS PASSED; NO GPU EXECUTION\n";
   } catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
 }

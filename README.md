@@ -121,6 +121,11 @@ log retains resources needed by unfinished work. Its CPU driver and CUDA adapter
 pass exact OpenFHE comparisons. The November 19 native Ada batch also passed
 the selected sanitizer checks. Production OpenFHE integration remains planned.
 
+The November 20 [resident basis-conversion addition](docs/basis-conversion-preparation.md#keep-modup-and-moddown-in-the-resident-chain)
+composes ModUp and ModDown without intermediate polynomial downloads. Its
+CPU/OpenFHE and failure checks pass, and both CUDA schedules compile. That
+new composition still needs its own native GPU and sanitizer run.
+
 Both backends use the same negacyclic transform convention:
 
 ```text

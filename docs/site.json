@@ -152,10 +152,10 @@
       "url": "basis-conversion-preparation.html",
       "title": "Prepare basis conversion",
       "group": "Learn",
-      "summary": "Check approximate CRT conversion and constant multiplication before the GPU session.",
+      "summary": "Understand approximate CRT and compose basis conversion with resident NTT operations.",
       "takeaways": [
         "Preserve OpenFHE's unreduced CRT sum and source-tower order when constructing conversion plans.",
-        "The Shoup and conversion probes passed the November 19 native Ada batch and compiled for sm_120."
+        "Standalone probes passed the November 19 Ada run. The newer resident ModUp/ModDown chain passes CPU tests and CUDA compilation; its GPU run is pending."
       ],
       "next_page": "next-gpu-rental.html"
     },

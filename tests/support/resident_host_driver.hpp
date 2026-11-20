@@ -2,6 +2,7 @@
 // Deferred CPU transport for runtime tests. Never represents GPU execution.
 #include "ntt/resident_driver.hpp"
 #include "ntt/ntt.hpp"
+#include "ntt/resident_conversion.hpp"
 #include <functional>
 
 namespace resident_test {
@@ -68,6 +69,15 @@ public:
     auto *a = &buffer(out); auto *b = &buffer(input);
     enqueue([a, b, offset, n] { std::copy_n(b->values.begin() + offset, n, a->values.begin()); });
   }
+  void copy_range(detail::Buffer &out, size_t destination, const detail::Buffer &input,
+                   size_t source, size_t n) override {
+    auto *a = &buffer(out); auto *b = &buffer(input);
+    ntt::proposal::require(destination <= a->values.size() && n <= a->values.size() - destination
+        && source <= b->values.size() && n <= b->values.size() - source, "host copy range extent");
+    enqueue([a, b, destination, source, n] {
+      std::copy_n(b->values.begin() + source, n, a->values.begin() + destination);
+    });
+  }
   void transform(detail::Buffer &out, const PolynomialLayout &p, bool inverse) override {
     auto *b = &buffer(out);
     enqueue([b, p, inverse] {
@@ -90,6 +100,27 @@ public:
         for (size_t i = 0; i < n; ++i)
           a->values[k * n + i] = ntt::mul_mod(a->values[k * n + i], b->values[offset + k * n + i],
                                              p.parameters->tower(p.towers[k]).q);
+    });
+  }
+  void switch_basis(detail::Buffer &out, const detail::Buffer &input, size_t offset,
+                     const detail::Buffer &constants, const PolynomialLayout &source,
+                     const PolynomialLayout &target) override {
+    auto *a = &buffer(out); auto *b = &buffer(input); auto *table = &buffer(constants);
+    enqueue([a, b, table, offset, source, target] {
+      for (size_t i = 0; i < a->values.size(); ++i)
+        a->values[i] = ntt::resident::detail::resident_basis_value(b->values.data() + offset,
+            source.parameters->n(), i, source.towers.size(), target.towers.size(), table->values.data());
+    });
+  }
+  void correct(detail::Buffer &out, const detail::Buffer &left, size_t left_offset,
+                 const detail::Buffer &right, size_t right_offset, const detail::Buffer &constants,
+                 const PolynomialLayout &layout) override {
+    auto *a = &buffer(out); auto *b = &buffer(left); auto *c = &buffer(right); auto *table = &buffer(constants);
+    enqueue([a, b, c, table, left_offset, right_offset, layout] {
+      for (size_t i = 0; i < a->values.size(); ++i)
+        a->values[i] = ntt::resident::detail::resident_correction_value(
+            b->values[left_offset+i], c->values[right_offset+i], i/layout.parameters->n(),
+            layout.towers.size(), table->values.data());
     });
   }
   void download(std::span<uint64_t> destination, const detail::Buffer &input, size_t offset) override {

@@ -6,6 +6,12 @@ The results and CUDA timeline were copied to the M1 Pro and verified.
 RTX 5090 hardware acceptance remains open. The queue below can be reused for
 that device after the next group of changes is ready.
 
+The November 20 resident ModUp/ModDown composition is a later source change.
+Its extended `resident_cuda_exact` fixture and `--smoke` cases must pass on
+the next GPU run. The earlier native result covers standalone conversion
+and the earlier resident NTT chain. See the
+[conversion guide](basis-conversion-preparation.md#keep-modup-and-moddown-in-the-resident-chain).
+
 - The collector runs two versions: the new group-twiddle schedule and the
   older, or legacy, schedule. It checks that both use the same inputs and GPU,
   and saves each version’s results separately.

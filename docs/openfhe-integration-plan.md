@@ -16,7 +16,7 @@ acceptance checks pass.
 
 Target OpenFHE 1.6.1, N=65536, RTX 5090 primary and RTX 4090 control. Baseline
 benchmarks also span N=4096–65536 and 30/50/55/60-bit primes in `uint64_t`.
-Last reviewed: 2026-11-19 (Asia/Shanghai).
+Last reviewed: 2026-11-20 (Asia/Shanghai).
 
 ## Live tracker
 
@@ -24,7 +24,7 @@ Last reviewed: 2026-11-19 (Asia/Shanghai).
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Analyze the November 19 Ada batch locally and prepare the next combined RTX 5090 session |
+| Active task | Run the prepared resident conversion checks on RTX 5090; analyze the November 19 timings when the raw archive is available |
 | Next gate | P2: compare CUDA and OpenFHE answers on real hardware, then record the GPU and baseline measurements (D11–D15) |
 | Overall state | In progress; the temporary Ada GPU was tested, while primary-device and other required P2 checks remain unfinished |
 
@@ -145,6 +145,12 @@ then passed the new resident, Shoup and conversion checks on reported compute
 the pair. All 48 paired measurement jobs, four resident repeat runs and a CUDA
 timeline were exported and verified locally. Primary-device acceptance, actual
 driver/context failure handling and hardware-counter profiling remain open.
+
+November 20 preparation adds resident ModUp/ModDown composition. CPU/OpenFHE
+checks, failure tests and both CUDA schedule builds pass locally. The new
+conversion fixture is part of the existing native resident gate and its
+sanitizer smoke. That later code still needs a real GPU run. The November 19
+performance analysis also awaits its raw archive in this workspace.
 
 Next session: run the current native checks, resident sanitizer scope and
 per-pass profiling on an actual RTX 5090. Use the
