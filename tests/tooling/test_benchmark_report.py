@@ -6,6 +6,7 @@ import sys
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 from benchmark_report import OPERATIONS, TIMING_OPERATIONS, validate_jsonl
+from benchmark_fixture import conversion_parameters
 
 
 def fixture():
@@ -44,6 +45,8 @@ class BenchmarkReportTests(unittest.TestCase):
             for dimension in [4096, 8192, 16384, 32768, 65536]:
                 rows = fixture()
                 rows[0].update(n=dimension, timing=timing)
+                if timing == "host_wall_resident_conversion":
+                    rows[0].update(conversion_parameters(dimension))
                 template = rows[1:6]
                 rows = rows[:1]
                 for operation in operations:

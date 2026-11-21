@@ -14,11 +14,13 @@ MAX_TOWERS = 40
 SCOPES = {'public': ('ntt_cuda_cli', 'bench-jsonl', 'host_wall_public_call'),
           'gpu-public': ('ntt_cuda_cli', 'gpu-bench-jsonl', 'host_wall_gpu_public_call'),
           'events': ('ntt_cuda_cli', 'events-jsonl', 'cuda_event_resident_and_pinned_copy'),
+          'conversion': ('ntt_resident_conversion_bench', None, 'host_wall_resident_conversion'),
           'chain': ('ntt_resident_bench', None, 'host_wall_resident_chain'),
           'openfhe': ('ntt_openfhe_bench', None, 'host_wall_openfhe_native')}
 SCOPE_GROUPS = {'all': ('public', 'events', 'openfhe'),
                 'gpu': ('gpu-public', 'events'),
-                'gpu-chain': ('gpu-public', 'events', 'chain'), 'cpu': ('openfhe',)}
+                'gpu-chain': ('gpu-public', 'events', 'chain'),
+                'gpu-conversion': ('gpu-public', 'events', 'chain', 'conversion'), 'cpu': ('openfhe',)}
 
 
 def benchmark_scope(args):
@@ -161,7 +163,8 @@ def collect_batch(session, hardware_identity):
         session.report['benchmark_errors'] = errors
         raise RuntimeError(f'{len(errors)} benchmark jobs failed; completed jobs retained for --resume')
     suffix = {'all': 'PUBLIC_EVENTS_OPENFHE', 'gpu': 'GPU_PUBLIC_EVENTS',
-              'gpu-chain': 'GPU_PUBLIC_EVENTS_CHAIN', 'cpu': 'CPU_OPENFHE'}[scope_group]
+              'gpu-chain': 'GPU_PUBLIC_EVENTS_CHAIN',
+              'gpu-conversion': 'GPU_PUBLIC_EVENTS_CHAIN_CONVERSION', 'cpu': 'CPU_OPENFHE'}[scope_group]
     session.report['benchmark'] = f'PASS_{"_".join(map(str, prime_bits))}_BIT_{suffix}'
 
 

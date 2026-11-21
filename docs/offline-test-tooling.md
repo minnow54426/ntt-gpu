@@ -153,6 +153,14 @@ explicit completion marker. Percentiles use linear interpolation at
 | `ntt_resident_bench parameters.txt 2 10` | Host-wall time for the device-resident chain, public host boundary, and explicit host-roundtrip control |
 | `ntt_openfhe_bench parameters.txt 5 100` | Four OpenFHE NativeVector/CRT-FTT CPU operations |
 
+Select `--benchmark-scope gpu-conversion` to add six ModUp/ModDown timing
+operations to the GPU and resident NTT scopes. The active Q count is the
+parameter file's tower count, with three disjoint 60-bit P primes recorded
+alongside it. The four resident operations exclude the final verification
+download. The host controls include input/output copies and optionally the
+intermediate QP roundtrip. Session setup is excluded, while conversion
+parameter setup inside each operation is included.
+
 Select `--benchmark-scope gpu-chain` to add the resident prototype timings
 to the GPU public and CUDA-event records. For the device chain, inputs are
 uploaded once and the timer ends when the coefficient output is ready on the

@@ -15,7 +15,7 @@ from benchmark_batch import (DIMENSIONS, MAX_TOWERS, PRIME_BITS, TOWER_COUNTS, S
 ROOT = Path(__file__).resolve().parents[1]
 GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection', 'cuda_benchmark_matrix_exact', 'resident_cuda_exact', 'cuda_basis_exact', 'cuda_shoup_exact'}
 OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph', 'openfhe_basis_conversion', 'basis_openfhe_exact', 'openfhe_benchmark_protocol', 'resident_openfhe_host'}
-HOST_TESTS = {'cuda_host_validation', 'setup_ownership_host', 'measurement_host', 'resident_runtime_host', 'resident_benchmark_host', 'basis_conversion_bigint'}
+HOST_TESTS = {'cuda_host_validation', 'setup_ownership_host', 'measurement_host', 'resident_runtime_host', 'resident_benchmark_host', 'resident_conversion_benchmark_host', 'basis_conversion_bigint'}
 NTT_SCHEDULES = {'group_twiddle_ct': 'OFF', 'legacy_dif': 'ON'}
 
 
@@ -218,7 +218,7 @@ class Session:
                     raise RuntimeError('CUDA executable does not report requested NTT schedule')
                 self.report['gpu_execution'] = 'RUNNING'
                 exact = [args.ctest, '--test-dir', build, '--output-on-failure']
-                if benchmark_scope(args) in ('gpu', 'gpu-chain'):
+                if benchmark_scope(args) in ('gpu', 'gpu-chain', 'gpu-conversion'):
                     # Native tests still run their OpenFHE references and CTest fixtures.
                     exact += ['-L', 'gpu']
                     self.report['exact_test_label'] = 'gpu'
@@ -226,6 +226,12 @@ class Session:
                 self.report['gpu_execution'] = 'EXACT_TESTS_PASS'
                 if not args.skip_sanitizers:
                     self.report['sanitizers'] = 'RUNNING'
+                    conversion_smoke = None
+                    if benchmark_scope(args) == 'gpu-conversion':
+                        conversion_smoke = self.output / 'conversion-smoke-n4096-k40-b60.txt'
+                        self.run('conversion-smoke-parameters', [sys.executable,
+                            self.root / 'tests/oracle/gen_vectors.py', '--zero-coefficients',
+                            conversion_smoke, '4096', '40', '1', '60'])
                     for sanitizer in ['memcheck', 'racecheck', 'initcheck', 'synccheck']:
                         self.run('sanitizer-' + sanitizer, ['compute-sanitizer', '--tool', sanitizer,
                             '--error-exitcode', '1', build / 'ntt_cuda_openfhe_tests', '--smoke'])
@@ -237,8 +243,14 @@ class Session:
                             '--error-exitcode', '1', build / 'ntt_basis_cuda_tests', '--smoke'])
                         self.run('sanitizer-shoup-' + sanitizer, ['compute-sanitizer', '--tool', sanitizer,
                             '--error-exitcode', '1', build / 'ntt_shoup_cuda_tests'])
+                        if conversion_smoke:
+                            self.run('sanitizer-conversion-benchmark-' + sanitizer,
+                                ['compute-sanitizer', '--tool', sanitizer, '--error-exitcode', '1',
+                                 build / 'ntt_resident_conversion_bench', conversion_smoke, '1', '2'])
                     self.report['sanitizers'] = 'SMOKE_MATRIX_PASS'
                     self.report['sanitizer_scopes'] = ['baseline_smoke', 'matrix_smoke', 'resident_smoke', 'basis_smoke', 'shoup_exact']
+                    if conversion_smoke:
+                        self.report['sanitizer_scopes'].append('conversion_benchmark_smoke')
                 else:
                     self.report['sanitizers'] = 'EXPLICITLY_SKIPPED'
                 if args.benchmark:
@@ -359,7 +371,7 @@ def parser():
     result.add_argument('--compare-ntt', action='store_true', help='Build and record both CUDA schedules separately')
     result.add_argument('--benchmark-prime-bits', type=int, nargs='+', choices=PRIME_BITS, default=list(PRIME_BITS))
     result.add_argument('--benchmark-scope', choices=SCOPE_GROUPS,
-                        help='Default: all in GPU mode, cpu in CPU mode; gpu selects public/events; gpu-chain adds the resident chain')
+                        help='Default: all in GPU mode, cpu in CPU mode; gpu selects public/events; gpu-chain adds the NTT chain; gpu-conversion adds ModUp/ModDown')
     result.add_argument('--benchmark-warmups', type=int, default=5)
     result.add_argument('--benchmark-samples', type=int, default=100)
     result.add_argument('--benchmark-dimensions', type=int, nargs='+', choices=DIMENSIONS, default=list(DIMENSIONS))
@@ -381,7 +393,7 @@ def main(argv=None):
                 or args.profile or args.skip_sanitizers):
             cli.error('--compare-ntt requires fresh offline/GPU records; no schedule override, dirty runs, profiling or skipped sanitizers')
         if args.mode == 'gpu':
-            if not args.benchmark or args.benchmark_scope not in (None, 'gpu', 'gpu-chain'):
+            if not args.benchmark or args.benchmark_scope not in (None, 'gpu', 'gpu-chain', 'gpu-conversion'):
                 cli.error('GPU comparison requires --benchmark and GPU-only scope')
             args.benchmark_scope = args.benchmark_scope or 'gpu'
     if args.ntt_schedule and args.mode == 'cpu':
@@ -400,7 +412,7 @@ def main(argv=None):
         cli.error('--jobs must be positive')
     if not 1 <= args.benchmark_warmups <= 10000 or not 2 <= args.benchmark_samples <= 100000:
         cli.error('benchmark requires 1..10000 warmups and 2..100000 samples')
-    if args.benchmark_scope == 'gpu-chain' and args.benchmark_warmups + args.benchmark_samples > 200:
+    if args.benchmark_scope in ('gpu-chain', 'gpu-conversion') and args.benchmark_warmups + args.benchmark_samples > 200:
         cli.error('resident chain allows at most 200 warmups and samples combined')
     if not 1 <= args.command_timeout <= 7200:
         cli.error('--command-timeout must be 1..7200 seconds')

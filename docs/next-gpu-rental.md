@@ -6,6 +6,10 @@ The results and CUDA timeline were copied to the M1 Pro and verified.
 RTX 5090 hardware acceptance remains open. The queue below can be reused for
 that device after the next group of changes is ready.
 
+The [paired Ada analysis](paired-ntt-native-analysis.md) is complete on the
+M1 Pro. The November 21 conversion benchmark adds both ModUp input formats,
+independent ModDown, their resident composition and two host-boundary controls.
+
 The November 20 resident ModUp/ModDown composition is a later source change.
 Its extended `resident_cuda_exact` fixture and `--smoke` cases must pass on
 the next GPU run. The earlier native result covers standalone conversion
@@ -85,9 +89,20 @@ python3 scripts/gpu_session.py --mode gpu --compare-ntt --benchmark \
   --openfhe-prefix /path/to/openfhe \
   --build-dir build/ntt-ab-5090 --output-dir bench-results-ntt-ab-5090 \
   --benchmark-dimensions 4096 65536 --benchmark-towers 3 40 \
-  --benchmark-prime-bits 30 60 --benchmark-scope gpu-chain \
+  --benchmark-prime-bits 30 60 --benchmark-scope gpu-conversion \
   --benchmark-warmups 2 --benchmark-samples 10
 ```
+
+This selection records 32 measurement jobs per build, including eight
+conversion jobs. Every conversion sample is checked against pinned OpenFHE.
+Fixed NTT session setup is excluded. Per-call conversion parameter construction
+and upload, allocation and host orchestration are included. The final checks
+for resident operations download outside their timers. The two host controls
+include their boundary transfers.
+
+The conversion selection also runs its benchmark at N=4,096/K=40/60-bit,
+one warmup and two samples, under all four sanitizer tools. Those instrumented
+times belong to correctness logs. The paired timing sweep starts afterward.
 
 Both child runs include the new arithmetic and conversion probes. A conversion
 failure is retained with its test output and prevents timing that build.

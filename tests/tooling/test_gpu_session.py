@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from benchmark_report import TIMING_OPERATIONS
+from benchmark_fixture import conversion_parameters
 spec = importlib.util.spec_from_file_location('gpu_session', ROOT / 'scripts/gpu_session.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
@@ -86,8 +87,12 @@ class SessionTests(unittest.TestCase):
         with patch.object(module, 'compare_ntt', return_value=0) as compare:
             self.assertEqual(module.main(options + ['--benchmark-scope', 'gpu-chain']), 0)
             self.assertEqual(compare.call_args.args[0].benchmark_scope, 'gpu-chain')
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            module.main(options + ['--benchmark-scope', 'gpu-chain', '--benchmark-samples', '200'])
+        with patch.object(module, 'compare_ntt', return_value=0) as compare:
+            self.assertEqual(module.main(options + ['--benchmark-scope', 'gpu-conversion']), 0)
+            self.assertEqual(compare.call_args.args[0].benchmark_scope, 'gpu-conversion')
+        for scope in ('gpu-chain', 'gpu-conversion'):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                module.main(options + ['--benchmark-scope', scope, '--benchmark-samples', '200'])
         for flag in ('--skip-sanitizers', '--profile', '--allow-dirty'):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 module.main(options + [flag])
@@ -241,7 +246,7 @@ class SessionTests(unittest.TestCase):
             (root / 'build').mkdir()
             (root / 'openfhe').mkdir()
             (root / 'openfhe/libOPENFHEcore.a').write_text('mock library')
-            for binary in ['ntt_cuda_cli', 'ntt_openfhe_bench']:
+            for binary in ['ntt_cuda_cli', 'ntt_openfhe_bench', 'ntt_resident_bench', 'ntt_resident_conversion_bench']:
                 (root / 'build' / binary).write_text('mock executable bytes')
             commands = []
             names = module.OPENFHE_TESTS | module.HOST_TESTS | {'cuda_constructor_preflight', 'resident_cuda_preflight'}
@@ -278,7 +283,7 @@ class SessionTests(unittest.TestCase):
                     Path(vector).write_text(f'{dimension} {towers}\n' + ''.join(
                         f'{(1 << (bits - 1)) + 1 + i * 131072} {i + 2}\n' for i in range(towers)))
                 elif ('bench-jsonl' in command or 'gpu-bench-jsonl' in command or
-                      'events-jsonl' in command or command[0].endswith('ntt_openfhe_bench')):
+                      'events-jsonl' in command or command[0].endswith(('ntt_openfhe_bench', 'ntt_resident_bench', 'ntt_resident_conversion_bench'))):
                     if bad_benchmark:
                         output.write('not JSONL\n')
                         return SimpleNamespace(returncode=0)
@@ -287,6 +292,8 @@ class SessionTests(unittest.TestCase):
                     timing = ('host_wall_gpu_public_call' if 'gpu-bench-jsonl' in command else
                               'host_wall_public_call' if 'bench-jsonl' in command else
                               'cuda_event_resident_and_pinned_copy' if 'events-jsonl' in command else
+                              'host_wall_resident_chain' if command[0].endswith('ntt_resident_bench') else
+                              'host_wall_resident_conversion' if command[0].endswith('ntt_resident_conversion_bench') else
                               'host_wall_openfhe_native')
                     operations = TIMING_OPERATIONS[timing]
                     metadata = {'type': 'workload', 'schema': 1, 'n': 65536,
@@ -294,6 +301,8 @@ class SessionTests(unittest.TestCase):
                         'setup_included': False, 'towers': 3, 'warmups': warmups, 'samples': count,
                         'moduli': [(1 << (bits-1)) + 1 + i*131072 for i in range(3)],
                         'roots': [2, 3, 4], 'simulation': synthetic}
+                    if timing == 'host_wall_resident_conversion':
+                        metadata.update(conversion_parameters(65536))
                     output.write(json.dumps(metadata) + '\n')
                     for operation in sorted(operations):
                         for index in range(count):
@@ -372,6 +381,26 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(gate[-2:], ['-L', 'gpu'])
         self.assertEqual(report['exact_test_label'], 'gpu')
         self.assertEqual(report['registered_gpu_tests'], sorted(module.GPU_TESTS))
+
+    def test_conversion_selection_runs_after_native_gates(self):
+        code, report, commands = self.scenario(mode='gpu', scope='gpu-conversion')
+        self.assertEqual(code, 0)
+        self.assertEqual(report['benchmark_scopes'], ['gpu-public', 'events', 'chain', 'conversion'])
+        self.assertEqual(len(report['benchmark_summaries']), 16)
+        self.assertIn('conversion_benchmark_smoke', report['sanitizer_scopes'])
+        self.assertEqual(sum(stage['name'].startswith('sanitizer-conversion-benchmark-')
+                             and stage['status'] == 'PASS' for stage in report['stages']), 4)
+        self.assertEqual(sum(command[0].endswith('ntt_resident_conversion_bench') for command in commands), 4)
+        gate = next(command for command in commands if '--output-on-failure' in command)
+        self.assertEqual(gate[-2:], ['-L', 'gpu'])
+
+    def test_conversion_smoke_failure_prevents_measurement(self):
+        code, report, commands = self.scenario(mode='gpu', scope='gpu-conversion',
+            fail=lambda command: command[0] == 'compute-sanitizer' and
+                                 any(argument.endswith('ntt_resident_conversion_bench') for argument in command))
+        self.assertEqual(code, 1)
+        self.assertEqual(report['sanitizers'], 'FAIL')
+        self.assertFalse(any(command[0].endswith('ntt_resident_conversion_bench') for command in commands))
 
     def test_cpu_only_test_list_cannot_pass(self):
         code, report, _ = self.scenario(missing_gpu=True)

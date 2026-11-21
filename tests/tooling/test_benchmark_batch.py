@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from benchmark_batch import collect_batch, collect_profiles, DIMENSIONS, PRIME_BITS, TOWER_COUNTS
 from benchmark_report import TIMING_OPERATIONS
+from benchmark_fixture import conversion_parameters
 
 
 class FakeSession:
@@ -20,7 +21,7 @@ class FakeSession:
         self.root, self.output = ROOT, Path(directory)
         build = self.output / 'build'
         build.mkdir()
-        for binary in ('ntt_cuda_cli', 'ntt_openfhe_bench', 'ntt_resident_bench'):
+        for binary in ('ntt_cuda_cli', 'ntt_openfhe_bench', 'ntt_resident_bench', 'ntt_resident_conversion_bench'):
             (build / binary).write_text('synthetic executable identity')
         prefix = self.output / 'openfhe'
         prefix.mkdir()
@@ -60,6 +61,7 @@ class FakeSession:
                       'host_wall_public_call' if name.endswith('-public') else
                       'cuda_event_resident_and_pinned_copy' if name.endswith('-events') else
                       'host_wall_resident_chain' if name.endswith('-chain') else
+                      'host_wall_resident_conversion' if name.endswith('-conversion') else
                       'host_wall_openfhe_native')
             operations = TIMING_OPERATIONS[timing]
             rows = [{'type': 'workload', 'schema': 1, 'n': dimension, 'towers': towers,
@@ -67,7 +69,9 @@ class FakeSession:
                 'roots': [int(tokens[3 + 2 * i]) for i in range(towers)],
                 'timing': timing, 'input_policy': 'fixed_seed_reset_outside_timer',
                 'seed': 7492057, 'setup_included': False, 'warmups': 1, 'samples': 2}]
-            if name.endswith('-chain') and self.simulated_chain:
+            if name.endswith('-conversion'):
+                rows[0].update(conversion_parameters(dimension))
+            if name.endswith(('-chain', '-conversion')) and self.simulated_chain:
                 rows[0]['simulation'] = True
             if self.wrong_parameters:
                 rows[0]['roots'][0] += 1
@@ -89,6 +93,21 @@ class FakeSession:
 
 
 class BatchTests(unittest.TestCase):
+    def test_conversion_scope_and_simulation_rejection(self):
+        for simulation in (False, True):
+            with tempfile.TemporaryDirectory() as directory:
+                session = FakeSession(directory, scope='gpu-conversion')
+                session.args.benchmark_prime_bits = [30]
+                session.simulated_chain = simulation
+                if simulation:
+                    with self.assertRaises(RuntimeError):
+                        collect_batch(session, 'mock device')
+                    self.assertTrue(any('synthetic' in error for error in session.report['benchmark_errors']))
+                else:
+                    collect_batch(session, 'mock device')
+                    self.assertEqual(session.report['benchmark_scopes'], ['gpu-public', 'events', 'chain', 'conversion'])
+                    self.assertEqual(len(session.report['benchmark_summaries']), 4)
+
     def test_gpu_chain_collects_native_records_and_rejects_host_simulation(self):
         for simulation in (False, True):
             with self.subTest(simulation=simulation), tempfile.TemporaryDirectory() as directory:

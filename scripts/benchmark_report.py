@@ -13,11 +13,15 @@ OPENFHE_OPERATIONS = {"cpu_openfhe_forward", "cpu_openfhe_inverse", "cpu_openfhe
                       "cpu_openfhe_multiply"}
 RESIDENT_CHAIN_OPERATIONS = {"resident_device_chain", "resident_host_boundary",
                              "resident_host_roundtrip_chain"}
+CONVERSION_OPERATIONS = {"resident_modup_coefficient", "resident_modup_evaluation",
+                         "resident_moddown_evaluation", "resident_modup_moddown",
+                         "resident_conversion_host_boundary", "resident_conversion_host_roundtrip"}
 TIMING_OPERATIONS = {"host_wall_public_call": OPERATIONS,
                      "host_wall_gpu_public_call": OPERATIONS - {"cpu_reference_forward"},
                      "cuda_event_resident_and_pinned_copy": EVENT_OPERATIONS,
                      "host_wall_openfhe_native": OPENFHE_OPERATIONS,
-                     "host_wall_resident_chain": RESIDENT_CHAIN_OPERATIONS}
+                     "host_wall_resident_chain": RESIDENT_CHAIN_OPERATIONS,
+                     "host_wall_resident_conversion": CONVERSION_OPERATIONS}
 
 
 def percentile(values, fraction):
@@ -55,6 +59,21 @@ def validate_jsonl(content, expected_bits=None, expected_n=None, expected_towers
         values = metadata.get(name)
         if not isinstance(values, list) or len(values) != towers or any(type(x) is not int or x <= 0 for x in values):
             raise ValueError("invalid parameter list")
+    if timing == "host_wall_resident_conversion":
+        special = metadata.get("p_moduli", [])
+        roots = metadata.get("p_roots", [])
+        if (not 1 <= towers <= 40 or not isinstance(special, list) or not isinstance(roots, list)
+                or len(special) != 3 or len(roots) != 3
+                or metadata.get("parameter_setup_included") is not True
+                or metadata.get("p_policy") != "first_disjoint_60_bit_primes"
+                or metadata.get("down_input_policy") != "seeded_arbitrary_qp_evaluations"
+                or any(q >= 1 << 60 for q in metadata["moduli"])):
+            raise ValueError("wrong conversion parameter policy")
+        if (any(type(q) is not int or q.bit_length() != 60 or q % (2 * dimension) != 1 for q in special)
+                or len(set(special + metadata["moduli"])) != towers + 3
+                or any(type(root) is not int or not 0 < root < q or pow(root, dimension, q) != q - 1
+                       for root, q in zip(roots, special))):
+            raise ValueError("invalid special prime/root basis")
     if expected_bits is not None and any(q.bit_length() != expected_bits for q in metadata["moduli"]):
         raise ValueError("wrong modulus bit width")
     if records[-1] != {"type": "complete", "operations": len(operations)}:
