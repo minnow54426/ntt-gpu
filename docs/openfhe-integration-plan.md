@@ -24,7 +24,7 @@ Last reviewed: 2026-11-21 (Asia/Shanghai).
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Analyze the verified Ada timings locally and prepare resident conversion benchmarks for the next combined GPU session |
+| Active task | Run the prepared native ModUp/ModDown and conversion timing checks in the next combined RTX 5090 session |
 | Next gate | P2: compare CUDA and OpenFHE answers on real hardware, then record the GPU and baseline measurements (D11–D15) |
 | Overall state | In progress; the temporary Ada GPU was tested, while primary-device and other required P2 checks remain unfinished |
 

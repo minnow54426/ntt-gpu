@@ -22,20 +22,25 @@ ran before the legacy schedule.
 The ratio below is the legacy median time divided by the group-twiddle
 median time for one matched workload. A ratio above one favors group
 twiddles. Each table entry summarizes those eight ratios, with equal weight
-per workload.
+per workload. Tables scroll horizontally on a phone.
 
-| Timing scope and operation | Median ratio | Range | Group faster |
-|---|---:|---:|---:|
-| Device event, forward | 1.52 | 1.20–1.61 | 8/8 |
-| Device event, inverse | 1.50 | 1.18–1.59 | 8/8 |
-| Device event, fused multiplication | 1.49 | 1.26–1.53 | 8/8 |
-| Device event, pointwise control | 1.01 | 0.68–1.21 | 4/8 |
-| Host public call, forward | 1.01 | 0.89–1.38 | 4/8 |
-| Host public call, inverse | 1.12 | 1.00–1.23 | 8/8 |
-| Host public call, fused multiplication | 1.05 | 0.93–1.21 | 5/8 |
-| Resident interface, device chain | 1.16 | 0.85–1.47 | 7/8 |
-| Resident interface, host boundary | 1.03 | 0.66–1.28 | 4/8 |
-| Resident interface, host roundtrip | 1.03 | 0.87–1.33 | 5/8 |
+<div class="site-table-scroll" role="region" aria-label="Matched NTT timing ratios" tabindex="0">
+<table style="min-width:34rem">
+<colgroup><col style="width:12rem"><col style="width:5rem"><col><col></colgroup>
+<thead><tr><th>Timing scope and operation</th><th>Median ratio</th><th>Range</th><th>Group faster</th></tr></thead>
+<tbody>
+<tr><td>Device event, forward</td><td>1.52</td><td>1.20–1.61</td><td>8/8</td></tr>
+<tr><td>Device event, inverse</td><td>1.50</td><td>1.18–1.59</td><td>8/8</td></tr>
+<tr><td>Device event, fused multiplication</td><td>1.49</td><td>1.26–1.53</td><td>8/8</td></tr>
+<tr><td>Device event, pointwise control</td><td>1.01</td><td>0.68–1.21</td><td>4/8</td></tr>
+<tr><td>Host public call, forward</td><td>1.01</td><td>0.89–1.38</td><td>4/8</td></tr>
+<tr><td>Host public call, inverse</td><td>1.12</td><td>1.00–1.23</td><td>8/8</td></tr>
+<tr><td>Host public call, fused multiplication</td><td>1.05</td><td>0.93–1.21</td><td>5/8</td></tr>
+<tr><td>Resident interface, device chain</td><td>1.16</td><td>0.85–1.47</td><td>7/8</td></tr>
+<tr><td>Resident interface, host boundary</td><td>1.03</td><td>0.66–1.28</td><td>4/8</td></tr>
+<tr><td>Resident interface, host roundtrip</td><td>1.03</td><td>0.87–1.33</td><td>5/8</td></tr>
+</tbody></table>
+</div>
 
 Device-event intervals exclude input/output transfers and session setup.
 Host public calls include their validation and transfers. The resident
@@ -54,12 +59,17 @@ A follow-up used N=65,536, K=3, 60-bit primes, five warmups and fifty samples
 per operation. The order was legacy, group, group, legacy. These are median
 host-wall milliseconds from each independent run.
 
-| Order | Schedule | Device chain | Host boundary | Host roundtrip |
-|---:|---|---:|---:|---:|
-| 1 | Legacy | 0.7401 | 3.2347 | 9.1446 |
-| 2 | Group | 0.7172 | 3.3319 | 7.6012 |
-| 3 | Group | 0.7264 | 3.2802 | 7.5232 |
-| 4 | Legacy | 0.7298 | 3.0951 | 7.6587 |
+<div class="site-table-scroll" role="region" aria-label="Order balanced resident repeat" tabindex="0">
+<table style="min-width:42rem">
+<colgroup><col style="width:4rem"><col style="width:7rem"><col><col><col></colgroup>
+<thead><tr><th>Order</th><th>Schedule</th><th>Device chain</th><th>Host boundary</th><th>Host roundtrip</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Legacy</td><td>0.7401</td><td>3.2347</td><td>9.1446</td></tr>
+<tr><td>2</td><td>Group</td><td>0.7172</td><td>3.3319</td><td>7.6012</td></tr>
+<tr><td>3</td><td>Group</td><td>0.7264</td><td>3.2802</td><td>7.5232</td></tr>
+<tr><td>4</td><td>Legacy</td><td>0.7298</td><td>3.0951</td><td>7.6587</td></tr>
+</tbody></table>
+</div>
 
 Pairing runs 1/2 and 4/3 gives device-chain ratios of 1.032 and 1.005.
 The corresponding host-boundary ratios are 0.971 and 0.944, and host-roundtrip
