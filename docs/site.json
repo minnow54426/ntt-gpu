@@ -160,6 +160,18 @@
       "next_page": "next-gpu-rental.html"
     },
     {
+      "source": "docs/cuda-kernel-optimization-survey.md",
+      "url": "cuda-kernel-optimization-survey.html",
+      "title": "CUDA kernel optimization",
+      "group": "Research",
+      "summary": "Profile CUDA kernel bottlenecks and prioritize experiments for the RTX 5090 NTT.",
+      "takeaways": [
+        "Separate individual kernel timings, GPU operation timings and host-visible latency.",
+        "Use the baseline profile to order tests of fixed-twiddle reduction, coalesced loading and inverse normalization fusion."
+      ],
+      "next_page": "benchmark-tuning-plan.html"
+    },
+    {
       "source": "docs/gpu-ntt-survey.md",
       "url": "gpu-ntt-survey.html",
       "title": "GPU NTT implementations",
