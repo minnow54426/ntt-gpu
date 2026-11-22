@@ -108,7 +108,8 @@ class RoutingTests(unittest.TestCase):
         expected = {page["url"] for page in pages + entries} | {"journal.html"}
         self.assertEqual(set(parser.references), expected)
         self.assertNotIn('class="site-page-url"', directory)
-        self.assertEqual(directory.count('<summary>'), 6)
+        self.assertIn('<summary>Procedures</summary>', directory)
+        self.assertEqual(directory.count('<summary>'), len({page['group'] for page in pages} | {'Daily journal'}))
         self.assertEqual(directory.count(' open>'), 1)
         self.assertNotIn('https://minnow54426.github.io/', directory)
         self.assertNotIn("127.0.0.1", directory)

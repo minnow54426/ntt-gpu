@@ -4,6 +4,39 @@
   "public_base_url": "https://minnow54426.github.io/systems/ntt-gpu/",
   "pages": [
     {
+      "source": "docs/procedures/README.md",
+      "url": "procedures/index.html",
+      "title": "Engineering procedures",
+      "group": "Procedures",
+      "summary": "Repeat workflows already exercised in this project.",
+      "takeaways": [
+        "Follow the workflow and its verification steps before recording a result."
+      ],
+      "next_page": "procedures/cuda-performance-optimization.html"
+    },
+    {
+      "source": "docs/procedures/cuda-performance-optimization.md",
+      "url": "procedures/cuda-performance-optimization.html",
+      "title": "Optimize a CUDA operation",
+      "group": "Procedures",
+      "summary": "Measure a baseline, change one thing and check the caller impact.",
+      "takeaways": [
+        "Use matched native correctness and timings to evaluate one change at a time."
+      ],
+      "next_page": "procedures/gpu-benchmark-session.html"
+    },
+    {
+      "source": "docs/procedures/gpu-benchmark-session.md",
+      "url": "procedures/gpu-benchmark-session.html",
+      "title": "Run a rented GPU session",
+      "group": "Procedures",
+      "summary": "Prepare inputs locally and collect verified native GPU evidence.",
+      "takeaways": [
+        "Verify the archive before releasing the rental, then analyze matched timings locally."
+      ],
+      "next_page": "procedures/index.html"
+    },
+    {
       "source": "docs/next-gpu-rental.md",
       "url": "next-gpu-rental.html",
       "title": "Next GPU rental queue",

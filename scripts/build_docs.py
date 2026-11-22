@@ -376,7 +376,7 @@ def page_directory(pages, entries):
         "group": "Daily journal", "summary": "The complete daily progress timeline.",
     }] + list(entries)
     groups = []
-    for group in ("Start here", "Learn", "Research", "Plans", "Daily journal", "Contribute"):
+    for group in ("Start here", "Learn", "Research", "Procedures", "Plans", "Daily journal", "Contribute"):
         links = []
         for page in directory_pages:
             if page["group"] != group:

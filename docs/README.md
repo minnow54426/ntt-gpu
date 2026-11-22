@@ -7,6 +7,9 @@ Build and check the notebook, then export it to the personal website.
 The HTML in the website repository is generated from these files. Make
 content changes here so the next export preserves them.
 
+The [procedures folder](procedures/README.md) collects workflows already
+exercised in the project and links to the evidence from their runs.
+
 ## Preview locally
 
 ```sh
@@ -124,7 +127,8 @@ checks, use the relevant guide:
 
 ## Publish with GitHub Pages
 
-From this repository:
+Run the export from the source revision you intend to publish. Use a clean
+checkout of that revision if your working copy contains drafts.
 
 ```sh
 .venv/bin/python scripts/export_website.py --website-root /path/to/minnow54426.github.io
@@ -132,6 +136,7 @@ From this repository:
 
 Review, commit and push the generated `systems/ntt-gpu/` files in the website
 repository. Its Pages workflow publishes [the notebook](https://minnow54426.github.io/systems/ntt-gpu/index.html).
+After deployment, open the live notebook and check the expected change.
 The exporter refreshes only its managed files and retains the return link to
 the personal website.
 
