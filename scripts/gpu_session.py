@@ -9,6 +9,7 @@ import platform
 import signal
 import subprocess
 import sys
+import time
 from benchmark_batch import (DIMENSIONS, MAX_TOWERS, PRIME_BITS, TOWER_COUNTS, SCOPE_GROUPS,
                              atomic_json, benchmark_scope, collect_batch, collect_profiles)
 
@@ -90,9 +91,15 @@ class Session:
         self.report['stages'].append(stage)
         self.save()
         try:
+            timeout = getattr(self.args, 'command_timeout', 1800)
+            deadline = getattr(self.args, 'deadline_monotonic', None)
+            if deadline is not None:
+                timeout = min(timeout, deadline - time.monotonic())
+                if timeout <= 0:
+                    raise subprocess.TimeoutExpired(command, 0)
             with log.open('w') as output:
                 result = run_process(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT,
-                                     timeout=getattr(self.args, 'command_timeout', 1800))
+                                     timeout=timeout)
             stage.update(status='PASS' if result.returncode == 0 else 'FAIL', exit_code=result.returncode)
         except (OSError, subprocess.TimeoutExpired) as error:
             stage.update(status='FAIL', error=str(error))
@@ -385,9 +392,10 @@ def parser():
     return result
 
 
-def main(argv=None):
+def main(argv=None, *, deadline=None):
     cli = parser()
     args = cli.parse_args(argv)
+    args.deadline_monotonic = deadline
     if args.compare_ntt:
         if (args.mode == 'cpu' or args.ntt_schedule or args.resume or args.allow_dirty
                 or args.profile or args.skip_sanitizers):

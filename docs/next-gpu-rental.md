@@ -40,6 +40,88 @@ and the earlier resident NTT chain. See the
 | 5 | Compare legacy versus group twiddles on matched inputs | Raw paired resident forward/inverse samples first; public-call timings reported separately |
 | 6 | Measure the resident operation chain and capture a selected profile | End-to-end chain versus an intentionally host-roundtripped chain; device timeline and hardware counters if permitted |
 
+## Run the queue as one batch
+
+[`gpu_rental_batch.py`](../scripts/gpu_rental_batch.py) combines the queue
+into one command. Preview its plan on any CPU machine; this prints JSON and
+does not build, contact a provider or run GPU work:
+
+```sh
+python3 scripts/gpu_rental_batch.py --mode plan
+```
+
+Before renting, compile both schedules for RTX 5090 and run their host tests:
+
+```sh
+python3 scripts/gpu_rental_batch.py --mode offline \
+  --cuda-root /path/to/cuda --openfhe-prefix /path/to/openfhe \
+  --build-dir build/rental-offline --output-dir bench-results-rental-offline \
+  --budget-minutes 120
+```
+
+On the rental, use a clean checkout with pinned OpenFHE already installed.
+Select the physical index shown by `nvidia-smi`. The batch verifies RTX 5090
+and compute capability 12.0, then selects that GPU by UUID for CUDA:
+
+```sh
+python3 scripts/gpu_rental_batch.py --mode gpu --device-index 0 \
+  --cuda-root /usr/local/cuda \
+  --openfhe-prefix build/openfhe-compat/install \
+  --build-dir build/rental-5090 --output-dir bench-results-rental-5090 \
+  --budget-minutes 120
+```
+
+Use fresh build and output directories. This command reuses the collector
+below, with eight workloads and four measurement scopes per schedule:
+**64 measurement jobs and 48 sanitizer commands across both schedules**,
+in addition to their native exactness tests. It then runs a representative
+resident NTT case in legacy/group/group/legacy order, using five warmups and
+50 samples per run. The small repeat controls run order; it does not replace
+the workload sweep.
+
+Clock and temperature logging spans the session. Four independent profiler
+commands capture a timeline and limited counters for resident NTT and
+ModUp/ModDown. Missing tools or blocked counters leave separate failure logs
+and produce `GPU_BATCH_PASSED_WITH_LIMITATIONS` if the required checks and
+measurement analysis pass. A profiler returning without a capture file is
+also a recorded limitation. These whole-process profiles include setup and
+verification; their totals do not identify a bottleneck inside one measured
+operation. Instrumented times stay out of the benchmark samples.
+
+The budget covers preflight, compilation, checks, timings and profiles; it is
+a cutoff, not a runtime estimate. Each collector command shares the remaining
+budget. At expiry or a required failure, subsequent dependent GPU work stops.
+Cleanup and evidence packaging continue. The script does not stop provider
+billing: end the rental after exporting and verifying its evidence.
+
+### Read and export the batch record
+
+The batch preserves partial records on failure or interruption. Its files are:
+
+| File | What it establishes |
+|---|---|
+| `batch.json` | Source/device preflight, overall status and separate profiler results |
+| `paired/` | Both schedules' exactness, sanitizer logs, raw samples and matched workload index |
+| `controlled-repeat.json` | Ordered repeats, binary fingerprints and raw-log hashes |
+| `analysis/` | Revalidated operation comparisons and separate repeat CSV |
+| `clocks.csv` | Device telemetry, when available |
+| `SHA256SUMS` | Fingerprints of the saved evidence files |
+
+After stopping telemetry, the script creates a sibling `.tar.gz` archive,
+checks every archived file against its source bytes, and writes
+`.tar.gz.sha256` and `.tar.gz.verify.json`. It performs no extraction and
+refuses to overwrite previous records. `OFFLINE_READY` explicitly means no
+GPU execution. A verified archive may contain a failed run: read `batch.json`
+and both child reports before accepting its results.
+
+Copy the archive and checksum to the local machine, then verify:
+
+```sh
+shasum -a 256 -c bench-results-rental-5090.tar.gz.sha256
+```
+
+The commands below remain available for a manually controlled session.
+
 Use a small first timing block: N=4,096 and 65,536; K=3 and 40 towers;
 30- and 60-bit primes. These choices give eight workloads per build. Use the
 same thread layout, modular arithmetic, random-input seed, warmup count and

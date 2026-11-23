@@ -2,6 +2,12 @@
 
 # Collect GPU and CPU measurements separately
 
+For a complete RTX 5090 session, the
+[rental batch](next-gpu-rental.md#run-the-queue-as-one-batch) wraps this
+collector with a shared time budget, ordered repeats, separate profiling
+attempts and verified archive creation. Plan and offline modes require no
+GPU; native records still require the actual hardware checks.
+
 Run GPU tests and timings on the rented machine. Measure OpenFHE on your
 local CPU to provide a baseline for comparison. Both runs use the same
 polynomial parameters and random-number seed, so they generate the same

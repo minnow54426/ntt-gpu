@@ -1,5 +1,13 @@
 # Prepare and run a rented GPU session
 
+## Batch the prepared tasks
+
+Preview `python3 scripts/gpu_rental_batch.py --mode plan` without a GPU.
+Use the [single-batch commands](../next-gpu-rental.md#run-the-queue-as-one-batch)
+for offline compilation or a native RTX 5090 run. The native batch combines
+both schedules, resident conversion, sanitizers, ordered repeats, independent
+profiles and a verified evidence archive within one command budget.
+
 ## Before releasing the GPU
 
 1. Run CPU tests and prepare workload vectors on the Mac before renting.

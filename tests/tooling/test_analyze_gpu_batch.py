@@ -10,16 +10,16 @@ from benchmark_report import validate_jsonl
 from analyze_gpu_batch import analyze
 
 
-def fixture(root):
+def fixture(root, dimension=4096, bits=30, scope='gpu'):
     paired = root / "paired"
     paired.mkdir()
     matched = []
     for schedule, elapsed in (("group_twiddle_ct", 1), ("legacy_dif", 2)):
         directory = paired / schedule
         directory.mkdir()
-        session = FakeSession(directory, dimensions=(4096,), scope="gpu")
+        session = FakeSession(directory, dimensions=(dimension,), scope=scope)
         session.args.ntt_schedule = session.schedule_label = schedule
-        session.args.benchmark_prime_bits = [30]
+        session.args.benchmark_prime_bits = [bits]
         for binary in session.args.build_dir.iterdir():
             binary.write_text(schedule)
         collect_batch(session, "one mock GPU")
