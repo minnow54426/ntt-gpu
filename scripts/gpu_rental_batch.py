@@ -63,9 +63,12 @@ def checked_paths(args):
             raise ValueError('Use fresh paths; refusing to overwrite ' + str(path))
     # A record created in a tracked directory would dirty the measured checkout.
     if args.mode == 'gpu':
-        for path in (output, build):
+        for path, directory in ((output, True), (build, True),
+                                (output.with_suffix('.tar.gz'), False),
+                                (output.with_suffix('.tar.gz.sha256'), False),
+                                (output.with_suffix('.tar.gz.verify.json'), False)):
             if path.is_relative_to(ROOT):
-                result = subprocess.run(['git', 'check-ignore', '--quiet', str(path) + os.sep], cwd=ROOT)
+                result = subprocess.run(['git', 'check-ignore', '--quiet', str(path) + (os.sep if directory else '')], cwd=ROOT)
                 if result.returncode:
                     raise ValueError('In-repository outputs must be ignored by Git: ' + str(path))
 

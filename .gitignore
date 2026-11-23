@@ -23,6 +23,9 @@ __pycache__/
 
 # benchmark scratch
 bench-results-*/
+bench-results-*.tar.gz
+bench-results-*.tar.gz.sha256
+bench-results-*.tar.gz.verify.json
 .cache/
 
 # artifacts from scripts/autodl_setup.sh on a rented box

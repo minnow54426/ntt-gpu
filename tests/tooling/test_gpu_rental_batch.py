@@ -184,6 +184,14 @@ class BatchTests(unittest.TestCase):
         batch.checked_paths(args)
         self.assertFalse(args.output_dir.exists())
 
+    def test_archive_siblings_must_also_be_ignored_inside_the_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subprocess.run(['git', 'init', '--quiet', root], check=True)
+            (root / '.gitignore').write_text('records/\nbuild/\n')
+            with patch.object(batch, 'ROOT', root), self.assertRaisesRegex(ValueError, 'ignored'):
+                batch.checked_paths(options(root))
+
     def test_repeat_keeps_order_and_usable_raw_evidence(self):
         from benchmark_report import TIMING_OPERATIONS
         from test_analyze_gpu_batch import fixture
