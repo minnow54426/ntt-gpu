@@ -186,6 +186,10 @@ for editing, journals, and GitHub Pages export.
 Independent clean-room implementation. No code, data, or artifacts from past
 or present employers. Development history is recorded in git.
 
+Separate profiling executables use pinned [NVIDIA NVTX C API headers](third_party/nvtx/README.md),
+distributed under their upstream [Apache 2.0 license with LLVM exceptions](third_party/nvtx/LICENSE.txt).
+The ordinary benchmark executables do not enable this instrumentation.
+
 ## License
 
 TBD before accepting outside contributions.

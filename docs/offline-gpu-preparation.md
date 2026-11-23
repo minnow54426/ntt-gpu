@@ -1,5 +1,51 @@
 # Before renting a GPU
 
+## Prepare profiles without renting
+
+The resident NTT and ModUp/ModDown experiments have separate profiling
+executables. NVTX is NVIDIA's timeline-labeling interface. These executables
+mark CPU setup, session creation, input uploads, warmups, measured samples,
+verification and cleanup in the `ntt-gpu` domain. Each sample also names the
+operation it runs. The ordinary benchmark executables use an empty labeling
+backend and retain their existing timing boundary.
+
+| Purpose | NTT executable | Conversion executable |
+|---|---|---|
+| Ordinary GPU measurements | `ntt_resident_bench` | `ntt_resident_conversion_bench` |
+| GPU profiles only | `ntt_resident_profile` | `ntt_resident_conversion_profile` |
+| CPU checks of profiling code | `ntt_resident_profile_host` | `ntt_resident_conversion_profile_host` |
+
+The profiling variants emit `profiled: true`. The raw-measurement validator
+rejects that output, so instrumented times cannot enter the ordinary benchmark
+analysis. CPU variants also retain `simulation: true`. The NVTX headers are
+vendored at a pinned NVIDIA revision with their license; these builds require
+no GPU driver, profiler installation or network download.
+
+In a CUDA-disabled build with pinned OpenFHE enabled, run:
+
+```sh
+cmake --build build/cpu --target ntt_resident_profile_host \
+  ntt_resident_conversion_profile_host ntt_benchmark_profile_tests
+ctest --test-dir build/cpu \
+  -R 'benchmark_profile_ranges|resident_profile_host|resident_conversion_profile_host' \
+  --output-on-failure
+```
+
+Use the build directory from your local setup in place of `build/cpu`.
+These checks exercise the exact host-driver calculations, profiling metadata,
+range nesting and cleanup on exceptions. They do not establish that a GPU
+profiler displays the ranges correctly; that check stays in the later batch.
+The batch selects the profiling binaries for Nsight, fingerprints them
+separately, and filters counters to the `ntt.sample` range. A whole-process
+timeline still includes setup and verification: inspect the labeled sample
+and operation before attributing costs.
+
+Sources: [range helper](../include/ntt/benchmark_profile.hpp),
+[measurement boundary](../src/resident_benchmark_common.hpp),
+[range test](../tests/benchmark_profile_tests.cpp),
+[NVTX provenance and license](../third_party/nvtx/README.md), and
+[Nsight Compute NVTX filtering](https://docs.nvidia.com/nsight-compute/NsightComputeCli/index.html#nvtx-filtering).
+
 Do the builds, host tests and documentation on a CPU machine. Rent a GPU when
 ready to run native CUDA checks and collect measurements. The main target is
 RTX 5090 at N=65536; RTX 4090 is the planned control.

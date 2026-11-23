@@ -48,7 +48,7 @@ def make_plan(args):
                        'Stop telemetry; archive records and verify every archived file'],
                 offline_scope='Compile both sm_120 schedules and run host tests only; no GPU, timings or profiles',
                 timing_scopes='Device events, public calls, resident NTT and resident ModUp/ModDown kept separate',
-                profiling_scope='Whole-process captures include setup and verification; profiler timings are not benchmark samples',
+                profiling_scope='Separate NVTX executables label setup, warmups, samples and verification; counters select sample ranges only',
                 budget_scope='Preflight, compilation, checks, measurements and profiles; evidence packaging continues after cutoff',
                 rentals_created=False)
 
@@ -191,19 +191,23 @@ class Batch:
         vector = self.output / 'paired/group_twiddle_ct/benchmark-vector-n65536-k3-b60.txt'
         for profiler in ('nsys', 'ncu'):
             self.run(profiler + '-version', [profiler, '--version'], optional=True, limit=30)
-        for scope, binary in [('ntt', 'ntt_resident_bench'), ('conversion', 'ntt_resident_conversion_bench')]:
+        self.report['profile_binaries'] = {}
+        for scope, binary in [('ntt', 'ntt_resident_profile'), ('conversion', 'ntt_resident_conversion_profile')]:
             target = self.build / 'group_twiddle_ct' / binary
+            self.report['profile_binaries'][binary] = digest(target) if target.is_file() else None
             for profiler in ('nsys', 'ncu'):
                 name = profiler + '-' + scope
                 if profiler == 'nsys':
-                    command = ['nsys', 'profile', '--trace=cuda', '--sample=none', '--cpuctxsw=none',
+                    command = ['nsys', 'profile', '--trace=cuda,nvtx', '--sample=none', '--cpuctxsw=none',
                                '--output', self.output / name]
                 else:
-                    command = ['ncu', '--set', 'basic', '--launch-count', '8', '--export', self.output / name]
+                    command = ['ncu', '--nvtx', '--nvtx-include', 'ntt-gpu@ntt.sample/',
+                               '--set', 'basic', '--launch-count', '8', '--export', self.output / name]
                 captured = self.run(name, [*command, target, vector, '1', '2'], optional=True, limit=180)
                 artifact = self.output / (name + ('.nsys-rep' if profiler == 'nsys' else '.ncu-rep'))
-                if captured is not None and (not artifact.is_file() or artifact.stat().st_size == 0):
-                    self.report['stages'][-1].update(status='FAIL', error='Profiler returned without a nonempty capture')
+                if captured is not None and (self.report['profile_binaries'][binary] is None or
+                                            not artifact.is_file() or artifact.stat().st_size == 0):
+                    self.report['stages'][-1].update(status='FAIL', error='Missing profiling executable or nonempty capture')
                     self.save()
 
     def analyze(self):

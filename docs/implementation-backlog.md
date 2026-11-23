@@ -127,8 +127,9 @@ were unavailable, so there is no accepted first bottleneck decision.
 
 The [collector](offline-test-tooling.md#collector-and-validation) now separates
 GPU-only and local CPU collection, with hash-checked resume. Host control-flow
-checks and a real Linux CPU run validate that split. Current GPU-only collector
-and resident-runtime execution still need native verification. Use the
+checks and a real Linux CPU run validate that split. The November 19 native
+run covers the earlier resident NTT chain; later resident conversion and
+profiling changes still need their own GPU checks. Use the
 [first-run analysis](first-native-analysis.md) only for its earlier 46-bit sample.
 
 Separate construction/table upload, device-resident CUDA-event timings,
@@ -149,6 +150,13 @@ are prepared, not executed here. The old 46-bit wall-clock row does not complete
 first bottleneck decision on named hardware. Follow the
 [benchmark plan](benchmark-tuning-plan.md). Do not label the current wrapper's
 transfer-inclusive wall time as kernel-only time.
+
+**Offline profiling preparation:** separate NVTX executables label setup,
+input uploads, warmups, samples, verification and cleanup. The ordinary
+benchmark builds do not include NVTX, and their validator rejects profiling
+output. CPU profile checks and driver-free GPU compilation prepare the next
+run; range display, counter collection and a bottleneck decision remain in
+the [deferred GPU batch](next-gpu-rental.md#run-the-queue-as-one-batch).
 
 ## 3. P3: implement resident NTT safely
 

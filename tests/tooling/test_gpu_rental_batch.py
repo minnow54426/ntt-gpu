@@ -24,6 +24,13 @@ def options(root, mode='gpu'):
         device_index=1))()
 
 
+def profile_binaries(current):
+    directory = current.build / 'group_twiddle_ct'
+    directory.mkdir(parents=True)
+    for name in ('ntt_resident_profile', 'ntt_resident_conversion_profile'):
+        (directory / name).write_text('synthetic profiling executable ' + name)
+
+
 class BatchTests(unittest.TestCase):
     def test_plan_needs_no_gpu_and_schedules_all_scopes(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -99,6 +106,7 @@ class BatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             current = batch.Batch(options(Path(temporary)))
             current.output.mkdir()
+            profile_binaries(current)
             def process(command, **kwargs):
                 if command[0] == 'ncu':raise FileNotFoundError('no counters')
                 kwargs['stdout'].write('mock profile\n')
@@ -110,6 +118,10 @@ class BatchTests(unittest.TestCase):
             stages = current.report['stages']
             self.assertEqual([stage['status'] for stage in stages], ['PASS', 'FAIL', 'PASS', 'FAIL', 'PASS', 'FAIL'])
             self.assertTrue(all(stage['optional'] for stage in stages))
+            self.assertTrue(all(len(value) == 64 for value in current.report['profile_binaries'].values()))
+            counters = [stage for stage in stages if stage['name'] == 'ncu-conversion'][0]['command']
+            self.assertIn('ntt-gpu@ntt.sample/', counters)
+            self.assertIn(str(current.build / 'group_twiddle_ct/ntt_resident_conversion_profile'), counters)
 
     def test_gpu_success_reports_profile_limits_and_restores_device(self):
         for limited in (False, True):

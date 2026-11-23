@@ -76,6 +76,13 @@ class BenchmarkReportTests(unittest.TestCase):
     def test_truncated_record_rejected(self):
         with self.assertRaises(ValueError): validate(fixture()[:-1])
 
+    def test_profiled_output_cannot_enter_benchmark_analysis(self):
+        for value in (True, False, 'nvtx'):
+            rows = fixture()
+            rows[0]['profiled'] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'profile-instrumented'):
+                validate(rows)
+
     def test_nonfinite_negative_and_boolean_samples_rejected(self):
         for value in [float('nan'), float('inf'), -1, True]:
             rows = fixture()

@@ -40,6 +40,8 @@ def validate_jsonl(content, expected_bits=None, expected_n=None, expected_towers
     metadata = records[0]
     if metadata.get("type") != "workload" or metadata.get("schema") != 1:
         raise ValueError("missing workload/schema")
+    if metadata.get("profiled") is not None:
+        raise ValueError("profile-instrumented output is not a benchmark record")
     dimension = metadata.get("n")
     timing = metadata.get("timing")
     if type(dimension) is not int or dimension < 2 or dimension > 65536 or dimension & (dimension - 1) or timing not in TIMING_OPERATIONS:

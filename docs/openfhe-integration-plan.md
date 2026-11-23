@@ -16,7 +16,7 @@ acceptance checks pass.
 
 Target OpenFHE 1.6.1, N=65536, RTX 5090 primary and RTX 4090 control. Baseline
 benchmarks also span N=4096–65536 and 30/50/55/60-bit primes in `uint64_t`.
-Last reviewed: 2026-11-21 (Asia/Shanghai).
+Last reviewed: 2026-11-23 (Asia/Shanghai).
 
 ## Live tracker
 
@@ -24,7 +24,7 @@ Last reviewed: 2026-11-21 (Asia/Shanghai).
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Run the prepared native ModUp/ModDown and conversion timing checks in the next combined RTX 5090 session |
+| Active task | Batch and profiling preparation ready; native ModUp/ModDown, timings and counters deferred to the RTX 5090 session |
 | Next gate | P2: compare CUDA and OpenFHE answers on real hardware, then record the GPU and baseline measurements (D11–D15) |
 | Overall state | In progress; the temporary Ada GPU was tested, while primary-device and other required P2 checks remain unfinished |
 

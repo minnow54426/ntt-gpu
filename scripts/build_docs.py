@@ -442,7 +442,7 @@ def home_content(pages, entries):
 <li><a href="batch40-native-analysis.html">Read the measured results</a> or <a href="project.html">build the project</a>.</li>
 </ol>
 <h2 id="next-step">What comes next?</h2>
-<p>The paired Ada analysis is complete. The next engineering step is to run the prepared resident ModUp/ModDown correctness, sanitizer and timing checks on RTX 5090, alongside the NTT baseline. No new rental is needed to read these pages or reproduce the CPU checks.</p>
+<p>The paired Ada analysis is complete. Native ModUp/ModDown checks, timings and tagged profiles are prepared as one RTX 5090 batch for later. Offline work continues on builds, CPU checks and profiling preparation; no rental is needed for those tasks.</p>
 <p>Use the <a href="next-gpu-rental.html">current GPU session queue</a> for commands and the <a href="openfhe-integration-plan.html#live-tracker">live tracker</a> for acceptance requirements. D11/P2 stays open until its required evidence is recorded.</p>
 <details><summary>Useful words before you start</summary>
 <ul>

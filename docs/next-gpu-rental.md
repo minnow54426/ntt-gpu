@@ -80,13 +80,16 @@ resident NTT case in legacy/group/group/legacy order, using five warmups and
 the workload sweep.
 
 Clock and temperature logging spans the session. Four independent profiler
-commands capture a timeline and limited counters for resident NTT and
-ModUp/ModDown. Missing tools or blocked counters leave separate failure logs
+commands use separate NVTX profiling binaries to capture a timeline and
+limited counters for resident NTT and ModUp/ModDown. Their fingerprints are
+saved separately from benchmark binaries. Missing tools or blocked counters leave separate failure logs
 and produce `GPU_BATCH_PASSED_WITH_LIMITATIONS` if the required checks and
 measurement analysis pass. A profiler returning without a capture file is
-also a recorded limitation. These whole-process profiles include setup and
-verification; their totals do not identify a bottleneck inside one measured
-operation. Instrumented times stay out of the benchmark samples.
+also a recorded limitation. The timelines label setup, warmups, samples,
+verification and cleanup; counter captures select `ntt-gpu@ntt.sample/` and
+at most eight kernels. Inspect the operation nested inside a sample rather
+than whole-process totals. Instrumented output is rejected by the benchmark
+validator. [Compile and check these profiles offline](offline-gpu-preparation.md#prepare-profiles-without-renting).
 
 The budget covers preflight, compilation, checks, timings and profiles; it is
 a cutoff, not a runtime estimate. Each collector command shares the remaining
@@ -208,12 +211,12 @@ Use fresh output names if you repeat a capture.
 
 ```sh
 records=bench-results-ntt-ab-5090
-binary=build/ntt-ab-5090/group_twiddle_ct/ntt_resident_bench
+binary=build/ntt-ab-5090/group_twiddle_ct/ntt_resident_profile
 vector="$records/group_twiddle_ct/benchmark-vector-n65536-k3-b60.txt"
-timeout 180 nsys profile --trace=cuda --sample=none --cpuctxsw=none \
+timeout 180 nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none \
   --output "$records/resident-timeline" "$binary" "$vector" 1 2 \
   > "$records/resident-nsys.log" 2>&1 || echo "$?" > "$records/resident-nsys.exit"
-timeout 180 ncu --set basic --launch-count 8 \
+timeout 180 ncu --nvtx --nvtx-include 'ntt-gpu@ntt.sample/' --set basic --launch-count 8 \
   --export "$records/resident-counters" "$binary" "$vector" 1 2 \
   > "$records/resident-ncu.log" 2>&1 || echo "$?" > "$records/resident-ncu.exit"
 ```

@@ -43,6 +43,7 @@ int main(int argc, char **argv) try {
     throw std::invalid_argument(
         "resident benchmark allows at most 200 total iterations");
 
+  ntt::profile::Range setup("ntt.host_setup");
   const auto vector = ntt::read_vector_file(argv[1]);
   const auto [left, right] =
       ntt::measurement::benchmark_inputs(vector.n, vector.q, vector.psi);
@@ -67,6 +68,7 @@ int main(int argc, char **argv) try {
     if (!std::ranges::equal(result, expected))
       throw std::runtime_error("resident chain differs from exact CPU coefficients");
   };
+  setup.end();
 
   std::cout
       << "{\"type\":\"workload\",\"schema\":1,\"timing\":\"host_wall_resident_chain\""
@@ -78,15 +80,20 @@ int main(int argc, char **argv) try {
 #ifdef NTT_RESIDENT_BENCH_HOST
   std::cout << ",\"simulation\":true";
 #endif
+#ifdef NTT_BENCH_PROFILE_NVTX
+  std::cout << ",\"profiled\":true";
+#endif
   write_parameters("moduli", vector.q);
   write_parameters("roots", vector.psi);
   std::cout << "}\n";
 
   {
     auto session = make_session(layout, iterations);
+    ntt::profile::Range prepare("ntt.inputs");
     const auto left_device = session.upload(left);
     const auto right_device = session.upload(right);
     right_device.readiness().wait();
+    prepare.end();
     ntt::resident::Polynomial result;
     measure(
         "resident_device_chain", warmups, samples,
@@ -100,7 +107,7 @@ int main(int argc, char **argv) try {
           check(session.download(result).wait_values());
           result = {};
         });
-    session.close();
+    close_session(session);
   }
 
   const auto measure_host_scope = [&](const char *name, auto operation) {
@@ -118,7 +125,7 @@ int main(int argc, char **argv) try {
           values = {};
           result = {};
         });
-    session.close();
+    close_session(session);
   };
   measure_host_scope(
       "resident_host_boundary",

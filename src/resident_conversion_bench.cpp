@@ -51,6 +51,7 @@ int main(int argc, char **argv) try {
   if (iterations > 200)
     throw std::invalid_argument(
         "resident benchmark allows at most 200 total iterations");
+  ntt::profile::Range setup("ntt.host_setup");
   const auto vector = ntt::read_vector_file(argv[1]);
   require(vector.q.size() <= 40, "conversion benchmark supports at most 40 Q towers");
   for (auto modulus : vector.q)
@@ -116,6 +117,7 @@ int main(int argc, char **argv) try {
     require(std::ranges::equal(actual, expected),
             "conversion benchmark differs from pinned OpenFHE");
   };
+  setup.end();
 
   std::cout
       << "{\"type\":\"workload\",\"schema\":1,\"timing\":\"host_wall_resident_"
@@ -131,6 +133,9 @@ int main(int argc, char **argv) try {
 #ifdef NTT_RESIDENT_BENCH_HOST
   std::cout << ",\"simulation\":true";
 #endif
+#ifdef NTT_BENCH_PROFILE_NVTX
+  std::cout << ",\"profiled\":true";
+#endif
   write_parameters("moduli", vector.q);
   write_parameters("roots", vector.psi);
   write_parameters("p_moduli", p_moduli);
@@ -141,8 +146,10 @@ int main(int argc, char **argv) try {
                          const std::vector<uint64_t> &input, const auto &expected,
                          size_t parameter_uploads, auto operation) {
     auto session = make_session(full, iterations);
+    ntt::profile::Range prepare("ntt.inputs");
     const auto resident_input = session.upload(input_layout, input);
     resident_input.readiness().wait();
+    prepare.end();
     Polynomial result;
     measure(
         name, warmups, samples,
@@ -158,7 +165,7 @@ int main(int argc, char **argv) try {
     require(counts.uploads == 1 && counts.downloads == iterations &&
                 counts.parameter_uploads == parameter_uploads * iterations,
             "resident conversion changed its transfer boundary");
-    session.close();
+    close_session(session);
   };
   auto up = [](Session &session, const Polynomial &input) {
     return session.mod_up(input);
@@ -208,7 +215,7 @@ int main(int argc, char **argv) try {
                 counts.downloads == transfers * iterations &&
                 counts.parameter_uploads == 3 * iterations,
             "host conversion control changed its transfer boundary");
-    session.close();
+    close_session(session);
   }
   std::cout << "{\"type\":\"complete\",\"operations\":6}\n";
   return 0;
