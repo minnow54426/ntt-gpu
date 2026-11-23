@@ -2,9 +2,9 @@ name: Correctness and CUDA compilation
 on:
   push:
     branches: [main]
-    paths: ['include/**', 'src/**', 'tests/**', 'scripts/**', 'CMakeLists.txt', '.github/workflows/correctness.yml']
+    paths: ['include/**', 'src/**', 'tests/**', 'scripts/**', 'third_party/nvtx/**', 'CMakeLists.txt', '.github/workflows/correctness.yml']
   pull_request:
-    paths: ['include/**', 'src/**', 'tests/**', 'scripts/**', 'CMakeLists.txt', '.github/workflows/correctness.yml']
+    paths: ['include/**', 'src/**', 'tests/**', 'scripts/**', 'third_party/nvtx/**', 'CMakeLists.txt', '.github/workflows/correctness.yml']
   workflow_dispatch:
 permissions:
   contents: read
