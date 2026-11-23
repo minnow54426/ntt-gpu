@@ -168,6 +168,15 @@ on reported compute 8.9 in the November 19 batch. The current NTT
 dispatch keeps its reference arithmetic while the candidate is validated.
 See [conversion preparation](basis-conversion-preparation.md).
 
+November 23 adds an offline Barrett candidate for two changing operands.
+Its reciprocal and final remainder are checked against Python bigint;
+independent transforms also compare with the reference and pinned OpenFHE.
+The sm_89/sm_120 probe compiles without division or remainder in its generated
+device hot path. Native intrinsic validation and all four sanitizer tools
+are queued for the later batch. This prepares B05; it does not select an
+arithmetic policy or close the production gate. See the
+[range proof](modular-arithmetic-contract.md#barrett-candidate-for-changing-operands).
+
 
 Keep the simple exact implementation for checking answers. Add Shoup
 multiplication for precomputed constant multipliers and Barrett reduction

@@ -84,6 +84,10 @@ The collector requires both and runs their sanitizer checks before timing.
 The CUDA probe assigns one target coefficient to each thread and loops over
 the source primes. Its OpenFHE fixture supplies exact expected arrays.
 
+The later [Barrett candidate](modular-arithmetic-contract.md#barrett-candidate-for-changing-operands)
+has a separate `cuda_barrett_exact` probe and four sanitizer checks per build.
+Its CPU and compiler checks do not extend the earlier native evidence.
+
 On November 19, both schedules compiled for sm_120, and the native probes
 passed on a server reporting RTX 4080 SUPER / compute 8.9. The conversion
 test compared 107,675,648 residues against pinned OpenFHE in each build.

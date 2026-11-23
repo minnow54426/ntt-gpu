@@ -6,3 +6,4 @@ std::vector<uint64_t> convert_basis_cuda(const ntt::ApproximateBasisPlan &plan,
                                          uint64_t dimension,
                                          std::span<const uint64_t> input);
 void check_shoup_cuda();
+void check_barrett_cuda();

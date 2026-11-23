@@ -22,9 +22,16 @@ def main():
     # add/sub retain their advertised q < 2^63 contract. mul/pow additionally
     # exercise full-width products and arbitrary (not necessarily prime) q.
     moduli = [1, 2, 17, 1000000007]
-    for bits in [32, 50, 55, 60, 63, 64]:
+    for bits in [30, 32, 50, 55, 60, 63, 64]:
         moduli.extend([(1 << bits) - 1, (1 << bits) - 25])
+    moduli.extend(rng.randrange(2, 1 << 63) for _ in range(24))
+    corrections, carries = set(), set()
+    mask = (1 << 64) - 1
     for modulus in moduli:
+        if 1 < modulus < 1 << 63:
+            reciprocal = (1 << 128) // modulus
+            check('barrett-low', 0, 0, modulus, reciprocal & mask)
+            check('barrett-high', 0, 0, modulus, reciprocal >> 64)
         edges = {value % modulus for value in
                  [0, 1, 2, modulus // 2, modulus - 2, modulus - 1,
                   (1 << 32) - 1, 1 << 32, (1 << 32) + 1]}
@@ -38,10 +45,29 @@ def main():
             check("mul", first, second, modulus, first * second % modulus)
             if 1 < modulus < 1 << 63:
                 check("shoup", first, second, modulus, first * second % modulus)
+                product = first * second
+                estimate = product * reciprocal >> 128
+                check('barrett', first, second, modulus, product % modulus)
+                check('barrett-estimate', first, second, modulus, estimate)
+                corrections.add(product // modulus - estimate)
+                low, high = product & mask, product >> 64
+                lo_mu, hi_mu = reciprocal & mask, reciprocal >> 64
+                carries.add(((low * lo_mu >> 64) + ((low * hi_mu) & mask) +
+                             ((high * lo_mu) & mask)) >> 64)
         for first in sorted(edges) + [(1 << 64) - 1]:
             for exponent in [0, 1, 2, 63, 64, (1 << 64) - 1]:
                 check("pow", first, exponent, modulus,
                       pow(first, exponent, modulus))
+    # Exhaustive small odd/even moduli include exact power-of-two reciprocals.
+    for modulus in range(2, 33):
+        reciprocal = (1 << 128) // modulus
+        for first in range(modulus):
+            for second in range(modulus):
+                check('barrett', first, second, modulus, first * second % modulus)
+                check('barrett-estimate', first, second, modulus,
+                      (first * second * reciprocal) >> 128)
+    assert corrections == {0, 1}, corrections
+    assert carries == {0, 1, 2}, carries
     # Parameter search supplies compatible 50/55/60-bit primes. Expected
     # inverses use Python's modular-inverse algorithm, not Fermat/pow(q-2).
     primes = [2, 17, 1000000007]

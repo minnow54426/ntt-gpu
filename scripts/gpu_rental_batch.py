@@ -41,7 +41,7 @@ def make_plan(args):
                 collector_arguments=collector,
                 tasks=['RTX 5090 identity and clean-source preflight',
                        'Clock/temperature logging',
-                       'Both schedules: native exactness, 24 sanitizer commands and 32 measurement jobs each',
+                       'Both schedules: native exactness, 28 sanitizer commands and 32 measurement jobs each',
                        'Resident repeat: legacy, group, group, legacy; 5 warmups and 50 samples',
                        'Independent nsys and ncu captures for resident NTT and conversion',
                        'Validate raw records; export operation CSV and JSON summaries',

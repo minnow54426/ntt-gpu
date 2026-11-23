@@ -49,6 +49,25 @@ def fixture(root, dimension=4096, bits=30, scope='gpu'):
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_new_barrett_records_require_all_four_sanitizer_stages(self):
+        for complete in (False, True):
+            with self.subTest(complete=complete), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                fixture(root)
+                for schedule in ('group_twiddle_ct', 'legacy_dif'):
+                    path = root / 'paired' / schedule / 'report.json'
+                    report = json.loads(path.read_text())
+                    report['registered_gpu_tests'] = ['cuda_barrett_exact']
+                    report['sanitizer_scopes'] = ['barrett_exact']
+                    for tool in ('memcheck', 'racecheck', 'initcheck', 'synccheck')[:4 if complete else 3]:
+                        report['stages'].append(dict(name='sanitizer-barrett-' + tool, status='PASS'))
+                    path.write_text(json.dumps(report))
+                if complete:
+                    self.assertTrue(analyze(root)[1])
+                else:
+                    with self.assertRaisesRegex(ValueError, 'incomplete'):
+                        analyze(root)
+
     def test_known_ratio(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

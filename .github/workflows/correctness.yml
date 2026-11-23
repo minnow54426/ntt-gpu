@@ -45,5 +45,20 @@ jobs:
             -DCMAKE_CUDA_COMPILER="$GITHUB_WORKSPACE/build/toolchains/cuda-13.0.2/bin/nvcc" \
             '-DCMAKE_CUDA_ARCHITECTURES=89;120'
           cmake --build build/cuda-compile -j2
+      - name: Check Barrett device instructions without execution
+        run: |
+          for arch in 89 120; do
+            "$GITHUB_WORKSPACE/build/toolchains/cuda-13.0.2/bin/nvcc" -std=c++20 -O3 --ptx \
+              -arch=sm_${arch} -Iinclude -Itests tests/basis_cuda.cu \
+              -o build/cuda-compile/barrett-sm${arch}.ptx
+          done
+          python tests/tooling/check_barrett_ptx.py build/cuda-compile/barrett-sm89.ptx build/cuda-compile/barrett-sm120.ptx
       - name: Run host checks only; native GPU gates remain unrun
         run: ctest --test-dir build/cuda-compile -LE gpu --output-on-failure
+      - name: Save Barrett compiler evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: barrett-ptx-legacy-${{ matrix.legacy }}
+          path: build/cuda-compile/barrett-sm*.ptx
+          if-no-files-found: ignore

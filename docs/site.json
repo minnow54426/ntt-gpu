@@ -368,7 +368,7 @@
       "summary": "Run the prepared RTX 5090 checks, measurements and evidence export as one bounded batch.",
       "takeaways": [
         "Both NTT versions passed the November 19 native Ada checks and compiled for sm_120.",
-        "The new batch prepares 64 measurement jobs and 48 sanitizer commands, followed by ordered repeats, profiles and a verified archive. RTX 5090 acceptance remains open."
+        "The new batch prepares 64 measurement jobs and 56 sanitizer commands, followed by ordered repeats, profiles and a verified archive. RTX 5090 acceptance remains open."
       ],
       "next_page": "offline-test-tooling.html",
       "prerequisite": "Finish offline preparation and use fresh directories for the next hardware run.",

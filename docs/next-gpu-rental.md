@@ -36,7 +36,7 @@ and the earlier resident NTT chain. See the
 | 1 | Preflight the actual RTX 5090, toolkit, driver, and profiler tools | Device identity, commit, build options and tool versions |
 | 2 | Verify the new default CUDA path and resident chain | Native exactness against pinned OpenFHE, lifecycle/failure checks, and the NTT/resident smoke scopes under all four sanitizers |
 | 3 | Verify the legacy control build before timing | Native exactness and appropriate sanitizer smoke, with separate binary hashes and logs |
-| 4 | Check Shoup and approximate basis conversion | Native integer and pinned OpenFHE comparisons, plus all four sanitizer tools |
+| 4 | Check Shoup, the Barrett candidate and approximate basis conversion | Native integer and pinned OpenFHE comparisons, plus all four sanitizer tools |
 | 5 | Compare legacy versus group twiddles on matched inputs | Raw paired resident forward/inverse samples first; public-call timings reported separately |
 | 6 | Measure the resident operation chain and capture a selected profile | End-to-end chain versus an intentionally host-roundtripped chain; device timeline and hardware counters if permitted |
 
@@ -73,11 +73,19 @@ python3 scripts/gpu_rental_batch.py --mode gpu --device-index 0 \
 
 Use fresh build and output directories. This command reuses the collector
 below, with eight workloads and four measurement scopes per schedule:
-**64 measurement jobs and 48 sanitizer commands across both schedules**,
+**64 measurement jobs and 56 sanitizer commands across both schedules**,
 in addition to their native exactness tests. It then runs a representative
 resident NTT case in legacy/group/group/legacy order, using five warmups and
 50 samples per run. The small repeat controls run order; it does not replace
 the workload sweep.
+
+The added Barrett scope checks its CUDA intrinsic implementation before any
+timings. It runs under memcheck, racecheck, initcheck and synccheck in both
+builds. The candidate is not enabled in the timed NTT dispatch; this batch
+first validates the primitive. Current NTT timings therefore remain reference
+arithmetic measurements. Older archives retain their original scope counts;
+the analyzer requires the Barrett sanitizer records when that probe is
+declared in a new run.
 
 Clock and temperature logging spans the session. Four independent profiler
 commands use separate NVTX profiling binaries to capture a timeline and

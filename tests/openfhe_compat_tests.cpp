@@ -17,6 +17,7 @@
 #include "math/nbtheory.h"
 #include "ntt/ntt.hpp"
 #include "ntt/param_gen.hpp"
+#include "support/barrett_transform.hpp"
 
 namespace {
 
@@ -75,6 +76,9 @@ void test_forward_input(uint64_t n, uint64_t q, uint64_t psi,
   std::vector<uint64_t> ours = input;
   transform.forward(ours);
   compare(ours, openfhe_forward, n, q, "forward/" + label);
+  auto candidate = input;
+  barrett_test::transform(candidate, q, psi, false);
+  compare(candidate, openfhe_forward, n, q, "Barrett-forward/" + label);
 
   // The inverse of the exact shared forward array must also agree. This is
   // deliberately compared before asserting the original input, so a common
@@ -85,6 +89,8 @@ void test_forward_input(uint64_t n, uint64_t q, uint64_t psi,
   openfhe_poly.SetFormat(Format::COEFFICIENT);
   const lbcrypto::NativeVector &openfhe_inverse = openfhe_poly.GetValues();
   compare(ours_inverse, openfhe_inverse, n, q, "inverse-of-forward/" + label);
+  barrett_test::transform(candidate, q, psi, true);
+  compare(candidate, openfhe_inverse, n, q, "Barrett-inverse-of-forward/" + label);
 }
 
 void test_inverse_input(uint64_t n, uint64_t q, uint64_t psi,
@@ -107,6 +113,9 @@ void test_inverse_input(uint64_t n, uint64_t q, uint64_t psi,
   std::vector<uint64_t> ours = evaluation;
   ntt::NegacyclicNtt(n, q, psi).inverse(ours);
   compare(ours, openfhe_inverse, n, q, "independent-inverse/" + label);
+  auto candidate = evaluation;
+  barrett_test::transform(candidate, q, psi, true);
+  compare(candidate, openfhe_inverse, n, q, "Barrett-independent-inverse/" + label);
 }
 
 void test_case(uint64_t n, uint64_t q, uint64_t psi, uint64_t seed) {
@@ -140,10 +149,13 @@ int main() {
   const std::vector<lbcrypto::NativeInteger> moduli = {
       lbcrypto::FirstPrime<lbcrypto::NativeInteger>(50, cyclo_order),
       lbcrypto::LastPrime<lbcrypto::NativeInteger>(59, cyclo_order)};
-  for (size_t tower = 0; tower < moduli.size(); ++tower) {
-    const uint64_t q = moduli[tower].ConvertToInt();
+  auto all_moduli = moduli;
+  for (unsigned bits : {30U, 50U, 55U, 60U})
+    all_moduli.push_back(lbcrypto::LastPrime<lbcrypto::NativeInteger>(bits, cyclo_order));
+  for (size_t tower = 0; tower < all_moduli.size(); ++tower) {
+    const uint64_t q = all_moduli[tower].ConvertToInt();
     const uint64_t psi =
-        lbcrypto::RootOfUnity(cyclo_order, moduli[tower]).ConvertToInt();
+        lbcrypto::RootOfUnity(cyclo_order, all_moduli[tower]).ConvertToInt();
     test_case(n, q, psi, 0x9E3779B97F4A7C15ULL ^ q ^ (tower << 32));
   }
   if (failures == 0)

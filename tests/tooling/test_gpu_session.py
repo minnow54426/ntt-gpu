@@ -366,10 +366,10 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(report['gpu_execution'], 'EXACT_TESTS_PASS')
         self.assertEqual(report['sanitizers'], 'SMOKE_MATRIX_PASS')
-        self.assertEqual(report['sanitizer_scopes'], ['baseline_smoke', 'matrix_smoke', 'resident_smoke', 'basis_smoke', 'shoup_exact'])
+        self.assertEqual(report['sanitizer_scopes'], ['baseline_smoke', 'matrix_smoke', 'resident_smoke', 'basis_smoke', 'shoup_exact', 'barrett_exact'])
         self.assertEqual(sum(len(c) > 1 and c[-1] == '--smoke' and
                             c[-2].endswith('ntt_resident_cuda_tests') for c in commands), 4)
-        for executable in ('ntt_basis_cuda_tests', 'ntt_shoup_cuda_tests'):
+        for executable in ('ntt_basis_cuda_tests', 'ntt_shoup_cuda_tests', 'ntt_barrett_cuda_tests'):
             self.assertEqual(sum(c[0] == 'compute-sanitizer' and any(
                 argument.endswith(executable) for argument in c) for c in commands), 4)
         self.assertEqual(report['benchmark_scopes'], ['gpu-public', 'events'])
@@ -426,7 +426,7 @@ class SessionTests(unittest.TestCase):
         self.assertFalse(any('bench-jsonl' in c for c in commands))
 
     def test_candidate_sanitizer_failure_stops_before_timing(self):
-        for executable in ('ntt_basis_cuda_tests', 'ntt_shoup_cuda_tests'):
+        for executable in ('ntt_basis_cuda_tests', 'ntt_shoup_cuda_tests', 'ntt_barrett_cuda_tests'):
             code, report, commands = self.scenario(mode='gpu', fail=lambda command:
                 command[0] == 'compute-sanitizer' and
                 any(argument.endswith(executable) for argument in command))

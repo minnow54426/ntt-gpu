@@ -48,6 +48,10 @@ def load_run(directory, schedule):
     required = {"exact-tests"}
     required.update("sanitizer-" + scope + tool for scope in SANITIZER_SCOPES
                     for tool in ("memcheck", "racecheck", "initcheck", "synccheck"))
+    if ('cuda_barrett_exact' in report.get('registered_gpu_tests', []) or
+            'barrett_exact' in report.get('sanitizer_scopes', [])):
+        required.update('sanitizer-barrett-' + tool
+                        for tool in ('memcheck', 'racecheck', 'initcheck', 'synccheck'))
     if "conversion" in context["scopes"]:
         required.update("sanitizer-conversion-benchmark-" + tool
                         for tool in ("memcheck", "racecheck", "initcheck", "synccheck"))

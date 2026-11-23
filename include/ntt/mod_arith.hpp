@@ -4,6 +4,8 @@
 // Correctness-first: mul_mod uses __uint128_t division. The CUDA port will
 // swap in Barrett/Montgomery reduction behind these same signatures and
 // cross-check against this implementation on identical inputs.
+// Candidate policies live in shoup.hpp and barrett.hpp. This reference
+// remains the default until the corresponding native/dispatch gates pass.
 //
 // Every function here is __host__ __device__: the CUDA backend includes
 // this header from its kernels, so the arithmetic the GPU runs is

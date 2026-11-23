@@ -275,6 +275,75 @@ the correctness baseline. The CUDA compiler may translate this remainder express
 instructions. Inspect the generated GPU code and profile it; one source
 expression does not imply one hardware division instruction.
 
+## Barrett candidate for changing operands
+
+Shoup multiplication precomputes information about one fixed multiplier.
+Pointwise products have two changing inputs. The
+[Barrett candidate](../include/ntt/barrett.hpp) instead precomputes information
+about the modulus q. It supports canonical inputs a, b in \([0,q)\), with
+\(1<q<2^{63}\). Reduction also works for even or composite q; NTT parameter
+selection still requires its compatible prime and primitive root.
+
+### Replace division with an estimate and one correction
+
+During CPU setup, compute the 128-bit reciprocal
+\(\mu=\lfloor2^{128}/q\rfloor\). For each product, form the full 128-bit
+integer \(x=ab\), then estimate its quotient:
+
+\[
+t=\left\lfloor\frac{x\mu}{2^{128}}\right\rfloor,
+\qquad r=x-tq.
+\]
+
+The reciprocal is rounded down, so t cannot exceed the true quotient.
+Its error before rounding is less than \(x/2^{128}<1\). Consequently t is
+the true quotient or one less, and \(0\le r<2q\). Return r if r<q;
+otherwise subtract q once. This produces the exact canonical remainder.
+
+The bound \(q<2^{63}\) matters: it makes \(2q<2^{64}\), so the residual
+fits in one machine word. The implementation uses the high and low halves
+of the full product to estimate the quotient, then retains the residual's
+low word. This is different from discarding the high half of ab before
+reduction, which would lose necessary information.
+
+### See the correction with small words
+
+For an **8-bit-word illustration**, replace \(2^{128}\) by \(2^{16}=65536\).
+Choose q=101 and a=b=100. Setup gives \(\mu=648\). Then:
+
+```text
+x = 100 × 100 = 10000
+t = floor(10000 × 648 / 65536) = 98
+r = 10000 − 98 × 101 = 102
+r ≥ 101, so subtract 101 once: result = 1
+```
+
+Indeed, 10000 = 99×101 + 1. The estimate was one quotient step low;
+the correction recovers the answer. The project uses 64-bit words and the
+128-bit reciprocal, with the same argument.
+
+### What has been checked offline
+
+Python bigint checks independently calculate the reciprocal, quotient estimate
+and final remainder. They include exhaustive small moduli, powers of two,
+30–63-bit boundary values, random moduli, both quotient-error cases and all
+three middle-column carries (0, 1 or 2). A separate twist-and-cyclic transform
+fixture compares both directions with the reference across every benchmark
+dimension, then checks N=65536 arrays against actual pinned OpenFHE calls.
+
+The prepared CUDA probe uses `__umul64hi` and ordinary unsigned 64-bit
+arithmetic. Generated PTX for sm_89 and sm_120 contains four `mul.hi.u64`
+instructions and no division, remainder or helper calls in its Barrett kernel.
+This establishes a compiler property, not GPU correctness or speed. The
+reference NTT and resident dispatch retain their existing arithmetic.
+
+Sources: [bigint oracle](../tests/oracle/test_arithmetic.py),
+[independent transform fixture](../tests/support/barrett_transform.hpp),
+[OpenFHE comparison](../tests/openfhe_compat_tests.cpp),
+[CUDA probe](../tests/basis_cuda.cu), and
+[PTX check](../tests/tooling/check_barrett_ptx.py). Native execution and all
+four sanitizer tools are queued in the [later GPU batch](next-gpu-rental.md).
+
 ## 4. Executable adversarial coverage
 
 Two required checks, called gates, run in the ordinary CPU CTest suite.
