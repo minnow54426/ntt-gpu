@@ -219,7 +219,7 @@ html { scroll-behavior:smooth; scroll-padding-top:84px; }
 .site-contents-button { border:1px solid #c5cebe; border-radius:5px; background:#f5f6f0; padding:5px 10px; color:#354a3b; }
 .site-topbar { gap:16px; padding:0 36px; }
 .site-breadcrumb { margin-right:auto; }
-.site-body :is(h2,h3)[id] { scroll-margin-top:100px; }
+.site-body :is(h2,h3)[id] { scroll-margin-top:16px; }
 .site-article { font-size:16px; line-height:1.8; color:#39473c; }
 .site-article h1 { font-size:clamp(30px,3vw,42px); line-height:1.2; max-width:24ch; margin-bottom:24px; }
 .site-article h2 { margin-top:44px; padding-top:16px; border-top:1px solid var(--site-line); font-size:27px; }

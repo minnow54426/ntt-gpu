@@ -75,6 +75,9 @@
       if (!link) return;
       closeContents();
       const section = document.getElementById(decodeURIComponent(link.hash.slice(1)));
+      for (let parent = section.parentElement; parent; parent = parent.parentElement) {
+        if (parent.matches("details")) parent.open = true;
+      }
       section.tabIndex = -1;
       section.focus({preventScroll:true});
     });
@@ -82,7 +85,7 @@
     function updateSection() {
       let selected = 0;
       sections.forEach((section, index) => {
-        if (section.getBoundingClientRect().top <= 140) selected = index;
+        if (section.getClientRects().length && section.getBoundingClientRect().top <= 140) selected = index;
       });
       if (window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
         selected = sections.length - 1;
@@ -100,6 +103,7 @@
       }
     }, {passive:true});
     window.addEventListener("resize", updateSection);
+    document.addEventListener("toggle", updateSection, true);
     updateSection();
   }
 

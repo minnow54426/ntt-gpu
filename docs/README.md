@@ -25,12 +25,16 @@ HTML also works as a standalone page.
 ## Read the site
 
 Use the left menu to change pages and search with `Ctrl+K` / `Cmd+K`.
-Each page starts with its main idea. Expand the notes for explanations,
-commands, evidence or an interactive lesson. A link to a specific section
-opens any collapsed notes automatically.
+Each article starts with its purpose, key points and reading prerequisites.
+Guides and interactive lessons are open by default. The right sidebar lists
+their main sections; on a phone, use the **Sections** button. You can collapse
+the detailed guide when you only need the overview. Dated journal records
+start collapsed, and section links open their enclosing notes automatically.
 
-Learn explains concepts; Research reports evidence; Plans lists remaining
-work. The journal records what happened on each calendar date. Its dates
+Start with Fundamentals, then CUDA runtime and OpenFHE. Results contains
+measured evidence; Research compares ideas and hardware. Procedures gives
+repeatable workflows, and Plans lists remaining work. The journal records
+what happened on each calendar date. Its dates
 are separate from the roadmap's working-day milestones.
 
 ## Add a daily entry
@@ -60,7 +64,8 @@ only when a milestone's acceptance checks pass.
 
 Add an entry to `docs/site.json` for each new article. Include its source file,
 web address, title, group, summary, one to three takeaways, and the address of
-the next page. Keep existing page addresses and section bookmarks stable so
+the next page. Add a short `prerequisite` sentence and, when useful, a
+`before_page` pointing to an existing article. Keep existing page addresses and section bookmarks stable so
 old links continue to work. The builder turns relative links into notebook
 pages or GitHub links to the exact source revision.
 

@@ -30,6 +30,18 @@ OUTPUT = ROOT / "build" / "docs-site"
 JOURNAL_SECTIONS = (
     "Outcome", "Reasoning", "Changes", "Verification", "Open questions", "Next step"
 )
+PAGE_GROUPS = OrderedDict([
+    ("Start here", "Build the project and choose a reading path."),
+    ("Fundamentals", "Learn the transform, then follow it onto GPU threads."),
+    ("CUDA runtime", "Understand arithmetic, buffers and resident operations."),
+    ("OpenFHE", "Match polynomial formats, basis conversion and key switching."),
+    ("Results", "Read measured results together with their scope and limits."),
+    ("Research", "Compare implementation ideas and hardware choices."),
+    ("Procedures", "Follow repeatable steps for optimization and GPU sessions."),
+    ("Plans", "Check the current milestone and prepare the next deliverable."),
+    ("Daily journal", "Browse dated work records; use the roadmap for current status."),
+    ("Contribute", "Edit, verify and publish the notebook."),
+])
 
 
 class MathPreserver(Preprocessor):
@@ -112,6 +124,14 @@ def read_catalog():
         if page.get("next_page") not in titles:
             raise ValueError(f"Unknown next page: {page['source']}")
         page["next_title"] = titles[page["next_page"]]
+        if page["group"] not in PAGE_GROUPS:
+            raise ValueError(f"Unknown page group: {page['source']}")
+        if not page.get("prerequisite"):
+            raise ValueError(f"Missing reading prerequisite: {page['source']}")
+        before = page.get("before_page")
+        if before and (before not in titles or before == page["url"]):
+            raise ValueError(f"Unknown or self-referencing prerequisite: {page['source']}")
+        page["before_title"] = titles.get(before, "")
     discovered = {
         str(path.relative_to(ROOT))
         for pattern in ("*.md", "*.html")
@@ -191,10 +211,9 @@ def rewrite_links(body, source, current, source_routes, repository, revision):
 
 
 def navigation(pages, current):
-    groups = OrderedDict([
-        ("Start here", [("index.html", "Overview")]),
-        ("Daily journal", [("journal.html", "All entries")]),
-    ])
+    groups = OrderedDict((group, []) for group in PAGE_GROUPS)
+    groups["Start here"].append(("index.html", "Overview"))
+    groups["Daily journal"].append(("journal.html", "All entries"))
     for page in pages:
         groups.setdefault(page["group"], []).append((page["url"], page["title"]))
     output = []
@@ -267,9 +286,6 @@ def section_outline(content):
 
 def shell(page, content, pages, revision, repository, toc="", legacy_head="", public_base_url=""):
     content, toc = section_outline(content)
-    # The full text keeps its anchors, but its outline would clutter the summary.
-    if page.get("source"):
-        toc = ""
     current = page["url"]
     prefix = relative_url(current, "assets/").rstrip("/")
     home = relative_url(current, "index.html")
@@ -376,7 +392,7 @@ def page_directory(pages, entries):
         "group": "Daily journal", "summary": "The complete daily progress timeline.",
     }] + list(entries)
     groups = []
-    for group in ("Start here", "Learn", "Research", "Procedures", "Plans", "Daily journal", "Contribute"):
+    for group, description in PAGE_GROUPS.items():
         links = []
         for page in directory_pages:
             if page["group"] != group:
@@ -388,7 +404,8 @@ def page_directory(pages, entries):
             )
         groups.append(
             f'<details class="site-directory-group"{" open" if group == "Start here" else ""}>'
-            f'<summary>{escape(group)}</summary>' + "".join(links) + "</details>"
+            f'<summary>{escape(group)}</summary><p>{escape(description)}</p>'
+            + "".join(links) + "</details>"
         )
     return '<div class="site-directory">' + "".join(groups) + "</div>"
 
@@ -401,7 +418,7 @@ def home_content(pages, entries):
   <div><p class="site-eyebrow"><span class="site-status-dot"></span> An open engineering notebook</p>
     <h1>GPU NTT for CKKS</h1>
     <p class="site-lede">Learn how the NTT helps multiply polynomials, see the GPU test results, and follow the work toward OpenFHE integration.</p>
-    <div class="site-hero-actions"><a class="site-primary-link" href="batch40-native-analysis.html">Read the GPU results</a><a class="site-secondary-link" href="#all-pages">Browse all pages ↓</a></div>
+    <div class="site-hero-actions"><a class="site-primary-link" href="paired-ntt-native-analysis.html">Read the latest GPU analysis</a><a class="site-secondary-link" href="#all-pages">Browse all pages</a></div>
     <div class="site-specs"><span>CKKS · Hybrid</span><span>N = 4,096–65,536</span><span>Target: RTX 5090</span></div>
   </div>
   <div class="site-checkpoint"><div class="site-checkpoint-label">Working day <span>{escape(state['Working day'])}</span></div>
@@ -413,7 +430,7 @@ def home_content(pages, entries):
 </div>
 <div class="site-evidence-strip">
   <div><span class="site-evidence-label">Verified</span><strong><span class="site-status-dot"></span> Temporary GPU baseline passed</strong><p>Recorded answer checks, memory/threading checks and timings.</p></div>
-  <div><span class="site-evidence-label">Still pending</span><strong><span class="site-pending-dot"></span> RTX 5090 validation</strong><p>Base conversion and key switching come later.</p></div>
+  <div><span class="site-evidence-label">Still pending</span><strong><span class="site-pending-dot"></span> RTX 5090 validation</strong><p>Validate the prepared resident conversion chain, then measure its costs.</p></div>
   <div><span class="site-evidence-label">Current record</span><strong>{escape(latest)}</strong><p>Latest published journal entry.</p></div>
 </div>
 <section class="site-article" aria-labelledby="reading-path">
@@ -424,6 +441,9 @@ def home_content(pages, entries):
 <li><a href="gpu-ntt-explained.html">See how the GPU divides the work</a>, then trace one thread in the <a href="ntt-65536-work-distribution.html">65536-point explorer</a>.</li>
 <li><a href="batch40-native-analysis.html">Read the measured results</a> or <a href="project.html">build the project</a>.</li>
 </ol>
+<h2 id="next-step">What comes next?</h2>
+<p>The paired Ada analysis is complete. The next engineering step is to run the prepared resident ModUp/ModDown correctness, sanitizer and timing checks on RTX 5090, alongside the NTT baseline. No new rental is needed to read these pages or reproduce the CPU checks.</p>
+<p>Use the <a href="next-gpu-rental.html">current GPU session queue</a> for commands and the <a href="openfhe-integration-plan.html#live-tracker">live tracker</a> for acceptance requirements. D11/P2 stays open until its required evidence is recorded.</p>
 <details><summary>Useful words before you start</summary>
 <ul>
 <li><strong>Modulo q:</strong> keep the remainder after division by q. For example, 20 modulo 17 is 3.</li>
@@ -488,7 +508,7 @@ def check_links(output):
 def concise_article(page, full_content):
     journal = page["group"] == "Daily journal"
     lesson = page["source"].endswith(".html")
-    label = "Open interactive lesson" if lesson else "Read full entry" if journal else "Read full notes"
+    label = "Dated work record" if journal else "Interactive lesson" if lesson else "Detailed guide"
     title = escape(page["title"])
     points = page.get("takeaways", [page["summary"]])
     brief = (
@@ -499,15 +519,27 @@ def concise_article(page, full_content):
         next_url = relative_url(page["url"], "openfhe-integration-plan.html")
         next_label = "Current roadmap"
         brief += '<p>This is a dated record of work on its calendar date. Its test counts, design and next steps describe that time; use the current roadmap for today’s status.</p>'
+        before = '<p class="site-prerequisite"><strong>Before you start:</strong> No earlier journal entry is required. For current priorities, read the roadmap linked below.</p>'
     else:
         next_url = relative_url(page["url"], page["next_page"])
         next_label = "Next: " + page["next_title"]
-    following = f'<p class="site-article site-read-next"><a href="{escape(next_url, quote=True)}">{escape(next_label)} →</a></p>'
+        before = '<p class="site-prerequisite"><strong>Before you start:</strong> ' + escape(page["prerequisite"])
+        if page.get("before_page"):
+            before += ' Read <a href="' + relative_url(page["url"], page["before_page"]) + '">' + escape(page["before_title"]) + '</a> first.'
+        before += '</p>'
+    following = f'<nav class="site-article site-read-next" aria-label="Continue reading"><h2 id="site-continue">Continue reading</h2><a href="{escape(next_url, quote=True)}">{escape(next_label)}</a></nav>'
     return (
-        f'<section class="site-article site-brief"><h1>{title}</h1>{brief}</section>'
-        f'<details class="site-full-notes"><summary>{label}</summary>{full_content}</details>'
+        f'<section class="site-article site-brief"><h1>{title}</h1><p class="site-summary">{escape(page["summary"])}</p>'
+        f'<h2 id="site-overview">At a glance</h2>{brief}{before}</section>'
+        f'<details class="site-full-notes"{"" if journal else " open"}><summary>{label}</summary>{full_content}</details>'
         f'{following}'
     )
+
+
+def preserve_title_anchor(body):
+    """The shared header supplies h1; retain the source title's bookmark."""
+    return re.sub(r"<h1\b([^>]*)>[\s\S]*?</h1>",
+                  r'<div\1 class="site-title-anchor" aria-hidden="true"></div>', body, count=1)
 
 
 def build():
@@ -548,6 +580,7 @@ def build():
                 head = head.replace('href="site-assets/', 'href="assets/')
                 body = re.search(r"<body[^>]*>([\s\S]*?)</body>", text)[1]
                 body = body.replace("<main>", '<div class="legacy-main">').replace("</main>", "</div>")
+                body = preserve_title_anchor(body)
                 # HTML explainers have root-relative sibling assets already.
                 body = rewrite_links(body, page["source"], page["url"], routes, repository, revision)
                 write_page(page, concise_article(page, '<div class="site-legacy">' + body + "</div>"),
@@ -555,9 +588,7 @@ def build():
             else:
                 body, toc, _ = render_markdown(text)
                 body = rewrite_links(body, page["source"], page["url"], routes, repository, revision)
-                # The brief supplies the page h1; keep the source title and anchor
-                # as a subordinate heading inside the optional reference text.
-                body = re.sub(r"<h1\b([^>]*)>([\s\S]*?)</h1>", r"<h2\1>\2</h2>", body, count=1)
+                body = preserve_title_anchor(body)
                 content = concise_article(page, '<article class="site-article">' + body + "</article>")
                 if page["group"] == "Daily journal":
                     content = f'<div class="site-journal-banner"><time datetime="{page["date"]}">{page["date"]}</time><span>{escape(page["phase"])}</span><a href="../journal.html">← All entries</a></div>' + content

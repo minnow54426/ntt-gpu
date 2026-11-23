@@ -129,3 +129,17 @@ body:not(.site-body) :is(h1,h2,h3){font-family:var(--theme-display);font-weight:
  .site-home-hero h1{font-size:46px}.site-legacy .hero h1,.site-legacy .ntt-lesson h1{font-size:42px}
  .site-page-meta,.site-page-meta a{font-size:11px}.site-lede{font-size:17px}
 }
+
+/* Shared reading structure; the portfolio's palette and type remain unchanged. */
+.site-brief .site-summary{font-size:18px;line-height:1.7;color:#58452f;max-width:64ch}
+.site-brief h2{font-size:25px;margin-top:24px;padding-top:18px}
+.site-prerequisite{border-left:3px solid var(--theme-green);padding:12px 16px;background:#e8ddc3;font-size:16px;line-height:1.7}
+.site-full-notes{border:0;border-top:1px solid var(--theme-line);border-radius:0;padding:20px 0;margin-top:30px}
+.site-full-notes>summary{font:600 16px/1.6 var(--theme-body);color:var(--theme-green);width:fit-content}
+.site-full-notes>.site-article>p:first-of-type{margin-top:24px}
+.site-read-next{margin-top:40px;padding-bottom:20px}
+.site-read-next h2{font-size:25px;margin-top:20px}
+.site-directory-group>p{color:var(--theme-muted);font-size:15px;line-height:1.6;margin:12px 0}
+.site-title-anchor{scroll-margin-top:16px}
+.site-on-this-page a{font-size:14px;line-height:1.5}
+@media(max-width:600px){.site-brief .site-summary{font-size:17px}.site-prerequisite{font-size:16px}.site-brief h2,.site-read-next h2{font-size:25px}}

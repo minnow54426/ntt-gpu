@@ -120,13 +120,40 @@ class RoutingTests(unittest.TestCase):
             with self.subTest(page=page["url"]):
                 original = '<h2 id="evidence">Evidence</h2><script>const test = 1;</script>'
                 body = site.concise_article(page, original)
-                summary, full = body.split('<details class="site-full-notes">', 1)
+                summary, full = body.split('<details class="site-full-notes"', 1)
                 self.assertIn('site-brief', summary)
                 self.assertIn(original, full)
                 self.assertNotIn(original, summary)
                 self.assertLessEqual(summary.count("<li>"), 3)
-                label = "Open interactive lesson" if page["source"].endswith(".html") else "Read full"
+                self.assertIn('id="site-overview"', summary)
+                self.assertIn('Before you start:', summary)
+                self.assertEqual(full.startswith('>'), page['group'] == 'Daily journal')
+                label = "Interactive lesson" if page["source"].endswith(".html") else "Dated work record" if page['group'] == 'Daily journal' else "Detailed guide"
                 self.assertIn(label, full)
+
+    def test_articles_keep_section_navigation_and_one_title(self):
+        page = site.read_catalog()['pages'][0]
+        source = '<h1 id="old-title">Original title</h1><h2 id="example">Example</h2>'
+        body = site.concise_article(page, site.preserve_title_anchor(source))
+        html = site.shell(page, body, site.read_catalog()['pages'], 'abc123', 'https://example.com')
+        self.assertEqual(html.count('<h1>'), 1)
+        self.assertIn('id="old-title"', html)
+        self.assertIn('aria-label="Page sections"', html)
+        self.assertIn('href="#example"', html)
+        self.assertIn('href="#site-overview"', html)
+        self.assertIn('href="#site-continue"', html)
+
+    def test_prerequisite_links_work_from_nested_pages(self):
+        page = next(p for p in site.read_catalog()['pages'] if p['url'] == 'procedures/gpu-benchmark-session.html')
+        body = site.concise_article(page, '<p>Procedure</p>')
+        self.assertIn('href="../offline-gpu-preparation.html"', body)
+
+    def test_unknown_prerequisite_is_rejected(self):
+        catalog = site.read_catalog()
+        catalog['pages'][0]['before_page'] = 'missing.html'
+        with patch.object(site.json, 'loads', return_value=catalog):
+            with self.assertRaisesRegex(ValueError, 'prerequisite'):
+                site.read_catalog()
 
     def test_home_shows_current_evidence_without_old_pending_message(self):
         home = site.home_content(site.read_catalog()['pages'], site.read_journal())
