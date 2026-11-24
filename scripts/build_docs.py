@@ -43,6 +43,41 @@ PAGE_GROUPS = OrderedDict([
     ("Contribute", "Edit, verify and publish the notebook."),
 ])
 
+VISUAL_GUIDES = {
+    "butterfly": ("Watch a butterfly share its work", "butterfly-explained.html", "Eight coefficients become eight evaluations, one stage at a time."),
+    "memory": ("Find a thread's two values", "ntt-65536-work-distribution.html", "Switch between columns and rows in the full 65,536-value array."),
+    "towers": ("See what a prime tower contains", "cuda-buffer-dataflow.html", "Reduce the same coefficients under different primes and derive the byte count."),
+    "transfers": ("Follow the CPU–GPU copies", "resident-operation-chain.html", "Step through multiplication and compare the bytes that cross the boundary."),
+}
+
+
+def visual_lesson(kind):
+    title, _, description = VISUAL_GUIDES[kind]
+    controls = {
+        "butterfly": '<label>Stage<select data-field="step"><option value="0">Input coefficients</option><option value="1">Stage 1 · distance 4</option><option value="2">Stage 2 · distance 2</option><option value="3">Stage 3 · distance 1</option></select></label><label>Pair<select data-field="pair">' + ''.join(f'<option value="{i}">Pair {i + 1}</option>' for i in range(4)) + '</select></label>',
+        "memory": '<label>Forward stage<select data-field="step">' + ''.join(f'<option value="{i}">Stage {i + 1} · {"column" if i < 8 else "row"} · d={32768 // 2**i}</option>' for i in range(16)) + '</select></label><label>Block (0–255)<input data-field="block" type="number" min="0" max="255" step="1" value="0"></label><label>Thread (0–255)<input data-field="thread" type="number" min="0" max="255" step="1" value="0"></label>',
+        "towers": '<label>Representation<select data-field="format"><option value="coefficient">Coefficients</option><option value="evaluation">NTT evaluations</option></select></label><label>Prime towers<select data-field="count"><option value="1">1 prime</option><option value="2">2 primes</option><option value="3" selected>3 primes</option></select></label><label>Array position<select data-field="slot">' + ''.join(f'<option value="{i}">Position {i}</option>' for i in range(4)) + '</select></label>',
+        "transfers": '<label>Call pattern<select data-field="mode"><option value="resident">Keep intermediates on GPU</option><option value="separate">Separate host-vector calls</option></select></label><label>Step<select data-field="step">' + ''.join(f'<option value="{i}">{label}</option>' for i, label in enumerate(['CPU inputs', 'Upload inputs', 'Forward transforms', 'Pointwise product', 'Inverse transform', 'CPU result'])) + '</select></label>',
+    }[kind]
+    initial = {
+        "butterfly": ('N=8, q=17, ψ=3: a small exact example of the default group-twiddle schedule. The project uses N=65,536. Positions stay fixed while their values change.', 'Start with coefficients [1, 2, 3, 4, 5, 6, 7, 8]. Each stage handles four disjoint pairs. Advance to Stage 1, then choose a pair to see its modular multiplication and two outputs.', ['8 coefficients', '3 butterfly stages', '8 evaluations']),
+        "memory": ('One tower is shown as 256 rows × 256 columns. Dots and highlights represent array positions, not coefficient magnitudes. This is the forward schedule.', 'Stage 1, block 0, thread 0 pairs positions 0 and 32,768. The column block owns 256 values. Threads 0–127 compute pairs; threads 128–255 still load, store and reach barriers.', ['65,536 positions', 'Column or row block', '2 inputs per pair']),
+        "towers": ('The same polynomial is represented under several primes. The visible N=4 example uses 1 − 2x + 20x² + 100x³. Full-size storage below uses N=65,536.', 'Three towers store the residues modulo 17, 41 and 73. At N=65,536, 3 × 65,536 × 8 = 1,572,864 bytes = 1.5 MiB per polynomial. Parameters and temporary arrays are additional.', ['Same coefficients', 'A remainder per prime', '3 × N × 8 bytes']),
+        "transfers": ('This is byte accounting for two inputs and one output at N=65,536 with three prime towers. It does not simulate execution time, bandwidth or allocation behavior.', 'One polynomial occupies 1.5 MiB. Keeping intermediate arrays on the GPU copies 3 polynomial payloads (4.5 MiB); separate forward, pointwise and inverse host-vector calls copy 9 (13.5 MiB).', ['CPU memory', 'GPU operations', 'CPU result']),
+    }[kind]
+    intro, explanation, labels = initial
+    diagram = '<svg data-visual-svg viewBox="0 0 720 350" role="img" aria-label="' + escape(title, quote=True) + '"><path d="M130 170 H590" stroke="#6b593f" stroke-width="2"/>' + ''.join(f'<rect x="{30 + i * 240}" y="125" width="180" height="90" rx="6" fill="#e3d4b3" stroke="#1f5d3e"/><text x="{120 + i * 240}" y="178" text-anchor="middle" fill="#2b1d10" font-size="16">{escape(label)}</text>' for i, label in enumerate(labels)) + '</svg>'
+    return f'''<section class="site-visual site-article" id="visual-{kind}" data-visual="{kind}" aria-labelledby="visual-{kind}-title">
+<p class="visual-eyebrow">Explore the idea</p><h2 id="visual-{kind}-title">{title}</h2><p>{description} {intro}</p>
+<div class="visual-controls" data-visual-controls hidden>{controls}<div class="visual-step-buttons"><button type="button" data-previous>Previous step</button><button type="button" data-next>Next step</button></div></div>
+<figure class="visual-figure"><div class="visual-viewport" tabindex="0" role="region" aria-label="Scrollable teaching diagram">{diagram}<div data-visual-webgl hidden></div></div><p class="visual-scroll-hint">Scroll sideways inside the frame to read the whole diagram.</p><figcaption data-visual-caption>The diagram is a teaching model. Read the exact explanation below.</figcaption></figure>
+<div class="visual-view-controls" data-visual-controls hidden><button type="button" data-3d aria-pressed="false">Open 3D view</button><label data-camera-control hidden>Rotate view<input type="range" min="-60" max="60" value="25" data-camera></label><button type="button" data-reset>Reset example</button></div>
+<p class="visual-renderer-status" data-renderer-status role="status">The diagram and explanation remain available without 3D support. Enable JavaScript to explore the steps.</p>
+<div class="visual-explanation" data-visual-explanation aria-live="polite" aria-atomic="true"><p>{explanation}</p></div>
+<details class="visual-details"><summary>Read the values as text</summary><div data-visual-values><p>{explanation}</p></div></details>
+<p class="visual-prompt" data-visual-prompt>Try changing one control, then explain what changed before moving on.</p>
+</section>'''
+
 
 class MathPreserver(Preprocessor):
     """Stash math before Markdown consumes its backslashes or underscores."""
@@ -128,6 +163,9 @@ def read_catalog():
             raise ValueError(f"Unknown page group: {page['source']}")
         if not page.get("prerequisite"):
             raise ValueError(f"Missing reading prerequisite: {page['source']}")
+        for visual_field in ("visual_demo", "visual_guide"):
+            if page.get(visual_field) and page[visual_field] not in VISUAL_GUIDES:
+                raise ValueError(f"Unknown visual guide: {page['source']}")
         before = page.get("before_page")
         if before and (before not in titles or before == page["url"]):
             raise ValueError(f"Unknown or self-referencing prerequisite: {page['source']}")
@@ -301,6 +339,7 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
 <script defer src="{relative_url(current, 'math-rendering.js')}"></script>"""
     title = escape(page["title"])
     description = escape(page["summary"], quote=True)
+    visual_head = f'<script type="module" src="{prefix}/visual-lessons.mjs"></script>' if page.get("visual_demo") else ""
     article_toc = (
         '<aside class="site-on-this-page" id="site-section-nav" aria-label="On this page">'
         '<div class="site-contents-heading"><p>On this page</p>'
@@ -320,6 +359,8 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
 {math_head}
 <link rel="stylesheet" href="{prefix}/site.css">
 <link rel="stylesheet" href="{prefix}/sunlit-paper.css">
+<link rel="stylesheet" href="{prefix}/visual-lessons.css">
+{visual_head}
 <script defer src="{relative_url(current, 'search-index.js')}"></script>
 <script defer src="{prefix}/site.js"></script>
 </head>
@@ -346,7 +387,7 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
       <div class="site-page-content">{content}</div>{article_toc}
     </div>
   </main>
-  <footer class="site-footer"><span>ntt-gpu · CKKS / CUDA / OpenFHE</span>
+  <footer class="site-footer"><span>ntt-gpu · CKKS / CUDA / OpenFHE · <a href="{home}#visual-guides">Beginner visual guides</a></span>
     <span>Source revision <a href="{repository}/tree/{revision}">{revision[:7]}</a> · See journal for changes in this build</span></footer>
 </div>
 <dialog class="site-search-dialog" aria-labelledby="site-search-title">
@@ -441,6 +482,9 @@ def home_content(pages, entries):
 <li><a href="gpu-ntt-explained.html">See how the GPU divides the work</a>, then trace one thread in the <a href="ntt-65536-work-distribution.html">65536-point explorer</a>.</li>
 <li><a href="batch40-native-analysis.html">Read the measured results</a> or <a href="project.html">build the project</a>.</li>
 </ol>
+<h2 id="visual-guides">Learn by moving one thing at a time</h2>
+<p>Start with a labelled diagram, choose a step and read its exact values. Each explorer also has an optional Three.js 3D view. You can use every control without 3D, and nothing runs a CUDA workload.</p>
+<div class="site-visual-guides">{''.join(f'<a href="{route}#visual-{kind}"><strong>{title}</strong><span>{description}</span></a>' for kind, (title, route, description) in VISUAL_GUIDES.items())}</div>
 <h2 id="next-step">What comes next?</h2>
 <p>The paired Ada analysis is complete. Native ModUp/ModDown checks, timings and tagged profiles are prepared as one RTX 5090 batch for later. Offline work continues on builds, CPU checks and profiling preparation; no rental is needed for those tasks.</p>
 <p>Use the <a href="next-gpu-rental.html">current GPU session queue</a> for commands and the <a href="openfhe-integration-plan.html#live-tracker">live tracker</a> for acceptance requirements. D11/P2 stays open until its required evidence is recorded.</p>
@@ -527,11 +571,16 @@ def concise_article(page, full_content):
         if page.get("before_page"):
             before += ' Read <a href="' + relative_url(page["url"], page["before_page"]) + '">' + escape(page["before_title"]) + '</a> first.'
         before += '</p>'
+    demonstration = visual_lesson(page["visual_demo"]) if page.get("visual_demo") else ""
+    if page.get("visual_guide") and not demonstration:
+        kind = page["visual_guide"]
+        guide_title, route, _ = VISUAL_GUIDES[kind]
+        before += f'<p class="site-visual-related">Need a picture first? <a href="{relative_url(page["url"], route)}#visual-{kind}">{guide_title}</a>.</p>'
     following = f'<nav class="site-article site-read-next" aria-label="Continue reading"><h2 id="site-continue">Continue reading</h2><a href="{escape(next_url, quote=True)}">{escape(next_label)}</a></nav>'
     return (
         f'<section class="site-article site-brief"><h1>{title}</h1><p class="site-summary">{escape(page["summary"])}</p>'
         f'<h2 id="site-overview">At a glance</h2>{brief}{before}</section>'
-        f'<details class="site-full-notes"{"" if journal else " open"}><summary>{label}</summary>{full_content}</details>'
+        f'{demonstration}<details class="site-full-notes"{"" if journal else " open"}><summary>{label}</summary>{full_content}</details>'
         f'{following}'
     )
 

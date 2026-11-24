@@ -1,5 +1,6 @@
 """Regression checks for published routes, journal integrity, and Markdown."""
 import importlib.util
+from html import escape
 from pathlib import Path
 import tempfile
 import sys
@@ -99,6 +100,40 @@ Write `\(a_i\)` as source.
 
 
 class RoutingTests(unittest.TestCase):
+    def test_visual_guides_cover_articles_and_keep_3d_optional(self):
+        pages = site.read_catalog()['pages']
+        for page in pages:
+            self.assertIn(page['visual_guide'], site.VISUAL_GUIDES)
+            body = site.concise_article(page, '<h2>Original explanation</h2>')
+            self.assertIn(f'<h1>{escape(page["title"])}</h1>', body)
+            html = site.shell(page, body, pages, 'abc123', 'https://example.test/repo')
+            self.assertIn('Beginner visual guides', html)
+            if page.get('visual_demo'):
+                self.assertIn(f'id="visual-{page["visual_demo"]}"', body)
+                self.assertIn('data-visual-svg', body)
+                self.assertIn('data-visual-explanation', body)
+                self.assertIn('data-visual-controls hidden', body)
+                self.assertIn('visual-lessons.mjs', html)
+            else:
+                self.assertIn('Need a picture first?', body)
+                self.assertNotIn('visual-lessons.mjs', html)
+            self.assertNotIn('three.module.min.js', html)
+            self.assertIn('Original explanation', body)
+
+    def test_visual_home_destinations_exist_and_unknown_model_is_rejected(self):
+        pages = site.read_catalog()['pages']
+        home = site.home_content(pages, site.read_journal())
+        self.assertIn('id="visual-guides"', home)
+        for kind, (_, route, _) in site.VISUAL_GUIDES.items():
+            page = next(p for p in pages if p['url'] == route)
+            self.assertEqual(page['visual_demo'], kind)
+            self.assertIn(f'href="{route}#visual-{kind}"', home)
+        catalog = site.read_catalog()
+        catalog['pages'][0]['visual_demo'] = 'unknown-scene'
+        with patch.object(site.json, 'loads', return_value=catalog):
+            with self.assertRaisesRegex(ValueError, 'Unknown visual'):
+                site.read_catalog()
+
     def test_main_directory_links_every_article_and_published_entry(self):
         pages = site.read_catalog()["pages"]
         entries = site.read_journal()

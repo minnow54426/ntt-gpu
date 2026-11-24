@@ -37,6 +37,30 @@ repeatable workflows, and Plans lists remaining work. The journal records
 what happened on each calendar date. Its dates
 are separate from the roadmap's working-day milestones.
 
+### Explore the ideas visually
+
+The notebook home page links to four beginner explorers: butterflies, thread
+addresses, prime towers and CPU–GPU copies. Related pages embed the same
+explorer or link to the relevant lesson. Start with the labelled diagram,
+change one control and read the exact calculation below it. On a phone,
+scroll a wide diagram inside its frame to keep its labels readable.
+
+**Open 3D view** loads a local, pinned Three.js copy. Rotate the view with
+the labelled slider; nothing moves automatically. The diagrams and text
+controls also work when WebGL is unavailable. With JavaScript disabled, the
+initial diagram and explanation remain available. Small arithmetic examples
+are explicitly labelled; the memory explorer maps all 65,536 positions.
+These are teaching models, not GPU execution or performance measurements.
+
+Maintain the models in `docs/site-assets/visual-models.mjs`, presentation in
+`visual-lessons.mjs` and styles in `visual-lessons.css`. Catalog fields
+`visual_demo` and `visual_guide` select the embedded explorer and suggested
+visual prerequisite. The four keys are `butterfly`, `memory`, `towers` and
+`transfers`. Keep Three.js in `docs/vendor/three/` with its MIT license and
+version/source/checksum record. Do not add a runtime CDN dependency.
+The [November 24 page review](reviews/2026-11-24-beginner-visual-review.json)
+records the visual teaching decision for every notebook page.
+
 ## Add a daily entry
 
 ```sh

@@ -1,0 +1,374 @@
+{
+  "date": "2026-11-24",
+  "scope": "All 52 NTT notebook pages: 30 articles, 20 journal entries and 2 directories.",
+  "principles": [
+    "Preserve English, Sunlit Paper, citations, measured evidence and stable section anchors.",
+    "Use exact controls and labelled diagrams before optional Three.js.",
+    "Keep small teaching examples separate from full-size arrays, native runs and acceptance gates.",
+    "Retain controls without WebGL and initial content without JavaScript."
+  ],
+  "pages": [
+    {
+      "route": "project.html",
+      "title": "Project & setup",
+      "role": "Start here",
+      "finding": "Connect setup commands to the eight-value numerical model; preserve native-evidence limits.",
+      "action": "link butterfly visual prerequisite; retain evidence"
+    },
+    {
+      "route": "vscode-debugging.html",
+      "title": "Run & debug",
+      "role": "Start here",
+      "finding": "The existing eight-value debugger now has a matching conceptual stage guide; retain platform-specific instructions.",
+      "action": "link butterfly visual prerequisite; retain evidence"
+    },
+    {
+      "route": "butterfly-explained.html",
+      "title": "NTT & butterflies",
+      "role": "Fundamentals",
+      "finding": "Add a smaller default-schedule example before the long derivation and existing legacy 16-point explorer.",
+      "action": "embed butterfly explorer"
+    },
+    {
+      "route": "gpu-ntt-explained.html",
+      "title": "From CPU to CUDA",
+      "role": "Fundamentals",
+      "finding": "Show owned addresses, independent pairs and inactive butterfly threads before implementation details.",
+      "action": "embed memory explorer"
+    },
+    {
+      "route": "ntt-65536-work-distribution.html",
+      "title": "65536: work distribution",
+      "role": "Fundamentals",
+      "finding": "Complement exact address tables and proofs with a whole-array view; distinguish block ownership from one selected pair.",
+      "action": "embed memory explorer"
+    },
+    {
+      "route": "cuda-buffer-dataflow.html",
+      "title": "CUDA buffers & dataflow",
+      "role": "CUDA runtime",
+      "finding": "Clarify that prime towers represent the same polynomial; expose residues, formats and byte derivations.",
+      "action": "embed towers explorer"
+    },
+    {
+      "route": "modular-arithmetic-contract.html",
+      "title": "Arithmetic bounds & tests",
+      "role": "CUDA runtime",
+      "finding": "Show canonical inputs, the shared product and both reduced outputs before the invariant proof.",
+      "action": "embed butterfly explorer"
+    },
+    {
+      "route": "resident-operation-chain.html",
+      "title": "Resident operation chain",
+      "role": "CUDA runtime",
+      "finding": "Make CPU boundaries visible; compare copied bytes without implying a measured speedup.",
+      "action": "embed transfers explorer"
+    },
+    {
+      "route": "openfhe-representation-contract.html",
+      "title": "OpenFHE representation",
+      "role": "OpenFHE",
+      "finding": "Changing representation changes numerical meaning while shape and byte count stay fixed.",
+      "action": "embed towers explorer"
+    },
+    {
+      "route": "openfhe-hybrid-operation-graph.html",
+      "title": "Hybrid operation graph",
+      "role": "OpenFHE",
+      "finding": "Keep the active-level explorer and pinned source links; the tower prerequisite must not masquerade as a key-switch algorithm.",
+      "action": "link towers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "device-backend-contract.html",
+      "title": "Device backend contract",
+      "role": "OpenFHE",
+      "finding": "Ownership and completion are semantic contracts; use a tower prerequisite rather than decorative 3D pointers.",
+      "action": "link towers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "basis-conversion-preparation.html",
+      "title": "Prepare basis conversion",
+      "role": "OpenFHE",
+      "finding": "Approximate CRT retains an unreduced sum; simple remainder pictures are only a prerequisite, not a conversion implementation.",
+      "action": "link towers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "first-native-analysis.html",
+      "title": "First GPU run: analysis",
+      "role": "Results",
+      "finding": "Illustrate transfer accounting beside the retained limitations on measured event and call timings.",
+      "action": "embed transfers explorer"
+    },
+    {
+      "route": "batch40-native-analysis.html",
+      "title": "Full GPU matrix: analysis",
+      "role": "Results",
+      "finding": "Keep concise measured ratios and scope limits; link copy accounting without synthetic performance charts.",
+      "action": "link transfers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "paired-ntt-native-analysis.html",
+      "title": "Paired Ada NTT results",
+      "role": "Results",
+      "finding": "Retain event/call boundaries and repeat methodology; provide the transfer guide as a prerequisite.",
+      "action": "link transfers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "cuda-kernel-optimization-survey.html",
+      "title": "CUDA kernel optimization",
+      "role": "Research",
+      "finding": "Connect locality hypotheses to exact row/column addresses; keep hypotheses separate from measured wins.",
+      "action": "link memory visual prerequisite; retain evidence"
+    },
+    {
+      "route": "gpu-ntt-survey.html",
+      "title": "GPU NTT implementations",
+      "role": "Research",
+      "finding": "Preserve upstream citations and experimental status; use the address guide before advanced layout comparisons.",
+      "action": "link memory visual prerequisite; retain evidence"
+    },
+    {
+      "route": "gpu-selection-survey.html",
+      "title": "Choosing the GPU",
+      "role": "Research",
+      "finding": "Retain dated hardware comparisons and workload-specific caveats; avoid decorative hardware models.",
+      "action": "link memory visual prerequisite; retain evidence"
+    },
+    {
+      "route": "gpu-rental-market-survey.html",
+      "title": "GPU rental market",
+      "role": "Research",
+      "finding": "Keep dated prices and provider permissions as sourced tables; link the transfer concept without suggesting current quotes.",
+      "action": "link transfers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "procedures/index.html",
+      "title": "Engineering procedures",
+      "role": "Procedures",
+      "finding": "Keep the short workflow directory scannable and add a shared visual prerequisite.",
+      "action": "link transfers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "procedures/cuda-performance-optimization.html",
+      "title": "Optimize a CUDA operation",
+      "role": "Procedures",
+      "finding": "Preserve the measure/change/check sequence; link byte accounting before timing comparisons.",
+      "action": "link transfers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "procedures/gpu-benchmark-session.html",
+      "title": "Run a rented GPU session",
+      "role": "Procedures",
+      "finding": "Retain profiling-access preflight and evidence export; the teaching controls do not request a rental.",
+      "action": "link transfers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "openfhe-integration-plan.html",
+      "title": "Integration roadmap",
+      "role": "Plans",
+      "finding": "Keep working-day gates evidence-driven; visual learning does not alter roadmap status.",
+      "action": "link transfers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "architecture-decision.html",
+      "title": "Architecture decision",
+      "role": "Plans",
+      "finding": "Retain design decisions and their evidence; link prime-tower representation as a prerequisite.",
+      "action": "link towers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "implementation-backlog.html",
+      "title": "Implementation backlog",
+      "role": "Plans",
+      "finding": "Preserve ordered dependencies and acceptance conditions; visual navigation changes no task status.",
+      "action": "link transfers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "offline-gpu-preparation.html",
+      "title": "Before renting a GPU",
+      "role": "Plans",
+      "finding": "Keep compilation distinct from native execution; no scene is hardware evidence or a reason to rent now.",
+      "action": "link transfers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "next-gpu-rental.html",
+      "title": "Next GPU rental queue",
+      "role": "Plans",
+      "finding": "Keep AutoDL profiling verification unchecked and early in the queue; a browser demonstration does not check it.",
+      "action": "link transfers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "benchmark-tuning-plan.html",
+      "title": "Benchmarks & tuning",
+      "role": "Plans",
+      "finding": "Separate bytes copied from time measured with an explicit accounting explorer.",
+      "action": "embed transfers explorer"
+    },
+    {
+      "route": "offline-test-tooling.html",
+      "title": "Offline test tooling",
+      "role": "Plans",
+      "finding": "Keep the collector protocol and provenance exact; link the timing-boundary concept without changing scripts.",
+      "action": "link transfers visual prerequisite; retain evidence"
+    },
+    {
+      "route": "contributing-docs.html",
+      "title": "Writing & publishing",
+      "role": "Contribute",
+      "finding": "Document model, renderer, metadata, local library and export maintenance so future updates retain the explorers.",
+      "action": "link memory visual prerequisite; retain evidence"
+    },
+    {
+      "route": "journal/2026-11-24.html",
+      "title": "Check AutoDL profiling access at the next rental",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-23.html",
+      "title": "Give every notebook page a clear reading structure",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-22.html",
+      "title": "Survey CUDA kernel optimization",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-21.html",
+      "title": "Analyze Ada timings and prepare conversion measurements",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-20.html",
+      "title": "Connect resident NTT and basis conversion",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-19.html",
+      "title": "Validate the expanded GPU batch on Ada",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-18.html",
+      "title": "Explain NTT concepts in plain English",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-17.html",
+      "title": "Make the notebook easier to read",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-16.html",
+      "title": "Shared theme and resident NTT preparation",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-15.html",
+      "title": "Clearer benchmark modes and GPU results",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-14.html",
+      "title": "Native GPU checks and full-matrix timings",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-13.html",
+      "title": "Compare rental costs and profiling access",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-12.html",
+      "title": "Accept the backend design and prepare CUDA offline",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-11.html",
+      "title": "Freeze OpenFHE arrays and the Hybrid graph",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-10.html",
+      "title": "Inverse proofs and exact arithmetic",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-09.html",
+      "title": "Map columns, threads and twiddle factors",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-08.html",
+      "title": "Publish the engineering notebook",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-07.html",
+      "title": "Debug one butterfly at a time",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-06.html",
+      "title": "Plan the path to OpenFHE",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "journal/2026-11-05.html",
+      "title": "Exact NTT results before GPU tuning",
+      "role": "Dated journal",
+      "finding": "Outcomes and counts describe this dated revision. Preserve its evidence, collapsed reading state, current-roadmap link and section bookmarks.",
+      "action": "retain historical record; add shared visual-guide navigation"
+    },
+    {
+      "route": "index.html",
+      "role": "Notebook home",
+      "finding": "Offer concrete visual questions before the full directory.",
+      "action": "add four explorer entry points with teaching-model scope"
+    },
+    {
+      "route": "journal.html",
+      "role": "Journal directory",
+      "finding": "This is a dated timeline rather than a concept lesson.",
+      "action": "retain timeline and add shared visual-guide navigation"
+    }
+  ]
+}

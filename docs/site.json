@@ -14,7 +14,8 @@
         "The November 19 Ada run passed the resident chain and new arithmetic/conversion checks. The primary RTX 5090 test remains open."
       ],
       "next_page": "vscode-debugging.html",
-      "prerequisite": "No GPU or prior project setup is required."
+      "prerequisite": "No GPU or prior project setup is required.",
+      "visual_guide": "butterfly"
     },
     {
       "source": "docs/vscode-debugging.md",
@@ -28,7 +29,8 @@
       ],
       "next_page": "butterfly-explained.html",
       "prerequisite": "Have a local checkout and a working CPU build.",
-      "before_page": "project.html"
+      "before_page": "project.html",
+      "visual_guide": "butterfly"
     },
     {
       "source": "docs/butterfly-explained.html",
@@ -41,7 +43,9 @@
         "Follow the small examples first, then learn why high-degree terms wrap back with a minus sign in the project’s 65,536-coefficient polynomials."
       ],
       "next_page": "gpu-ntt-explained.html",
-      "prerequisite": "Know how to substitute a number into a polynomial. Modular arithmetic is introduced here."
+      "prerequisite": "Know how to substitute a number into a polynomial. Modular arithmetic is introduced here.",
+      "visual_demo": "butterfly",
+      "visual_guide": "butterfly"
     },
     {
       "source": "docs/gpu-ntt-explained.html",
@@ -55,7 +59,9 @@
       ],
       "next_page": "ntt-65536-work-distribution.html",
       "prerequisite": "Understand one butterfly and why a transform has several stages.",
-      "before_page": "butterfly-explained.html"
+      "before_page": "butterfly-explained.html",
+      "visual_demo": "memory",
+      "visual_guide": "butterfly"
     },
     {
       "source": "docs/ntt-65536-work-distribution.html",
@@ -69,7 +75,9 @@
       ],
       "next_page": "cuda-buffer-dataflow.html",
       "prerequisite": "Know what a GPU thread, block and shared memory do.",
-      "before_page": "gpu-ntt-explained.html"
+      "before_page": "gpu-ntt-explained.html",
+      "visual_demo": "memory",
+      "visual_guide": "butterfly"
     },
     {
       "source": "docs/cuda-buffer-dataflow.md",
@@ -83,7 +91,9 @@
       ],
       "next_page": "resident-operation-chain.html",
       "prerequisite": "Distinguish CPU memory from GPU memory. The tower layout is explained here.",
-      "before_page": "gpu-ntt-explained.html"
+      "before_page": "gpu-ntt-explained.html",
+      "visual_demo": "towers",
+      "visual_guide": "memory"
     },
     {
       "source": "docs/modular-arithmetic-contract.md",
@@ -97,7 +107,9 @@
       ],
       "next_page": "openfhe-representation-contract.html",
       "prerequisite": "Understand modular addition and the two outputs of a butterfly.",
-      "before_page": "butterfly-explained.html"
+      "before_page": "butterfly-explained.html",
+      "visual_demo": "butterfly",
+      "visual_guide": "memory"
     },
     {
       "source": "docs/resident-operation-chain.md",
@@ -111,7 +123,9 @@
       ],
       "next_page": "implementation-backlog.html",
       "prerequisite": "Know when uploads, downloads and temporary buffers occur.",
-      "before_page": "cuda-buffer-dataflow.html"
+      "before_page": "cuda-buffer-dataflow.html",
+      "visual_demo": "transfers",
+      "visual_guide": "memory"
     },
     {
       "source": "docs/openfhe-representation-contract.md",
@@ -125,7 +139,9 @@
       ],
       "next_page": "openfhe-hybrid-operation-graph.html",
       "prerequisite": "Understand coefficients, evaluations and bit-reversed indices.",
-      "before_page": "butterfly-explained.html"
+      "before_page": "butterfly-explained.html",
+      "visual_demo": "towers",
+      "visual_guide": "towers"
     },
     {
       "source": "docs/openfhe-hybrid-operation-graph.md",
@@ -139,7 +155,8 @@
       ],
       "next_page": "device-backend-contract.html",
       "prerequisite": "Know how OpenFHE orders prime towers and marks polynomial formats.",
-      "before_page": "openfhe-representation-contract.html"
+      "before_page": "openfhe-representation-contract.html",
+      "visual_guide": "towers"
     },
     {
       "source": "docs/device-backend-contract.md",
@@ -153,7 +170,8 @@
       ],
       "next_page": "resident-operation-chain.html",
       "prerequisite": "Understand queued GPU work and why its buffers must stay alive.",
-      "before_page": "resident-operation-chain.html"
+      "before_page": "resident-operation-chain.html",
+      "visual_guide": "towers"
     },
     {
       "source": "docs/basis-conversion-preparation.md",
@@ -167,7 +185,8 @@
       ],
       "next_page": "next-gpu-rental.html",
       "prerequisite": "Understand a prime tower and the difference between coefficients and evaluations.",
-      "before_page": "openfhe-representation-contract.html"
+      "before_page": "openfhe-representation-contract.html",
+      "visual_guide": "towers"
     },
     {
       "source": "docs/first-native-analysis.md",
@@ -181,7 +200,9 @@
       ],
       "next_page": "batch40-native-analysis.html",
       "prerequisite": "Distinguish GPU-only timing from a complete CPU-visible call.",
-      "before_page": "cuda-buffer-dataflow.html"
+      "before_page": "cuda-buffer-dataflow.html",
+      "visual_demo": "transfers",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/batch40-native-analysis.md",
@@ -195,7 +216,8 @@
       ],
       "next_page": "resident-operation-chain.html",
       "prerequisite": "Know the first run’s timing limits before comparing the larger matrix.",
-      "before_page": "first-native-analysis.html"
+      "before_page": "first-native-analysis.html",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/paired-ntt-native-analysis.md",
@@ -209,7 +231,8 @@
       ],
       "next_page": "basis-conversion-preparation.html",
       "prerequisite": "Distinguish device-event, public-call and resident-call measurements.",
-      "before_page": "batch40-native-analysis.html"
+      "before_page": "batch40-native-analysis.html",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/cuda-kernel-optimization-survey.md",
@@ -223,7 +246,8 @@
       ],
       "next_page": "benchmark-tuning-plan.html",
       "prerequisite": "Read the measured baseline before choosing an optimization hypothesis.",
-      "before_page": "paired-ntt-native-analysis.html"
+      "before_page": "paired-ntt-native-analysis.html",
+      "visual_guide": "memory"
     },
     {
       "source": "docs/gpu-ntt-survey.md",
@@ -237,7 +261,8 @@
       ],
       "next_page": "benchmark-tuning-plan.html",
       "prerequisite": "Know the project’s two-pass NTT and the meaning of a prime tower.",
-      "before_page": "gpu-ntt-explained.html"
+      "before_page": "gpu-ntt-explained.html",
+      "visual_guide": "memory"
     },
     {
       "source": "docs/gpu-selection-survey.md",
@@ -251,7 +276,8 @@
       ],
       "next_page": "gpu-rental-market-survey.html",
       "prerequisite": "Understand the integer workload and how its memory sizes are calculated.",
-      "before_page": "cuda-buffer-dataflow.html"
+      "before_page": "cuda-buffer-dataflow.html",
+      "visual_guide": "memory"
     },
     {
       "source": "docs/gpu-rental-market-survey.md",
@@ -265,7 +291,8 @@
       ],
       "next_page": "offline-gpu-preparation.html",
       "prerequisite": "Choose the hardware requirements first. Prices here are a dated snapshot.",
-      "before_page": "gpu-selection-survey.html"
+      "before_page": "gpu-selection-survey.html",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/procedures/README.md",
@@ -277,7 +304,8 @@
         "Follow the workflow and its verification steps before recording a result."
       ],
       "next_page": "procedures/cuda-performance-optimization.html",
-      "prerequisite": "Choose a workflow below; its linked guide provides the detailed commands."
+      "prerequisite": "Choose a workflow below; its linked guide provides the detailed commands.",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/procedures/cuda-performance-optimization.md",
@@ -290,7 +318,8 @@
       ],
       "next_page": "procedures/gpu-benchmark-session.html",
       "prerequisite": "Have a passing baseline and a specific performance question to measure.",
-      "before_page": "cuda-kernel-optimization-survey.html"
+      "before_page": "cuda-kernel-optimization-survey.html",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/procedures/gpu-benchmark-session.md",
@@ -303,7 +332,8 @@
       ],
       "next_page": "procedures/index.html",
       "prerequisite": "Complete the CPU preparation before provisioning a GPU.",
-      "before_page": "offline-gpu-preparation.html"
+      "before_page": "offline-gpu-preparation.html",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/openfhe-integration-plan.md",
@@ -316,7 +346,8 @@
         "D11/P2 remains open. The current Ada batch passed, while RTX 5090 acceptance, driver/context failure handling and hardware counters remain pending."
       ],
       "next_page": "implementation-backlog.html",
-      "prerequisite": "Start with the live tracker. D labels working milestones, not calendar dates."
+      "prerequisite": "Start with the live tracker. D labels working milestones, not calendar dates.",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/architecture-decision.md",
@@ -330,7 +361,8 @@
       ],
       "next_page": "implementation-backlog.html",
       "prerequisite": "Understand polynomial identity, completion and buffer ownership.",
-      "before_page": "device-backend-contract.html"
+      "before_page": "device-backend-contract.html",
+      "visual_guide": "towers"
     },
     {
       "source": "docs/implementation-backlog.md",
@@ -344,7 +376,8 @@
       ],
       "next_page": "offline-gpu-preparation.html",
       "prerequisite": "Check the current phase before choosing a dependent implementation task.",
-      "before_page": "openfhe-integration-plan.html"
+      "before_page": "openfhe-integration-plan.html",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/offline-gpu-preparation.md",
@@ -358,7 +391,8 @@
       ],
       "next_page": "offline-test-tooling.html",
       "prerequisite": "Have a working CPU build. Hardware is only needed for the native checks.",
-      "before_page": "project.html"
+      "before_page": "project.html",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/next-gpu-rental.md",
@@ -372,7 +406,8 @@
       ],
       "next_page": "offline-test-tooling.html",
       "prerequisite": "Finish offline preparation and use fresh directories for the next hardware run.",
-      "before_page": "offline-gpu-preparation.html"
+      "before_page": "offline-gpu-preparation.html",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/benchmark-tuning-plan.md",
@@ -386,7 +421,9 @@
       ],
       "next_page": "offline-test-tooling.html",
       "prerequisite": "Know which timing boundary answers your performance question.",
-      "before_page": "cuda-kernel-optimization-survey.html"
+      "before_page": "cuda-kernel-optimization-survey.html",
+      "visual_demo": "transfers",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/offline-test-tooling.md",
@@ -400,7 +437,8 @@
       ],
       "next_page": "batch40-native-analysis.html",
       "prerequisite": "Choose the workloads and timing scope before running the collector.",
-      "before_page": "benchmark-tuning-plan.html"
+      "before_page": "benchmark-tuning-plan.html",
+      "visual_guide": "transfers"
     },
     {
       "source": "docs/README.md",
@@ -413,7 +451,8 @@
         "Build and check the notebook, inspect desktop and phone views, then export and push the website. Pushing only the source repository does not update the personal site."
       ],
       "next_page": "project.html",
-      "prerequisite": "Use a local checkout and Python. GPU access is not needed for documentation edits."
+      "prerequisite": "Use a local checkout and Python. GPU access is not needed for documentation edits.",
+      "visual_guide": "memory"
     }
   ]
 }
