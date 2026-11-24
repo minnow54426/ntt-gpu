@@ -2,10 +2,10 @@
 
 # Write and publish the notebook
 
-Edit Markdown or the three interactive HTML lessons in this repository.
-Build and check the notebook, then export it to the personal website.
-The HTML in the website repository is generated from these files. Make
-content changes here so the next export preserves them.
+Edit the Markdown and interactive HTML lessons here to update the engineering
+notebook. The personal website publishes the shorter reading path in
+[`beginner-path.json`](beginner-path.json), whose links lead back to the
+detailed articles and journal.
 
 The [procedures folder](procedures/README.md) collects workflows already
 exercised in the project and links to the evidence from their runs.
@@ -160,12 +160,13 @@ Run the export from the source revision you intend to publish. Use a clean
 checkout of that revision if your working copy contains drafts.
 
 ```sh
+.venv/bin/python scripts/build_docs.py --beginner --check
 .venv/bin/python scripts/export_website.py --website-root /path/to/minnow54426.github.io
 ```
 
 Review, commit and push the generated `systems/ntt-gpu/` files in the website
-repository. Its Pages workflow publishes [the notebook](https://minnow54426.github.io/systems/ntt-gpu/index.html).
-After deployment, open the live notebook and check the expected change.
+repository. Its Pages workflow publishes [the beginner guide](https://minnow54426.github.io/systems/ntt-gpu/index.html).
+After deployment, open the live guide and check the expected change.
 The exporter refreshes only its managed files and retains the return link to
 the personal website.
 

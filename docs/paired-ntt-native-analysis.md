@@ -115,3 +115,87 @@ The next work is to measure the
 then evaluate conversion-plan caching and allocation reuse. The November 19
 source predates that composition. RTX 5090 acceptance and complete CKKS
 application timing remain future measurements.
+
+
+## Resident conversion on November 22
+
+Both schedules passed resident ModUp and ModDown comparisons with pinned
+OpenFHE on the reported RTX 4080 SUPER. The collector matched 32 jobs per
+schedule, including eight conversion jobs per schedule. Each operation used
+two warmups and ten samples. The two schedules ran sequentially.
+
+At N=65,536 with 40 60-bit Q primes and three P primes, median times in
+milliseconds were:
+
+| ModUp followed by ModDown | Group twiddle | Legacy |
+|---|---:|---:|
+| Inputs already on device | 3.776 | 3.687 |
+| Upload input and download result | 25.460 | 21.307 |
+| Also download and re-upload intermediate QP | 47.831 | 44.778 |
+
+For the resident pair, the median legacy/group ratio across the eight
+workloads was 1.004. The host controls include copies and host work such as
+residue validation. Their difference from the resident timings cannot be
+assigned entirely to PCIe transfers. The largest intermediate contains 43
+towers, or 21.5 MiB, and the explicit roundtrip copies it in each direction.
+
+The conversion timeline has no per-operation markers. It spans six
+sessions and includes verification downloads. Across the trace, 184
+allocation calls took 10.617 ms in total, 184 frees took 11.058 ms, and 181
+asynchronous copy calls took 19.475 ms. These are aggregate CPU CUDA API
+durations. The first stream creation took 138.498 ms and occurred outside
+the benchmark timers. Hardware counters were unavailable.
+
+The first optimization comparison should test reusable device workspace
+allocations against the current allocation path. Keep table generation,
+polynomial transfer policy, exactness checks and schedule fixed. Measure the
+resident pair and the host-facing pair separately. Add operation ranges to
+the profile to identify which calls occur inside each timer. This experiment
+follows the measured host overhead without assuming allocations account for
+most of it.
+
+## What changed in the November 24 Ada results
+
+The RTX 4080 SUPER batch compared both schedules on the same eight workload
+shapes, with two warmups and ten samples per job. Both schedules passed
+native exactness and all sanitizer stages. Conversion runs replayed the
+pinned OpenFHE references generated on the Mac. The
+[rental record](journal/2026-11-24.md#complete-the-native-ada-batch) lists the
+tested revision and the profiler limits.
+
+Ratios are the legacy median divided by the group-twiddle median for each
+workload. Values above one favor group twiddles.
+
+| Timing boundary | Forward median ratio | Inverse median ratio | Group faster |
+|---|---:|---:|---|
+| Resident CUDA events | 1.463× | 1.471× | 8 of 8 for both |
+| Public-call wall time | 0.914× | 0.891× | 3 of 8 for both |
+
+Forward public calls also varied by shape. At N=65,536 with 40 towers, the
+30-bit case took 7.410 ms with group twiddles and 6.747 ms with legacy.
+The 60-bit case took 6.672 ms and 7.301 ms respectively. The two builds ran
+sequentially. Their resident NTT repeat at N=65,536 with three 60-bit primes
+also varied. Group-twiddle medians changed from 1.081 ms to 0.708 ms while
+the two legacy medians stayed near 0.73 ms. A controlled repeat of the
+public-call workload is needed to interpret the reversal.
+
+For the group-twiddle ModUp/ModDown pair at N=65,536 with 40 60-bit Q primes,
+the median was 4.244 ms with device-resident inputs, 20.989 ms at the host
+boundary, and 39.374 ms with an explicit intermediate round trip. The
+host-facing pair also includes upload validation, synchronization and
+staging. The difference between the timings measures those boundaries as a
+whole.
+
+The Nsight Systems profiles used three 60-bit Q primes at N=65,536. They
+show CUDA kernels and nested operation ranges. The conversion report
+contains 12 measured `ntt.sample` ranges. Its named operation totals also
+include warmups, and its session setup ranges sit outside the timers. The
+whole-trace summary cannot attribute allocations, copies or CPU waits to
+a specific measured operation. The measured 40-tower case still needs its
+own trace. Nsight Compute did not return hardware counters.
+
+For the RTX 5090 follow-up, repeat the two large public-call cases in
+legacy/group/group/legacy order. Then capture the large conversion case and
+inspect the CUDA API calls and GPU copies inside each measured NVTX sample.
+That evidence can guide a workspace reuse comparison while keeping plan
+generation, transfers and exactness checks fixed.

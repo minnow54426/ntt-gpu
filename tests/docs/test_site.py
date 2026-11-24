@@ -252,6 +252,27 @@ class RoutingTests(unittest.TestCase):
 
 
 class WebsiteExportTests(unittest.TestCase):
+    def test_beginner_export_has_only_the_reading_path_and_search_entries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            personal = root / "website"
+            personal.mkdir()
+            (personal / "index.html").write_text('<section id="code">Systems</section>')
+            output = root / "beginner"
+            with patch.object(site, "BEGINNER_OUTPUT", output), patch.object(website, "OUTPUT", output):
+                destination = website.export(personal)
+            routes = [page["url"] for page in site.beginner_pages(site.read_catalog())]
+            expected = {"index.html", *routes}
+            self.assertEqual({file.relative_to(destination).as_posix() for file in destination.rglob("*.html")},
+                             expected)
+            search = site.json.loads((destination / "search-index.json").read_text())
+            self.assertEqual({page["url"] for page in search}, expected)
+            home = (destination / "index.html").read_text()
+            self.assertIn("/docs/journal", home)
+            self.assertNotIn("journal.html", home)
+            for route in routes[:-1]:
+                self.assertIn('data-visual-svg', (destination / route).read_text())
+
     def test_nested_pages_return_to_personal_website_and_refresh_is_managed(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

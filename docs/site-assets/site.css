@@ -33,6 +33,7 @@ html { scroll-behavior:smooth; scroll-padding-top:84px; }
 .site-search-button kbd { font:10px var(--site-mono); color:#8b927e; border:1px solid #dbdfd1; border-radius:3px; padding:1px 4px; margin-left:18px; }
 .site-menu-button { display:none; background:none; border:1px solid var(--site-line); border-radius:4px; color:var(--site-ink); padding:4px 9px; }
 .site-main { padding:29px 42px 70px; max-width:1500px; margin:auto; }
+.site-beginner .site-main { max-width:960px; }
 .site-page-meta { display:flex; justify-content:space-between; align-items:center; font:10px/1.5 var(--site-mono); color:#88907d; margin-bottom:38px; letter-spacing:.4px; }
 .site-page-meta>span { text-transform:uppercase; }
 .site-page-meta a { color:#717c68; text-decoration:none; font:11px var(--site-font); }

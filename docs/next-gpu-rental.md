@@ -1,10 +1,10 @@
 # Bundle the next RTX 5090 session
 
-**Status: the expanded batch passed on November 19 on a server reporting
-RTX 4080 SUPER / compute 8.9.** Both schedules also compiled for sm_120.
-The results and CUDA timeline were copied to the M1 Pro and verified.
-RTX 5090 hardware acceptance remains open. The queue below can be reused for
-that device after the next group of changes is ready.
+**Status: the November 24 RTX 4080 SUPER diagnostic passed native checks
+and timings.** Both schedules and the conversion replay passed. Nsight
+Systems captured CUDA/NVTX activity, and the instance blocked Nsight Compute
+counters. RTX 5090 hardware acceptance remains open. See the
+[paired results](paired-ntt-native-analysis.md#what-changed-in-the-november-24-ada-results).
 
 The [paired Ada analysis](paired-ntt-native-analysis.md) is complete on the
 M1 Pro. The November 21 conversion benchmark adds both ModUp input formats,
@@ -31,10 +31,13 @@ and the earlier resident NTT chain. See the
 
 ## TODO: verify AutoDL profiling access at the next rental
 
-- [ ] On the next AutoDL rental, check actual Nsight access before the long GPU batch.
+- [x] Checked Nsight access on the November 24 AutoDL RTX 4080 SUPER rental.
 
-Added November 24, 2026. Support remains **unverified for the next instance**;
-it can depend on the selected machine, container, GPU model and driver.
+Nsight Systems captured a real CUDA kernel and its NVTX range. Nsight Compute
+returned `ERR_NVGPUCTRPERM` when requesting SM, L2 and DRAM metrics. The
+profiling gate remains open. Repeat the probe before the long batch on a new
+rental, including the RTX 5090. See the
+[November 24 rental notes](journal/2026-11-24.md#autodl-profiling-preflight-on-ada).
 
 To complete this verification:
 
@@ -57,9 +60,8 @@ correctness checks, benchmarks and any working timeline capture. Container
 root alone does not grant host performance-counter access; see
 [NVIDIA's permission guidance](https://developer.nvidia.com/nvidia-development-tools-solutions-err_nvgpuctrperm-permission-issue-performance-counters).
 
-This is a required preflight checklist for the next rental. The current batch
-captures operation profiles later in its run; those captures do not replace
-this early access check. No new rental or GPU test is requested now.
+Run this preflight before the long batch. The later operation profiles do not
+replace this early access check.
 
 ## One rental, ordered GPU work
 
@@ -130,6 +132,14 @@ verification and cleanup; counter captures select `ntt-gpu@ntt.sample/` and
 at most eight kernels. Inspect the operation nested inside a sample rather
 than whole-process totals. Instrumented output is rejected by the benchmark
 validator. [Compile and check these profiles offline](offline-gpu-preparation.md#prepare-profiles-without-renting).
+
+After the required batch, repeat the N=65,536, K=40 public calls with 30- and
+60-bit primes in legacy/group/group/legacy order, using identical vectors,
+warmups and sample counts. Record each run separately with clock telemetry.
+If time remains, capture a CUDA/NVTX timeline for the 60-bit K=40 conversion
+case using the separate profile binary. Export the timeline database with the
+report so CUDA API calls and copies can be checked against the measured
+`ntt.sample` ranges on the Mac.
 
 The budget covers preflight, compilation, checks, timings and profiles; it is
 a cutoff, not a runtime estimate. Each collector command shares the remaining

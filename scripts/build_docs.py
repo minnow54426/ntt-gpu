@@ -27,6 +27,7 @@ except ImportError as error:
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "build" / "docs-site"
+BEGINNER_OUTPUT = ROOT / "build" / "docs-beginner"
 JOURNAL_SECTIONS = (
     "Outcome", "Reasoning", "Changes", "Verification", "Open questions", "Next step"
 )
@@ -248,14 +249,17 @@ def rewrite_links(body, source, current, source_routes, repository, revision):
     )
 
 
-def navigation(pages, current):
+def navigation(pages, current, beginner=False):
     groups = OrderedDict((group, []) for group in PAGE_GROUPS)
     groups["Start here"].append(("index.html", "Overview"))
-    groups["Daily journal"].append(("journal.html", "All entries"))
+    if not beginner:
+        groups["Daily journal"].append(("journal.html", "All entries"))
     for page in pages:
         groups.setdefault(page["group"], []).append((page["url"], page["title"]))
     output = []
     for group, links in groups.items():
+        if not links:
+            continue
         output.append(f'<div class="site-nav-group"><p>{escape(group)}</p>')
         for url, title in links:
             active = current == url or (url == "journal.html" and current.startswith("journal/"))
@@ -322,17 +326,22 @@ def section_outline(content):
     return content, '<ol>' + "".join(links) + '</ol>' if links else ""
 
 
-def shell(page, content, pages, revision, repository, toc="", legacy_head="", public_base_url=""):
-    content, toc = section_outline(content)
+def shell(page, content, pages, revision, repository, toc="", legacy_head="", public_base_url="", *, beginner=False):
+    content, toc = (content, "") if beginner else section_outline(content)
     current = page["url"]
     prefix = relative_url(current, "assets/").rstrip("/")
     home = relative_url(current, "index.html")
     source = page.get("source")
+    source_label = "Detailed notes" if beginner else "View source"
     source_link = (
-        f'<a href="{repository}/blob/{revision}/{quote(source)}">View source</a>'
+        f'<a href="{repository}/blob/{revision}/{quote(source)}">{source_label}</a>'
         if source else f'<a href="{repository}">Repository</a>'
     )
-    math_head = "" if legacy_head else f"""
+    site_name = "Beginner guide" if beginner else "Engineering notebook"
+    search_hint = "Try “butterfly” or “tower”…" if beginner else "Try “twiddle”, “Hybrid”, or “2026-11-07”…"
+    search_scope = "Search this guide." if beginner else "Search articles, plans, and daily entries."
+    source_note = "" if beginner else " · See journal for changes in this build"
+    math_head = "" if legacy_head or beginner else f"""
 <link rel="stylesheet" href="{relative_url(current, 'vendor/katex/katex.min.css')}">
 <script defer src="{relative_url(current, 'vendor/katex/katex.min.js')}"></script>
 <script defer src="{relative_url(current, 'vendor/katex/contrib/auto-render.min.js')}"></script>
@@ -364,13 +373,13 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
 <script defer src="{relative_url(current, 'search-index.js')}"></script>
 <script defer src="{prefix}/site.js"></script>
 </head>
-<body class="site-body" data-search-index="{relative_url(current, 'search-index.json')}">
+<body class="site-body{' site-beginner' if beginner else ''}" data-search-index="{relative_url(current, 'search-index.json')}">
 <a class="site-skip" href="#site-main">Skip to content</a>
 <aside class="site-sidebar" id="site-sidebar">
   <a class="site-brand" href="{home}"><span class="site-mark" aria-hidden="true">N<span>×</span></span>
-    <span>ntt-gpu<small>Engineering notebook</small></span></a>
+    <span>ntt-gpu<small>{site_name}</small></span></a>
   <div class="site-nav-label">Documentation <span>Index</span></div>
-  <nav class="site-navigation" aria-label="Documentation">{navigation(pages, current)}</nav>
+  <nav class="site-navigation" aria-label="Documentation">{navigation(pages, current, beginner)}</nav>
   <div class="site-sidebar-bottom"><span class="site-status-dot"></span> Building in the open
     <a href="{repository}">GitHub repository</a></div>
 </aside>
@@ -388,14 +397,14 @@ def shell(page, content, pages, revision, repository, toc="", legacy_head="", pu
     </div>
   </main>
   <footer class="site-footer"><span>ntt-gpu · CKKS / CUDA / OpenFHE · <a href="{home}#visual-guides">Beginner visual guides</a></span>
-    <span>Source revision <a href="{repository}/tree/{revision}">{revision[:7]}</a> · See journal for changes in this build</span></footer>
+    <span>Source revision <a href="{repository}/tree/{revision}">{revision[:7]}</a>{source_note}</span></footer>
 </div>
 <dialog class="site-search-dialog" aria-labelledby="site-search-title">
   <div class="site-search-heading"><h2 id="site-search-title">Search the notebook</h2>
     <button type="button" class="site-search-close" aria-label="Close search">Esc</button></div>
   <label class="site-visually-hidden" for="site-search-input">Search documentation</label>
-  <input id="site-search-input" type="search" placeholder="Try “twiddle”, “Hybrid”, or “2026-11-07”…" autocomplete="off">
-  <p class="site-search-status" role="status">Search articles, plans, and daily entries.</p>
+  <input id="site-search-input" type="search" placeholder="{search_hint}" autocomplete="off">
+  <p class="site-search-status" role="status">{search_scope}</p>
   <div class="site-search-results"></div>
 </dialog>
 </body>
@@ -591,26 +600,58 @@ def preserve_title_anchor(body):
                   r'<div\1 class="site-title-anchor" aria-hidden="true"></div>', body, count=1)
 
 
-def build():
+def beginner_pages(catalog):
+    path = json.loads((ROOT / "docs/beginner-path.json").read_text())
+    originals = {page["url"]: page for page in catalog["pages"]}
+    urls = [page["url"] for page in path]
+    if not urls or len(set(urls)) != len(urls) or not set(urls) <= originals.keys():
+        raise ValueError("The beginner path needs distinct routes from the notebook catalog")
+    return [dict(originals[page["url"]], **page, group="Start here") for page in path]
+
+
+def beginner_home(pages, repository, revision):
+    links = "".join(
+        f'<li><a href="{page["url"]}">{escape(page["title"].split(". ", 1)[-1])}</a>'
+        f'<p>{escape(page["summary"])}</p></li>' for page in pages
+    )
+    return f"""
+<section class="site-article">
+<h1>GPU NTT for CKKS</h1>
+<p class="site-summary">Learn how a GPU multiplies polynomials, one small example at a time.</p>
+<p>CKKS allows calculations on encrypted data. It uses polynomials, and the number-theoretic
+transform helps multiply them. OpenFHE is the library this project aims to accelerate.</p>
+<h2 id="visual-guides">Start here</h2>
+<ol>{links}</ol>
+<p><a href="{repository}/tree/{revision}/docs">Engineering notebook</a> ·
+<a href="{repository}/tree/{revision}/docs/journal">Daily progress</a></p>
+</section>"""
+
+
+def build(*, beginner=False):
     catalog = read_catalog()
-    pages = catalog["pages"]
-    entries = read_journal()
+    pages = beginner_pages(catalog) if beginner else catalog["pages"]
+    entries = [] if beginner else read_journal()
     revision = git_revision()
     repository = catalog["repository"]
     routes = {page["source"]: page["url"] for page in pages + entries}
     search = []
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="docs-site-", dir=OUTPUT.parent) as staging:
+    destination_root = BEGINNER_OUTPUT if beginner else OUTPUT
+    destination_root.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="docs-site-", dir=destination_root.parent) as staging:
         output = Path(staging)
         shutil.copytree(ROOT / "docs/site-assets", output / "assets")
-        shutil.copytree(ROOT / "docs/vendor", output / "vendor")
-        shutil.copy2(ROOT / "docs/math-rendering.js", output / "math-rendering.js")
-        shutil.copy2(ROOT / "docs/lesson-examples.js", output / "lesson-examples.js")
+        if beginner:
+            shutil.copytree(ROOT / "docs/vendor/three", output / "vendor/three")
+        else:
+            shutil.copytree(ROOT / "docs/vendor", output / "vendor")
+            shutil.copy2(ROOT / "docs/math-rendering.js", output / "math-rendering.js")
+            shutil.copy2(ROOT / "docs/lesson-examples.js", output / "lesson-examples.js")
 
         def write_page(page, body, toc="", legacy_head=""):
             destination = output / page["url"]
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(shell(page, body, pages, revision, repository, toc, legacy_head, catalog["public_base_url"]))
+            destination.write_text(shell(page, body, pages, revision, repository, toc, legacy_head,
+                                         catalog["public_base_url"], beginner=beginner))
             parser = PageLinks()
             # Strip scripts/styles from indexed text, keeping the article itself.
             indexed = re.sub(r"<(script|style)\b[^>]*>[\s\S]*?</\1>", "", body)
@@ -621,7 +662,17 @@ def build():
                 "text": " ".join(" ".join(parser.text).split()),
             })
 
-        for page in pages + entries:
+        for position, page in enumerate(pages + entries):
+            if beginner:
+                body, _, _ = render_markdown(page["text"])
+                body = rewrite_links(body, page["source"], page["url"], routes, repository, revision)
+                demo = visual_lesson(page["visual_demo"]) if page.get("visual_demo") else ""
+                following = pages[position + 1] if position + 1 < len(pages) else None
+                url, label = (following["url"], "Next · " + following["title"]) if following else ("index.html", "Back to the guide")
+                write_page(page, f'<article class="site-article"><h1>{escape(page["title"])}</h1>'
+                                 f'{body}</article>{demo}<nav class="site-article site-read-next" '
+                                 f'aria-label="Continue reading"><a href="{url}">{escape(label)}</a></nav>')
+                continue
             text = (ROOT / page["source"]).read_text()
             if page["source"].endswith(".html"):
                 head = re.search(r"<head>([\s\S]*?)</head>", text)[1]
@@ -646,11 +697,12 @@ def build():
         home = {"url": "index.html", "title": "Building the GPU path for CKKS",
                 "summary": "The open engineering notebook for ntt-gpu: progress, reasoning, and exactness.",
                 "group": "Start here"}
-        write_page(home, home_content(pages, entries))
+        write_page(home, beginner_home(pages, repository, revision) if beginner else home_content(pages, entries))
         journal = {"url": "journal.html", "title": "Daily engineering journal",
                    "summary": "Dated outcomes, reasoning, verification, and next steps.",
                    "group": "Daily journal"}
-        write_page(journal, f"""
+        if not beginner:
+            write_page(journal, f"""
 <div class="site-journal-intro"><h1>Daily journal</h1><p>Read what changed, why it changed and which checks ran on each calendar date. An older entry may describe work that was unfinished then. Its results remain tied to the recorded source version and machine. Use the <a href="openfhe-integration-plan.html">current roadmap</a> to find today’s milestone; a roadmap working day is not a calendar date.</p></div>
 <section><h2>Entries</h2><div class="site-journal-list">{entry_cards(entries, 'journal.html')}</div></section>""")
         (output / "search-index.json").write_text(json.dumps(search, ensure_ascii=False))
@@ -659,21 +711,22 @@ def build():
         )
         (output / ".nojekyll").touch()
         count = check_links(output)
-        if OUTPUT.is_symlink():
+        if destination_root.is_symlink():
             raise ValueError("Refusing to replace a symlink at the documentation output")
-        if OUTPUT.exists():
-            shutil.rmtree(OUTPUT)
-        shutil.copytree(output, OUTPUT)
+        if destination_root.exists():
+            shutil.rmtree(destination_root)
+        shutil.copytree(output, destination_root)
     print(f"Built {count} HTML pages, including {len(entries)} journal entries.")
-    print(f"Validated local links and fragments. Output: {OUTPUT}")
+    print(f"Validated local links and fragments. Output: {destination_root}")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Build and validate the site (validation is always enabled).")
-    parser.parse_args()
+    parser.add_argument("--beginner", action="store_true", help="Build the public beginner guide.")
+    args = parser.parse_args()
     try:
-        build()
+        build(beginner=args.beginner)
     except (ValueError, OSError) as error:
         raise SystemExit(f"Documentation build failed: {error}") from error
 

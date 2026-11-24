@@ -123,6 +123,7 @@
   const input = document.querySelector("#site-search-input");
   const results = document.querySelector(".site-search-results");
   const status = document.querySelector(".site-search-status");
+  const searchPrompt = status.textContent;
   const indexUrl = new URL(document.body.dataset.searchIndex, window.location.href);
   let searchIndex;
   let pendingIndex;
@@ -155,7 +156,7 @@
     const query = input.value.trim().toLowerCase();
     results.replaceChildren();
     if (!query) {
-      status.textContent = "Search articles, plans, and daily entries.";
+      status.textContent = searchPrompt;
       return;
     }
     status.textContent = "Searching…";

@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import shutil
 
-from build_docs import OUTPUT, build
+from build_docs import BEGINNER_OUTPUT as OUTPUT, build
 
 
 MARKER = ".ntt-gpu-generated"
@@ -25,7 +25,7 @@ def export(website_root):
         marker = destination / MARKER
         if not marker.is_file() or marker.read_text() != MARKER_TEXT:
             raise ValueError("Destination contains unmanaged files; refusing to overwrite it")
-    build()
+    build(beginner=True)
     if destination.exists():
         shutil.rmtree(destination)
     shutil.copytree(OUTPUT, destination)

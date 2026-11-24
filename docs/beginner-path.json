@@ -1,0 +1,32 @@
+[
+  {
+    "url": "butterfly-explained.html",
+    "title": "1. NTT and butterflies",
+    "summary": "Turn polynomial multiplication into matching pairs of values.",
+    "text": "The number-theoretic transform (NTT) evaluates a polynomial at special points. All calculations wrap around a prime, so the results stay exact. To multiply two polynomials, transform both, multiply the matching evaluations, then run the inverse transform.\n\nA **butterfly** updates two values. Multiply one input by the stage’s fixed factor, called a *twiddle*. Add that product to the other input for one output and subtract it for the other. For example, with inputs 1 and 5, a twiddle of 13 and modulus 17, the shared product is 14 after reduction. The outputs are 15 and 4. Try stage 1, pair 1 below."
+  },
+  {
+    "url": "ntt-65536-work-distribution.html",
+    "title": "2. How GPU threads share the work",
+    "summary": "Find the two array positions assigned to a thread.",
+    "text": "A GPU runs many threads together. A **block** is a team of threads that can share fast temporary memory. Within a transform stage, each butterfly updates a different pair of values, so the pairs can run in parallel.\n\nPicture 65,536 values arranged as 256 rows of 256. In the forward transform, blocks first work down columns for eight stages, then across rows for eight more. At stage 1, block 0, thread 0 updates positions 0 and 32,768. Change the thread to 1 and see which two positions move."
+  },
+  {
+    "url": "cuda-buffer-dataflow.html",
+    "title": "3. Why a polynomial has several copies",
+    "summary": "See how CKKS stores a polynomial under several primes.",
+    "text": "CKKS uses a **residue number system** (RNS) to represent large coefficients. Each copy of the polynomial stores its remainders under a different prime. In this project, one copy is called a **tower**. For example, the coefficient 20 appears as 3 in the tower modulo 17 and as 20 in the tower modulo 41.\n\nA tower with 65,536 eight-byte values takes 512 KiB. Three towers take 1.5 MiB for one polynomial. Try changing the number of towers below and watch the storage count."
+  },
+  {
+    "url": "resident-operation-chain.html",
+    "title": "4. Keep intermediate values on the GPU",
+    "summary": "Follow a multiplication and count its CPU–GPU transfers.",
+    "text": "The **host** is the CPU and its memory. The **device** is the GPU and its memory. A resident operation keeps its working arrays on the device. For polynomial multiplication, the GPU can run both forward transforms, the pointwise product and the inverse transform after a single upload of each input. Only the final result needs to come back.\n\nStep through the same multiplication with both patterns below. Count how many full polynomials cross the boundary. Moving fewer bytes can help latency, which the benchmark measures separately."
+  },
+  {
+    "url": "paired-ntt-native-analysis.html",
+    "title": "5. What the GPU tests showed",
+    "summary": "See why a faster transform can still leave a caller waiting.",
+    "text": "**November 24 · RTX 4080 SUPER.** Both CUDA implementations matched the pinned OpenFHE reference in the native tests and passed Compute Sanitizer. The timing sweep used 4,096 and 65,536 coefficients, 3 and 40 prime towers, and 30- and 60-bit primes.\n\n## A faster GPU step\n\nThe group-twiddle implementation sped up forward and inverse NTT on the GPU by a median **1.46× and 1.47×** across eight workloads. The full call improved in three of eight workloads for each direction. That call also includes work around the transform, such as moving data.\n\nIn the largest 60-bit conversion case, updating a polynomial’s prime towers took 4.24 ms with inputs already on the GPU. Bringing the data in from the CPU and returning the result took 20.99 ms. Copying the intermediate back to the CPU and up again raised that to 39.37 ms.\n\n## What comes next\n\nNsight Systems captured GPU activity. The rental blocked Nsight Compute’s hardware counters. The next run will repeat the large 30- and 60-bit cases in balanced order on the target **RTX 5090** and trace the 40-tower conversion workload to see where the time goes."
+  }
+]
