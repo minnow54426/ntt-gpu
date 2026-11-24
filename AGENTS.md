@@ -27,3 +27,12 @@ environment, run `python -m unittest discover -s tests/docs -v`, and run
 also inspect the relevant pages in a browser at desktop and mobile widths.
 
 Preserve exact OpenFHE compatibility and existing interactive examples.
+
+## Next rental: check profiling access first
+
+Before the long rented-GPU batch, complete the profiling-access TODO in
+`docs/next-gpu-rental.md`. Verify real CUDA/NVTX tracing and SM/L2/DRAM counter
+capture on that exact instance, and retain the versions, reports and errors.
+Installed tools or container root access do not establish counter permission.
+If counters are blocked, record the limitation and continue independent work;
+do not mark the hardware profiling gate complete.

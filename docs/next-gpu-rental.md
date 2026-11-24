@@ -29,11 +29,43 @@ and the earlier resident NTT chain. See the
   a broader all-dimension CPU comparison and prepared CUDA correctness probes.
   See [conversion preparation](basis-conversion-preparation.md).
 
+## TODO: verify AutoDL profiling access at the next rental
+
+- [ ] On the next AutoDL rental, check actual Nsight access before the long GPU batch.
+
+Added November 24, 2026. Support remains **unverified for the next instance**;
+it can depend on the selected machine, container, GPU model and driver.
+
+To complete this verification:
+
+1. Record the provider, instance identity, exact GPU model, driver, CUDA toolkit,
+   `nsys --version` and `ncu --version`.
+2. Run a small correct CUDA workload under Nsight Systems with CUDA/NVTX
+   tracing and CPU sampling disabled. Confirm that its report contains actual
+   kernel activity and the expected NVTX labels.
+3. Run a small kernel under Nsight Compute and confirm numeric SM, L2-cache
+   and DRAM metrics. A version listing or an empty report does not establish
+   counter access; record missing or unsupported metrics separately.
+4. Save the commands, logs and report files in the rental evidence archive.
+   Record tracing and counters separately as confirmed, blocked or unverified.
+   Keep any `ERR_NVGPUCTRPERM` error and the provider's stated permissions.
+
+Check off this TODO after attempting both captures and recording their results,
+including a blocked result. Leave it pending if the probes were not attempted.
+Blocked counters leave the hardware-profiling gate open; continue independent
+correctness checks, benchmarks and any working timeline capture. Container
+root alone does not grant host performance-counter access; see
+[NVIDIA's permission guidance](https://developer.nvidia.com/nvidia-development-tools-solutions-err_nvgpuctrperm-permission-issue-performance-counters).
+
+This is a required preflight checklist for the next rental. The current batch
+captures operation profiles later in its run; those captures do not replace
+this early access check. No new rental or GPU test is requested now.
+
 ## One rental, ordered GPU work
 
 | Order | GPU-only item | Evidence to bring home |
 |---|---|---|
-| 1 | Preflight the actual RTX 5090, toolkit, driver, and profiler tools | Device identity, commit, build options and tool versions |
+| 1 | Preflight the actual RTX 5090 and complete the AutoDL profiling-access TODO | Device identity, commit, versions, a working CUDA/NVTX trace and confirmed or blocked SM/L2/DRAM counter access |
 | 2 | Verify the new default CUDA path and resident chain | Native exactness against pinned OpenFHE, lifecycle/failure checks, and the NTT/resident smoke scopes under all four sanitizers |
 | 3 | Verify the legacy control build before timing | Native exactness and appropriate sanitizer smoke, with separate binary hashes and logs |
 | 4 | Check Shoup, the Barrett candidate and approximate basis conversion | Native integer and pinned OpenFHE comparisons, plus all four sanitizer tools |

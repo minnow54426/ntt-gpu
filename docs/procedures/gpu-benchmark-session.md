@@ -2,6 +2,11 @@
 
 ## Batch the prepared tasks
 
+At the next rental, first complete the
+[AutoDL profiling-access TODO](../next-gpu-rental.md#todo-verify-autodl-profiling-access-at-the-next-rental).
+Test a small CUDA/NVTX trace and real SM/L2/DRAM counter capture before the
+long batch; save both successes and permission failures in the session record.
+
 Preview `python3 scripts/gpu_rental_batch.py --mode plan` without a GPU.
 Use the [single-batch commands](../next-gpu-rental.md#run-the-queue-as-one-batch)
 for offline compilation or a native RTX 5090 run. The native batch combines
