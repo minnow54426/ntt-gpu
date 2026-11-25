@@ -1,8 +1,12 @@
 """Bounded, restartable measurement jobs; never substitutes for native gates."""
+import argparse
 import hashlib
 import json
+from itertools import product
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 
 from benchmark_report import validate_jsonl
@@ -50,6 +54,74 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
+def vector_name(dimension, towers, bits):
+    return f'benchmark-vector-n{dimension}-k{towers}-b{bits}.txt'
+
+
+def vector_command(root, path, dimension, towers, bits):
+    return [sys.executable, root / 'tests/oracle/gen_vectors.py', '--zero-coefficients',
+            path, str(dimension), str(towers), '1', str(bits)]
+
+
+def prepare_vectors(directory, dimensions, tower_counts, widths, conversion_bench=None):
+    directory.mkdir(parents=True, exist_ok=False)
+    root = Path(__file__).resolve().parents[1]
+    cells = set(product(dimensions, tower_counts, widths))
+    # Shared conversion sanitizer and selected profiler cases.
+    cells.update(((4096, 40, 60), (65536, 3, 60)))
+    hashes, references = {}, {}
+    for dimension, towers, bits in sorted(cells):
+        name = vector_name(dimension, towers, bits)
+        path = directory / name
+        subprocess.run(vector_command(root, path, dimension, towers, bits), check=True)
+        hashes[name] = digest(path)
+        if conversion_bench is not None:
+            reference = path.with_suffix('.conversion')
+            subprocess.run([conversion_bench.resolve(), '--prepare-reference', path, reference],
+                           check=True)
+            references[reference.name] = digest(reference)
+    atomic_json(directory / 'vectors.json', hashes)
+    if conversion_bench is not None:
+        atomic_json(directory / 'conversion-references.json', references)
+
+
+def vector_hashes(directory):
+    hashes = json.loads((directory / 'vectors.json').read_text())
+    if not isinstance(hashes, dict):
+        raise ValueError('prepared vector manifest must be an object')
+    return hashes
+
+
+def check_vector(directory, hashes, dimension, towers, bits):
+    name = vector_name(dimension, towers, bits)
+    source = directory / name
+    if name not in hashes or not source.is_file() or digest(source) != hashes[name]:
+        raise ValueError(f'missing or modified prepared vector: {name}')
+    return source
+
+
+def select_conversion_reference(directory, dimension, towers, bits):
+    directory = directory.resolve()
+    name = Path(vector_name(dimension, towers, bits)).with_suffix('.conversion').name
+    hashes = json.loads((directory / 'conversion-references.json').read_text())
+    path = directory / name
+    if not isinstance(hashes, dict) or not path.is_file() or digest(path) != hashes.get(name):
+        raise ValueError(f'missing or modified conversion reference: {name}')
+    return path, hashes[name]
+
+
+def stage_vector(session, stage, path, dimension, towers, bits):
+    directory = getattr(session.args, 'prepared_vectors', None)
+    if directory is None:
+        session.run(stage, vector_command(session.root, path, dimension, towers, bits))
+    else:
+        hashes = vector_hashes(directory)
+        source = check_vector(directory, hashes, dimension, towers, bits)
+        shutil.copyfile(source, path)
+        if digest(path) != hashes[source.name]:
+            raise ValueError(f'prepared vector changed during copy: {source.name}')
+
+
 def collect_batch(session, hardware_identity):
     """Rerun gates on every attempt; reuse only hash-checked complete jobs.
 
@@ -85,6 +157,20 @@ def collect_batch(session, hardware_identity):
                        architectures=args.architectures)
         if schedule:
             context['transform_schedule'] = schedule
+    prepared = getattr(args, 'prepared_vectors', None)
+    if prepared is not None:
+        hashes = vector_hashes(prepared)
+        context['prepared_vector_sha256'] = {
+            path.name: hashes[path.name] for path in
+            (check_vector(prepared, hashes, n, k, bits) for n, k, bits in
+             product(args.benchmark_dimensions, args.benchmark_towers, prime_bits))}
+    reference_dir = getattr(args, 'conversion_references', None)
+    references = {}
+    if reference_dir is not None:
+        for cell in product(args.benchmark_dimensions, args.benchmark_towers, prime_bits):
+            references[cell] = select_conversion_reference(reference_dir, *cell)
+        context['conversion_reference_sha256'] = {
+            path.name: checksum for path, checksum in references.values()}
     manifest_path = output / 'benchmark-manifest.json'
     manifest = {'context': context, 'jobs': {}}
     if manifest_path.exists():
@@ -107,9 +193,9 @@ def collect_batch(session, hardware_identity):
                 # Regenerate from source even on resume; q/roots must still
                 # match every retained scope for this cell.
                 try:
-                    session.run(f'parameters-{cell}', [sys.executable,
-                        session.root / 'tests/oracle/gen_vectors.py', '--zero-coefficients', vector,
-                        str(dimension), str(towers), '1', str(bits)])
+                    stage_vector(session, f'parameters-{cell}', vector, dimension, towers, bits)
+                    if prepared is not None and digest(vector) != context['prepared_vector_sha256'][vector.name]:
+                        raise ValueError('prepared vector changed after manifest creation')
                     tokens = [word for line in vector.read_text().splitlines()
                               if not line.startswith('#') for word in line.split()]
                     parameters = {'moduli': [int(tokens[2 + 2 * i]) for i in range(towers)],
@@ -134,8 +220,13 @@ def collect_batch(session, hardware_identity):
                             command = [build / binary]
                             if subcommand:
                                 command.append(subcommand)
-                            raw = session.run(name, command + [vector,
-                                str(args.benchmark_warmups), str(args.benchmark_samples)])
+                            command += [vector, str(args.benchmark_warmups), str(args.benchmark_samples)]
+                            if scope == 'conversion' and references:
+                                reference, checksum = references[dimension, towers, bits]
+                                if digest(reference) != checksum:
+                                    raise ValueError('conversion reference changed after manifest creation')
+                                command.append(reference)
+                            raw = session.run(name, command)
                             path = output / session.report['stages'][-1]['log']
                         summary = validate_jsonl(raw, expected_bits=bits, expected_n=dimension,
                                                  expected_towers=towers, expected_timing=timing)
@@ -172,8 +263,7 @@ def collect_profiles(session):
     """Small selected workload only; profiler timings are never benchmarks."""
     args, build = session.args, session.args.build_dir.resolve()
     vector = session.output / 'profile-vector-n65536-k3-b60.txt'
-    session.run('profile-parameters', [sys.executable, session.root / 'tests/oracle/gen_vectors.py', '--zero-coefficients',
-                                      vector, '65536', '3', '1', '60'])
+    stage_vector(session, 'profile-parameters', vector, 65536, 3, 60)
     session.run('nsys-version', ['nsys', '--version'])
     session.run('ncu-version', ['ncu', '--version'])
     # Unique prefix on every attempt; never force-overwrite prior profiler data.
@@ -185,3 +275,14 @@ def collect_profiles(session):
         '--export', str(prefix) + '-counters', build / 'ntt_cuda_cli',
         'events-jsonl', vector, '1', '2'])
     session.report['profiling'] = 'SELECTED_N65536_K3_B60_CAPTURED'
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Prepare benchmark vectors on a CPU machine.')
+    parser.add_argument('output', type=Path)
+    parser.add_argument('--dimensions', nargs='+', type=int, choices=DIMENSIONS, required=True)
+    parser.add_argument('--towers', nargs='+', type=int, choices=range(1, MAX_TOWERS + 1), required=True)
+    parser.add_argument('--prime-bits', nargs='+', type=int, choices=PRIME_BITS, required=True)
+    parser.add_argument('--conversion-bench', type=Path, help='CPU build of ntt_resident_conversion_bench_host')
+    args = parser.parse_args()
+    prepare_vectors(args.output, args.dimensions, args.towers, args.prime_bits, args.conversion_bench)

@@ -14,7 +14,8 @@ milestone and P labels a phase; neither is a calendar date or a continuous
 rental period. Preparation may happen early, but a phase closes only after its
 acceptance checks pass.
 
-Target OpenFHE 1.6.1, N=65536, RTX 5090 primary and RTX 4090 control. Baseline
+Target OpenFHE 1.6.1 and N=65536. Use the RTX 4080 SUPER for development and
+retain the RTX 5090 as a hardware validation target. Baseline
 benchmarks also span N=4096–65536 and 30/50/55/60-bit primes in `uint64_t`.
 Last reviewed: 2026-11-24 (Asia/Shanghai).
 
@@ -24,7 +25,7 @@ Last reviewed: 2026-11-24 (Asia/Shanghai).
 |---|---|
 | Working day | **D11** |
 | Active phase | **P2 — first RTX GPU baseline (Ada diagnostic passed)** |
-| Active task | Repeat the validated Ada batch on the RTX 5090 and check hardware counter access on that instance |
+| Active task | Use the RTX 4080 SUPER for routine native checks and tuning while RTX 5090 access is limited |
 | Next gate | P2: compare CUDA and OpenFHE answers on real hardware, then record the GPU and baseline measurements (D11–D15) |
 | Overall state | In progress; the temporary Ada GPU was tested, while primary-device and other required P2 checks remain unfinished |
 
@@ -37,8 +38,10 @@ counters. P2/D11 remains open.
 See the [next GPU rental queue](next-gpu-rental.md) for the offline work and
 the order of the bundled native checks.
 
-Hardware: RTX 5090 primary, RTX 4090 control. Use larger-memory hardware only
-when measurements justify it; see the [GPU comparison](gpu-selection-survey.md).
+Hardware: RTX 4080 SUPER working baseline, with the RTX 5090 retained for
+target validation. Keep benchmark results tied to the exact card and repeat
+comparisons on the 5090 when available. See the
+[GPU comparison](gpu-selection-survey.md).
 
 Read the tracker as follows: `DONE` means its acceptance checks passed;
 `IN PROGRESS` means some work or evidence is missing; `NOT STARTED` means
@@ -152,14 +155,10 @@ the pair. All 48 paired measurement jobs, four resident repeat runs and a CUDA
 timeline were exported and verified locally. Primary-device acceptance, actual
 driver/context failure handling and hardware-counter profiling remain open.
 
-November 20 preparation adds resident ModUp/ModDown composition. CPU/OpenFHE
-checks, failure tests and both CUDA schedule builds pass locally. The new
-conversion fixture is part of the existing native resident gate and its
-sanitizer smoke. That later code still needs a real GPU run. The November 19
-performance analysis also awaits its raw archive in this workspace.
-
-Next session: run the current native checks, resident sanitizer scope and
-per-pass profiling on an actual RTX 5090. Use the
+The November 24 run exercised the resident ModUp/ModDown composition and
+the prepared OpenFHE reference replay on the RTX 4080 SUPER. Next, run new
+native checks and controlled timing comparisons on the available Ada card.
+Repeat the hardware gates when an RTX 5090 is available. Use the
 [split collector](offline-test-tooling.md#collector-and-validation) for GPU-only
 measurements and collect the CPU baseline locally.
 

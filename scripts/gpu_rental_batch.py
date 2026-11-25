@@ -14,39 +14,56 @@ import tarfile
 import time
 
 import gpu_session
-from analyze_gpu_batch import analyze, normalized_context, summarize, write_csv
-from benchmark_batch import atomic_json, digest
+from analyze_gpu_batch import PUBLIC_REPEAT_BITS, REPEAT_ORDER as ORDER, export_analysis
+from benchmark_batch import SCOPES, atomic_json, digest, select_conversion_reference, vector_name
 from benchmark_report import validate_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
-ORDER = ('legacy_dif', 'group_twiddle_ct', 'group_twiddle_ct', 'legacy_dif')
+GPU_TARGETS = {
+    'rtx-5090': ('RTX 5090', '12.0', '120'),
+    'rtx-4080': ('RTX 4080', '8.9', '89'),
+    'rtx-4080-super': ('RTX 4080 SUPER', '8.9', '89'),
+}
 
 
 def make_plan(args):
     output, build = args.output_dir.resolve(), args.build_dir.resolve()
+    model, capability, architecture = GPU_TARGETS[args.target]
     collector = ['--mode', 'offline' if args.mode == 'offline' else 'gpu',
                  '--compare-ntt', '--cuda-root', str(args.cuda_root.resolve()),
                  '--openfhe-prefix', str(args.openfhe_prefix.resolve()),
                  '--build-dir', str(build), '--output-dir', str(output / 'paired'),
-                 '--architectures', '120', '--jobs', str(args.jobs),
+                 '--architectures', architecture, '--jobs', str(args.jobs),
                  '--command-timeout', str(args.command_timeout)]
     if args.mode != 'offline':
         collector += ['--benchmark', '--benchmark-scope', 'gpu-conversion',
                       '--benchmark-dimensions', '4096', '65536',
                       '--benchmark-towers', '3', '40', '--benchmark-prime-bits', '30', '60',
                       '--benchmark-warmups', '2', '--benchmark-samples', '10']
+        for option, directory in (('--prepared-vectors', args.prepared_vectors),
+                                  ('--conversion-references', args.conversion_references)):
+            if directory is not None:
+                collector.extend([option, str(directory.resolve())])
+    tasks = [model + ' identity and clean-source preflight',
+             'Clock/temperature logging',
+             'Both schedules: native exactness, 28 sanitizer commands and 32 measurement jobs each',
+             'Resident repeat: legacy, group, group, legacy; 5 warmups and 50 samples']
+    if args.extended_probes:
+        tasks.append('Ordered public-call repeats for 30/60-bit 40-tower workloads')
+    tasks.append('Independent nsys and ncu captures for resident NTT and conversion')
+    if args.extended_probes:
+        tasks.append('40-tower conversion CUDA/NVTX timeline and SQLite export')
+    tasks.append('Defer paired analysis to the local machine' if args.defer_analysis
+                 else 'Validate raw records; export operation CSV and JSON summaries')
+    tasks.append('Stop telemetry; archive records and verify every archived file')
     return dict(mode=args.mode, status='PLANNED', budget_minutes=args.budget_minutes,
+                extended_probes=args.extended_probes,
+                target=dict(model=model, compute_cap=capability, cuda_architecture=architecture),
                 output_dir=str(output), build_dir=str(build),
                 collector_command=[sys.executable, str(ROOT / 'scripts/gpu_session.py'), *collector],
                 collector_arguments=collector,
-                tasks=['RTX 5090 identity and clean-source preflight',
-                       'Clock/temperature logging',
-                       'Both schedules: native exactness, 28 sanitizer commands and 32 measurement jobs each',
-                       'Resident repeat: legacy, group, group, legacy; 5 warmups and 50 samples',
-                       'Independent nsys and ncu captures for resident NTT and conversion',
-                       'Validate raw records; export operation CSV and JSON summaries',
-                       'Stop telemetry; archive records and verify every archived file'],
-                offline_scope='Compile both sm_120 schedules and run host tests only; no GPU, timings or profiles',
+                tasks=tasks,
+                offline_scope=f'Compile both sm_{architecture} schedules and run host tests only; no GPU, timings or profiles',
                 timing_scopes='Device events, public calls, resident NTT and resident ModUp/ModDown kept separate',
                 profiling_scope='Separate NVTX executables label setup, warmups, samples and verification; counters select sample ranges only',
                 budget_scope='Preflight, compilation, checks, measurements and profiles; evidence packaging continues after cutoff',
@@ -127,8 +144,11 @@ class Batch:
         if len(selected) != 1 or len(selected[0]) != 5:
             raise ValueError('Selected physical GPU index was not found')
         index, uuid, name, capability, driver = selected[0]
-        if 'RTX 5090' not in name or capability.strip() != '12.0':
-            raise ValueError('This batch requires RTX 5090 / compute 12.0; found ' + name)
+        expected_model, expected_capability, _ = GPU_TARGETS[self.args.target]
+        model = name.strip().removeprefix('NVIDIA ').removeprefix('GeForce ')
+        if model != expected_model or capability.strip() != expected_capability:
+            raise ValueError(f'This batch requires {expected_model} / compute {expected_capability}; '
+                             f'found {name} / compute {capability}')
         self.report['device'] = dict(index=index, uuid=uuid, name=name, compute_cap=capability, driver=driver)
         self.run('sanitizer-version', ['compute-sanitizer', '--version'])
         return uuid.strip()
@@ -165,37 +185,69 @@ class Batch:
         if self.report.get('telemetry') == 'CAPTURED' and len((self.output / 'clocks.csv').read_text().splitlines()) < 2:
             self.report['telemetry'] = 'FAILED: no telemetry samples'
 
-    def repeat(self):
+    def repeat(self, scope='chain', towers=3, bits=60):
+        optional = scope == 'gpu-public'
+        stem = f'public-repeat-b{bits}' if optional else 'controlled-repeat'
+        log_prefix = stem if optional else 'repeat'
+        binary_name, subcommand, timing = SCOPES[scope]
         record = dict(status='RUNNING', runs=[])
-        path = self.output / 'controlled-repeat.json'
+        path = self.output / (stem + '.json')
         atomic_json(path, record)
         try:
             for index, schedule in enumerate(ORDER, 1):
-                binary = self.build / schedule / 'ntt_resident_bench'
-                vector = self.output / 'paired' / schedule / 'benchmark-vector-n65536-k3-b60.txt'
-                log = f'repeat-{index}-{schedule}'
-                raw = self.run(log, [binary, vector, '5', '50'])
-                summary = validate_jsonl(raw, expected_n=65536, expected_towers=3,
-                    expected_bits=60, expected_timing='host_wall_resident_chain')
+                binary = self.build / schedule / binary_name
+                vector = self.output / 'paired' / schedule / vector_name(65536, towers, bits)
+                log = f'{log_prefix}-{index}-{schedule}'
+                command = [binary, *([subcommand] if subcommand else []), vector, '5', '50']
+                raw = self.run(log, command, optional=True) if optional else self.run(log, command)
+                if raw is None:
+                    return
+                summary = validate_jsonl(raw, expected_n=65536, expected_towers=towers,
+                    expected_bits=bits, expected_timing=timing)
                 record['runs'].append(dict(order=index, schedule=schedule, raw_log=log + '.log',
                     raw_sha256=digest(self.output / (log + '.log')), binary_sha256=digest(binary), summary=summary))
                 atomic_json(path, record)
             record['status'] = 'PASS'
-        except BaseException:
-            record['status'] = 'FAIL'
-            raise
+        except (OSError, ValueError) as error:
+            if not optional:
+                raise
+            self.report['stages'].append(dict(name=stem + '-validation', optional=True,
+                                              status='FAIL', error=str(error)))
+            self.save()
         finally:
+            if record['status'] == 'RUNNING':
+                record['status'] = 'FAIL'
             atomic_json(path, record)
 
     def profiles(self):
-        vector = self.output / 'paired/group_twiddle_ct/benchmark-vector-n65536-k3-b60.txt'
+        paired = self.output / 'paired/group_twiddle_ct'
         for profiler in ('nsys', 'ncu'):
             self.run(profiler + '-version', [profiler, '--version'], optional=True, limit=30)
         self.report['profile_binaries'] = {}
-        for scope, binary in [('ntt', 'ntt_resident_profile'), ('conversion', 'ntt_resident_conversion_profile')]:
+        captures = [('ntt', 'ntt_resident_profile', 3, ('nsys', 'ncu')),
+                    ('conversion', 'ntt_resident_conversion_profile', 3, ('nsys', 'ncu'))]
+        if self.args.extended_probes:
+            captures.append(('conversion-k40', 'ntt_resident_conversion_profile', 40, ('nsys',)))
+        for scope, binary, towers, profilers in captures:
             target = self.build / 'group_twiddle_ct' / binary
             self.report['profile_binaries'][binary] = digest(target) if target.is_file() else None
-            for profiler in ('nsys', 'ncu'):
+            vector = paired / vector_name(65536, towers, 60)
+            workload = [target, vector, '1', '2']
+            if scope.startswith('conversion') and self.args.conversion_references is not None:
+                try:
+                    reference, checksum = select_conversion_reference(self.args.conversion_references, 65536, towers, 60)
+                    manifest = json.loads((paired / 'benchmark-manifest.json').read_text())
+                    if checksum != manifest['context']['conversion_reference_sha256'].get(reference.name):
+                        raise ValueError('profile conversion reference differs from the measured batch')
+                except (OSError, ValueError, KeyError) as error:
+                    self.report['stages'].append(dict(name='profile-' + scope + '-reference', status='FAIL',
+                                                      optional=True, error=str(error)))
+                    self.save()
+                    continue
+                key = 'profile_' + scope.replace('-', '_') + '_reference_sha256'
+                self.report[key] = checksum
+                workload.append(reference)
+            for profiler in profilers:
                 name = profiler + '-' + scope
                 if profiler == 'nsys':
                     command = ['nsys', 'profile', '--trace=cuda,nvtx', '--sample=none', '--cpuctxsw=none',
@@ -203,21 +255,25 @@ class Batch:
                 else:
                     command = ['ncu', '--nvtx', '--nvtx-include', 'ntt-gpu@ntt.sample/',
                                '--set', 'basic', '--launch-count', '8', '--export', self.output / name]
-                captured = self.run(name, [*command, target, vector, '1', '2'], optional=True, limit=180)
+                captured = self.run(name, [*command, *workload], optional=True, limit=180)
                 artifact = self.output / (name + ('.nsys-rep' if profiler == 'nsys' else '.ncu-rep'))
-                if captured is not None and (self.report['profile_binaries'][binary] is None or
-                                            not artifact.is_file() or artifact.stat().st_size == 0):
+                if captured is None:
+                    continue
+                if (self.report['profile_binaries'][binary] is None or
+                        not artifact.is_file() or artifact.stat().st_size == 0):
                     self.report['stages'][-1].update(status='FAIL', error='Missing profiling executable or nonempty capture')
                     self.save()
+                    continue
+                if scope == 'conversion-k40':
+                    database = self.output / (name + '.sqlite')
+                    exported = self.run(name + '-sqlite', ['nsys', 'export', '--type', 'sqlite',
+                        '--output', database, artifact], optional=True, limit=60)
+                    if exported is not None and (not database.is_file() or database.stat().st_size == 0):
+                        self.report['stages'][-1].update(status='FAIL', error='Missing SQLite export')
+                        self.save()
 
     def analyze(self):
-        contexts, rows, repeats = analyze(self.output)
-        destination = self.output / 'analysis'
-        destination.mkdir()
-        write_csv(destination / 'paired-operations.csv', rows)
-        write_csv(destination / 'resident-repeats.csv', repeats)
-        atomic_json(destination / 'summary.json', dict(context=normalized_context(contexts['group_twiddle_ct']),
-            paired_operation_rows=len(rows), repeat_operation_rows=len(repeats), operations=summarize(rows)))
+        export_analysis(self.output, self.output / 'analysis')
         self.report['analysis'] = 'VALIDATED'
 
     def execute(self):
@@ -226,13 +282,18 @@ class Batch:
         previous_device = os.environ.get('CUDA_VISIBLE_DEVICES')
         result = 1
         try:
+            collector = self.report['collector_arguments']
+            if self.args.prepared_vectors is not None or self.args.conversion_references is not None:
+                gpu_session.validate_prepared_inputs(gpu_session.parser().parse_args(collector))
             if self.args.mode == 'gpu':
                 os.environ['CUDA_VISIBLE_DEVICES'] = self.preflight()
                 self.start_clock()
-            plan = make_plan(self.args)
             if self.args.mode == 'gpu':
                 self.report['gpu_execution'] = 'PENDING_COLLECTOR_RESULT'
-            result = gpu_session.main(plan['collector_arguments'], deadline=self.deadline)
+            try:
+                result = gpu_session.main(collector, deadline=self.deadline)
+            except SystemExit as error:
+                raise ValueError('Paired collector rejected its arguments') from error
             if result == 130:
                 raise KeyboardInterrupt
             if result:
@@ -240,8 +301,14 @@ class Batch:
             if self.args.mode == 'gpu':
                 self.report['gpu_execution'] = 'EXACT_TESTS_AND_SANITIZERS_PASS'
                 self.repeat()
+                if self.args.extended_probes:
+                    for bits in PUBLIC_REPEAT_BITS:
+                        self.repeat('gpu-public', 40, bits)
                 self.profiles()
-                self.analyze()
+                if self.args.defer_analysis:
+                    self.report['analysis'] = 'DEFERRED_TO_LOCAL'
+                else:
+                    self.analyze()
                 self.report['status'] = 'GPU_BATCH_PASSED'
             else:
                 self.report['status'] = 'OFFLINE_READY'
@@ -318,8 +385,17 @@ def archive(output):
 def main(argv=None):
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--mode', choices=('plan', 'offline', 'gpu'), default='plan')
+    cli.add_argument('--target', choices=GPU_TARGETS, default='rtx-5090',
+                     help='Expected GPU model and matching CUDA compile architecture')
     cli.add_argument('--cuda-root', type=Path, default=Path('/usr/local/cuda'))
     cli.add_argument('--openfhe-prefix', type=Path, default=ROOT / 'build/openfhe-compat/install')
+    cli.add_argument('--prepared-vectors', type=Path, help='Directory containing CPU-prepared vectors and vectors.json')
+    cli.add_argument('--conversion-references', type=Path,
+                     help='Directory containing CPU-prepared conversion arrays and their manifest')
+    cli.add_argument('--extended-probes', action='store_true',
+                     help='Add 40-tower public-call repeats and an Nsight Systems SQLite export')
+    cli.add_argument('--defer-analysis', action='store_true',
+                     help='Archive raw evidence and run analyze_gpu_batch.py on a local machine')
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     cli.add_argument('--output-dir', type=Path, default=ROOT / ('bench-results-rental-' + stamp))
     cli.add_argument('--build-dir', type=Path, default=ROOT / 'build' / ('rental-' + stamp))
@@ -330,10 +406,20 @@ def main(argv=None):
     args = cli.parse_args(argv)
     if not 0 < args.budget_minutes <= 1440 or args.jobs < 1 or args.device_index < 0 or not 1 <= args.command_timeout <= 7200:
         cli.error('Require budget in (0,1440] minutes, positive jobs, nonnegative device and timeout 1..7200')
+    prepared = args.prepared_vectors is not None or args.conversion_references is not None
+    if prepared and args.mode == 'offline':
+        cli.error('Prepared vectors and references are used by the GPU batch, not offline compilation')
+    if args.extended_probes and args.mode == 'offline':
+        cli.error('--extended-probes requires a GPU batch or its plan')
+    if args.defer_analysis and args.mode == 'offline':
+        cli.error('--defer-analysis requires a GPU batch or its plan')
     try:
         checked_paths(args)
         if args.mode == 'plan':
-            print(json.dumps(make_plan(args), indent=2))
+            plan = make_plan(args)
+            if prepared:
+                gpu_session.validate_prepared_inputs(gpu_session.parser().parse_args(plan['collector_arguments']))
+            print(json.dumps(plan, indent=2))
             return 0
         def interrupted(signum, frame):
             raise KeyboardInterrupt

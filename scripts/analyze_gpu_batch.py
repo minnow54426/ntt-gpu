@@ -13,6 +13,8 @@ from benchmark_report import validate_jsonl
 
 SCHEDULES = ("group_twiddle_ct", "legacy_dif")
 SANITIZER_SCOPES = ("", "matrix-", "resident-", "basis-", "shoup-")
+REPEAT_ORDER = ("legacy_dif", "group_twiddle_ct", "group_twiddle_ct", "legacy_dif")
+PUBLIC_REPEAT_BITS = (30, 60)
 
 
 def record_file(directory, name):
@@ -86,6 +88,27 @@ def load_run(directory, schedule):
     return context, parsed
 
 
+def read_repeat(records, filename, contexts, reference, scope):
+    repeat = json.loads((records / filename).read_text())
+    if repeat["status"] != "PASS" or tuple(run["schedule"] for run in repeat["runs"]) != REPEAT_ORDER:
+        raise ValueError("wrong controlled-repeat order/status")
+    binary, _, timing = SCOPES[scope]
+    rows = []
+    for index, run in enumerate(repeat["runs"], 1):
+        path = record_file(records, run["raw_log"])
+        schedule = run["schedule"]
+        if (run["order"] != index or digest(path) != run["raw_sha256"] or
+                run["binary_sha256"] != contexts[schedule]["binaries"][binary]):
+            raise ValueError("repeat identity/hash mismatch")
+        result = validate_jsonl(path.read_text(), expected_timing=timing)
+        expected = dict(reference, warmups=5, samples=50, transform_schedule=schedule)
+        if result["workload"] != expected or result != run["summary"]:
+            raise ValueError("repeat input or summary mismatch")
+        for operation, stats in result["summaries"].items():
+            rows.append(dict(order=index, schedule=schedule, operation=operation, **stats))
+    return rows
+
+
 def analyze(records):
     comparison = json.loads((records / "paired/comparison.json").read_text())
     if comparison["status"] != "MATCHED_GPU_RUNS":
@@ -123,26 +146,9 @@ def analyze(records):
                             for key in ("median_ms", "p5_ms", "p95_ms")})
             rows.append(row)
     repeats = []
-    repeat_path = records / "controlled-repeat.json"
-    if repeat_path.exists():
-        repeat = json.loads(repeat_path.read_text())
-        order = ["legacy_dif", "group_twiddle_ct", "group_twiddle_ct", "legacy_dif"]
-        if repeat["status"] != "PASS" or [run["schedule"] for run in repeat["runs"]] != order:
-            raise ValueError("wrong controlled-repeat order/status")
+    if (records / "controlled-repeat.json").exists():
         reference = runs["group_twiddle_ct"]["benchmark-n65536-k3-b60-chain"]["workload"]
-        for index, run in enumerate(repeat["runs"], 1):
-            path = record_file(records, run["raw_log"])
-            schedule = run["schedule"]
-            if (run["order"] != index or digest(path) != run["raw_sha256"] or
-                    run["binary_sha256"] != contexts[schedule]["binaries"]["ntt_resident_bench"]):
-                raise ValueError("repeat identity/hash mismatch")
-            result = validate_jsonl(path.read_text(), expected_n=65536, expected_towers=3,
-                                    expected_bits=60, expected_timing="host_wall_resident_chain")
-            expected = dict(reference, warmups=5, samples=50, transform_schedule=schedule)
-            if result["workload"] != expected or result != run["summary"]:
-                raise ValueError("repeat input or summary mismatch")
-            for operation, stats in result["summaries"].items():
-                repeats.append(dict(order=index, schedule=schedule, operation=operation, **stats))
+        repeats = read_repeat(records, "controlled-repeat.json", contexts, reference, "chain")
     return contexts, rows, repeats
 
 
@@ -168,19 +174,35 @@ def write_csv(path, rows):
             writer.writerows(rows)
 
 
+def export_analysis(records, destination):
+    contexts, rows, repeats = analyze(records)
+    public_repeats = []
+    reference_report = records / "paired/group_twiddle_ct/report.json"
+    for bits in PUBLIC_REPEAT_BITS:
+        filename = f"public-repeat-b{bits}.json"
+        index = records / filename
+        if index.is_file() and json.loads(index.read_text())["status"] == "PASS":
+            benchmarks = json.loads(reference_report.read_text())["benchmark_summaries"]
+            reference = benchmarks[f"benchmark-n65536-k40-b{bits}-gpu-public"]["workload"]
+            public_repeats.extend(dict(prime_bits=bits, **row) for row in
+                                  read_repeat(records, filename, contexts, reference, "gpu-public"))
+    destination.mkdir(parents=True, exist_ok=False)
+    write_csv(destination / "paired-operations.csv", rows)
+    write_csv(destination / "resident-repeats.csv", repeats)
+    write_csv(destination / "public-repeats.csv", public_repeats)
+    result = dict(context=normalized_context(contexts[SCHEDULES[0]]),
+                  paired_operation_rows=len(rows), repeat_operation_rows=len(repeats),
+                  public_repeat_operation_rows=len(public_repeats), operations=summarize(rows))
+    (destination / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("records", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
-    contexts, rows, repeats = analyze(args.records)
-    args.output_dir.mkdir(parents=True, exist_ok=False)
-    write_csv(args.output_dir / "paired-operations.csv", rows)
-    write_csv(args.output_dir / "resident-repeats.csv", repeats)
-    result = dict(context=normalized_context(contexts[SCHEDULES[0]]),
-                  paired_operation_rows=len(rows), repeat_operation_rows=len(repeats),
-                  operations=summarize(rows))
-    (args.output_dir / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
+    result = export_analysis(args.records, args.output_dir)
     print(json.dumps(result["operations"], indent=2))
 
 

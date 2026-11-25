@@ -1,10 +1,15 @@
-# Bundle the next RTX 5090 session
+# Bundle the next GPU session
 
 **Status: the November 24 RTX 4080 SUPER diagnostic passed native checks
 and timings.** Both schedules and the conversion replay passed. Nsight
 Systems captured CUDA/NVTX activity, and the instance blocked Nsight Compute
 counters. RTX 5090 hardware acceptance remains open. See the
 [paired results](paired-ntt-native-analysis.md#what-changed-in-the-november-24-ada-results).
+
+Use the RTX 4080 SUPER as the working baseline if the RTX 5090 is hard to
+rent. A standard RTX 4080 can also run the same checks. Record each card
+separately and compare speedups on the same card. Save the RTX 5090 run for
+when one is available.
 
 The [paired Ada analysis](paired-ntt-native-analysis.md) is complete on the
 M1 Pro. The November 21 conversion benchmark adds both ModUp input formats,
@@ -67,7 +72,7 @@ replace this early access check.
 
 | Order | GPU-only item | Evidence to bring home |
 |---|---|---|
-| 1 | Preflight the actual RTX 5090 and complete the AutoDL profiling-access TODO | Device identity, commit, versions, a working CUDA/NVTX trace and confirmed or blocked SM/L2/DRAM counter access |
+| 1 | Verify the selected GPU and repeat the AutoDL profiling-access probe | Device identity, commit, versions, a working CUDA/NVTX trace and confirmed or blocked SM/L2/DRAM counter access |
 | 2 | Verify the new default CUDA path and resident chain | Native exactness against pinned OpenFHE, lifecycle/failure checks, and the NTT/resident smoke scopes under all four sanitizers |
 | 3 | Verify the legacy control build before timing | Native exactness and appropriate sanitizer smoke, with separate binary hashes and logs |
 | 4 | Check Shoup, the Barrett candidate and approximate basis conversion | Native integer and pinned OpenFHE comparisons, plus all four sanitizer tools |
@@ -77,34 +82,47 @@ replace this early access check.
 ## Run the queue as one batch
 
 [`gpu_rental_batch.py`](../scripts/gpu_rental_batch.py) combines the queue
-into one command. Preview its plan on any CPU machine; this prints JSON and
-does not build, contact a provider or run GPU work:
+into one command. Pass the
+[Mac-prepared directory](#commands-to-prepare-before-provisioning) to the plan
+preview to verify every vector and OpenFHE reference in the matrix before
+renting. This prints JSON without building, contacting a provider or running
+GPU work:
 
 ```sh
-python3 scripts/gpu_rental_batch.py --mode plan
+python3 scripts/gpu_rental_batch.py --mode plan --target rtx-4080-super \
+  --prepared-vectors build/prepared-vectors \
+  --conversion-references build/prepared-vectors \
+  --extended-probes --defer-analysis
 ```
 
-Before renting, compile both schedules for RTX 5090 and run their host tests:
+Before renting, compile both schedules for the selected GPU and run their host tests:
 
 ```sh
-python3 scripts/gpu_rental_batch.py --mode offline \
+python3 scripts/gpu_rental_batch.py --mode offline --target rtx-4080-super \
   --cuda-root /path/to/cuda --openfhe-prefix /path/to/openfhe \
   --build-dir build/rental-offline --output-dir bench-results-rental-offline \
   --budget-minutes 120
 ```
 
 On the rental, use a clean checkout with pinned OpenFHE already installed.
-Select the physical index shown by `nvidia-smi`. The batch verifies RTX 5090
-and compute capability 12.0, then selects that GPU by UUID for CUDA:
+Copy the complete prepared directory before starting the batch.
+Select the physical index and exact model shown by `nvidia-smi`. The batch
+verifies both the model and compute capability, then selects that GPU by UUID:
 
 ```sh
-python3 scripts/gpu_rental_batch.py --mode gpu --device-index 0 \
+python3 scripts/gpu_rental_batch.py --mode gpu --target rtx-4080-super --device-index 0 \
   --cuda-root /usr/local/cuda \
   --openfhe-prefix build/openfhe-compat/install \
-  --build-dir build/rental-5090 --output-dir bench-results-rental-5090 \
+  --prepared-vectors /path/to/prepared-vectors \
+  --conversion-references /path/to/prepared-vectors \
+  --extended-probes --defer-analysis \
+  --build-dir build/rental-4080-super --output-dir bench-results-rental-4080-super \
   --budget-minutes 120
 ```
 
+Use `--target rtx-4080` for the standard RTX 4080 or `--target rtx-5090` for
+an RTX 5090. The Ada targets build for `sm_89`; the RTX 5090 builds for
+`sm_120` and remains the default for existing invocations without a target.
 Use fresh build and output directories. This command reuses the collector
 below, with eight workloads and four measurement scopes per schedule:
 **64 measurement jobs and 56 sanitizer commands across both schedules**,
@@ -112,6 +130,12 @@ in addition to their native exactness tests. It then runs a representative
 resident NTT case in legacy/group/group/legacy order, using five warmups and
 50 samples per run. The small repeat controls run order; it does not replace
 the workload sweep.
+
+The runner checks prepared files before selecting a device. Paired benchmark
+manifests record the input hashes with the source revision. Both conversion
+profilers use the same reference as the measured batch. A conversion
+reference error during profiling is recorded while the NTT captures remain
+available.
 
 The added Barrett scope checks its CUDA intrinsic implementation before any
 timings. It runs under memcheck, racecheck, initcheck and synccheck in both
@@ -133,13 +157,16 @@ at most eight kernels. Inspect the operation nested inside a sample rather
 than whole-process totals. Instrumented output is rejected by the benchmark
 validator. [Compile and check these profiles offline](offline-gpu-preparation.md#prepare-profiles-without-renting).
 
-After the required batch, repeat the N=65,536, K=40 public calls with 30- and
-60-bit primes in legacy/group/group/legacy order, using identical vectors,
-warmups and sample counts. Record each run separately with clock telemetry.
-If time remains, capture a CUDA/NVTX timeline for the 60-bit K=40 conversion
-case using the separate profile binary. Export the timeline database with the
-report so CUDA API calls and copies can be checked against the measured
-`ntt.sample` ranges on the Mac.
+The optional `--extended-probes` stage adds four public-call runs per prime
+width at N=65,536 and K=40. Within each width, the schedule order is
+legacy/group/group/legacy, with five warmups and 50 samples per run. The batch
+keeps raw records for 30 and 60 bits separately. The analyzer checks each
+completed repeat against its paired inputs and executable.
+
+After the baseline profiles, the same option captures a CUDA/NVTX timeline
+for the 60-bit K=40 conversion case and exports SQLite beside the report.
+Use the database on the Mac to inspect CUDA API calls and copies within
+measured `ntt.sample` ranges. [Nsight export guide](https://docs.nvidia.com/nsight-systems/AnalysisGuide/index.html#sqlite-schema-reference)
 
 The budget covers preflight, compilation, checks, timings and profiles; it is
 a cutoff, not a runtime estimate. Each collector command shares the remaining
@@ -170,8 +197,19 @@ and both child reports before accepting its results.
 Copy the archive and checksum to the local machine, then verify:
 
 ```sh
-shasum -a 256 -c bench-results-rental-5090.tar.gz.sha256
+shasum -a 256 -c bench-results-rental-4080-super.tar.gz.sha256
 ```
+
+With `--defer-analysis`, run the analysis on the Mac after verifying and
+extracting the archive. Pass the extracted directory that contains `paired/`.
+
+```sh
+python3 scripts/analyze_gpu_batch.py /path/to/bench-results-rental-4080-super \
+  --output-dir build/ada-rental-analysis
+```
+
+Completed extended repeats appear in `public-repeats.csv`. Partial repeats
+stay in the raw archive with their failure stage and are excluded from the CSV.
 
 The commands below remain available for a manually controlled session.
 
@@ -185,6 +223,27 @@ timing block does not replace the full native exactness matrix.
 
 ### Commands to prepare before provisioning
 
+Generate the benchmark inputs and sanitizer sample on the M1 Pro before
+starting the billing window. Copy the whole directory, including its checksums,
+to the GPU host.
+
+```sh
+python3 scripts/benchmark_batch.py build/prepared-vectors \
+  --dimensions 4096 65536 --towers 3 40 --prime-bits 30 60 \
+  --conversion-bench build/openfhe-compat/ntt-build/ntt_resident_conversion_bench_host
+```
+
+Run standalone CPU tests, OpenFHE CPU benchmarks and results analysis locally.
+Build Linux CUDA binaries and dependencies on a compatible CPU-only Linux host
+before provisioning when that host is available. The native tests currently
+compute some OpenFHE reference arrays in the same process as CUDA, and the
+benchmark includes CPU orchestration where it is part of the measured operation.
+The optional conversion reference export moves the six conversion benchmark
+operations' inputs and OpenFHE reference results to the Mac. The benchmark
+and its sanitizer smoke can load the exported arrays and compare all
+results exactly. Separate native correctness tests still calculate their
+OpenFHE references during the tests.
+
 The compiler-only CI matrix builds pinned OpenFHE and both schedules for
 sm_89 and sm_120, including the new native test executables, with no driver. For a local dry run that also links pinned OpenFHE, use a Linux
 host with the toolkit installed:
@@ -193,8 +252,17 @@ host with the toolkit installed:
 python3 scripts/gpu_session.py --mode offline --compare-ntt \
   --architectures 120 --cuda-root /path/to/cuda \
   --openfhe-prefix /path/to/openfhe \
-  --build-dir build/ntt-ab-offline --output-dir bench-results-ntt-ab-offline
+  --build-dir build/ntt-ab-5090 --output-dir bench-results-ntt-ab-offline
 ```
+
+To reuse these builds, stage the clean checkout, build directories, OpenFHE
+installation, and offline records on the rental at the same absolute paths.
+Use a compatible Linux host and CUDA runtime. Add
+`--offline-records bench-results-ntt-ab-offline` to the native command. The
+collector verifies the commit, paths, architecture, schedule, executables,
+CTest definition, generated CTest vectors, and OpenFHE libraries. It then
+runs the native tests without configuring, compiling, or regenerating those
+CTest vectors. Keep a copy of the offline reports with the result archive.
 
 On the rented GPU, confirm that the selected device is the RTX 5090
 (compute capability 12.0) and that the driver and toolkit work before timing:
@@ -224,12 +292,15 @@ python3 scripts/gpu_session.py --mode gpu --compare-ntt --benchmark \
   --openfhe-prefix /path/to/openfhe \
   --build-dir build/ntt-ab-5090 --output-dir bench-results-ntt-ab-5090 \
   --benchmark-dimensions 4096 65536 --benchmark-towers 3 40 \
+  --prepared-vectors /path/to/prepared-vectors \
+  --conversion-references /path/to/prepared-vectors \
   --benchmark-prime-bits 30 60 --benchmark-scope gpu-conversion \
   --benchmark-warmups 2 --benchmark-samples 10
 ```
 
 This selection records 32 measurement jobs per build, including eight
-conversion jobs. Every conversion sample is checked against pinned OpenFHE.
+conversion jobs. Every conversion sample is checked against pinned OpenFHE output. The collector
+checks the reference bundle hashes and records them in its manifest.
 Fixed NTT session setup is excluded. Per-call conversion parameter construction
 and upload, allocation and host orchestration are included. The final checks
 for resident operations download outside their timers. The two host controls
@@ -289,8 +360,8 @@ tar -tzf bench-results-ntt-ab-5090.tar.gz > /dev/null
 
 ## When to rent, and when to stop
 
-Before renting, confirm that the code compiles for sm_120, the RTX 5090
-architecture, without requiring a GPU driver. Set a rental time budget and
+Before renting, confirm that the code compiles for the selected card without
+requiring a GPU driver. Set a rental time budget and
 check that the provider allows the profiling tools and counters you need.
 
 Run correctness before timing. If a required gate fails, save the failure

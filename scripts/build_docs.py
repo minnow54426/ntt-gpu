@@ -495,7 +495,7 @@ def home_content(pages, entries):
 <p>Start with a labelled diagram, choose a step and read its exact values. Each explorer also has an optional Three.js 3D view. You can use every control without 3D, and nothing runs a CUDA workload.</p>
 <div class="site-visual-guides">{''.join(f'<a href="{route}#visual-{kind}"><strong>{title}</strong><span>{description}</span></a>' for kind, (title, route, description) in VISUAL_GUIDES.items())}</div>
 <h2 id="next-step">What comes next?</h2>
-<p>The paired Ada analysis is complete. Native ModUp/ModDown checks, timings and tagged profiles are prepared as one RTX 5090 batch for later. Offline work continues on builds, CPU checks and profiling preparation; no rental is needed for those tasks.</p>
+<p>The RTX 4080 SUPER is the working card for native checks and tuning. The RTX 5090 remains a hardware validation target. Offline work continues on builds, CPU checks and profiling preparation.</p>
 <p>Use the <a href="next-gpu-rental.html">current GPU session queue</a> for commands and the <a href="openfhe-integration-plan.html#live-tracker">live tracker</a> for acceptance requirements. D11/P2 stays open until its required evidence is recorded.</p>
 <details><summary>Useful words before you start</summary>
 <ul>

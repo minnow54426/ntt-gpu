@@ -1,4 +1,5 @@
 """Synthetic batch-control evidence only; never launches CUDA/profilers."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
-from benchmark_batch import collect_batch, collect_profiles, DIMENSIONS, PRIME_BITS, TOWER_COUNTS
+from benchmark_batch import prepare_vectors, vector_name, collect_batch, collect_profiles, DIMENSIONS, PRIME_BITS, TOWER_COUNTS
 from benchmark_report import TIMING_OPERATIONS
 from benchmark_fixture import conversion_parameters
 
@@ -55,7 +56,9 @@ class FakeSession:
                 f'{(1 << (bits - 1)) + 1 + i * 2 * dimension} {i + 2}\n' for i in range(towers)))
             raw = 'mock parameters generated'
         elif name.startswith('benchmark-'):
-            tokens = Path(command[-3]).read_text().split()
+            vector_argument = -4 if command[-1].endswith('.conversion') else -3
+            tokens = [word for line in Path(command[vector_argument]).read_text().splitlines()
+                      if not line.startswith('#') for word in line.split()]
             dimension, towers = map(int, tokens[:2])
             timing = ('host_wall_gpu_public_call' if name.endswith('-gpu-public') else
                       'host_wall_public_call' if name.endswith('-public') else
@@ -93,6 +96,45 @@ class FakeSession:
 
 
 class BatchTests(unittest.TestCase):
+    def test_prepared_vectors_replace_generation_and_are_hash_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session = FakeSession(root, dimensions=(4096,), scope='gpu')
+            session.args.benchmark_prime_bits = [30]
+            prepared = root / 'prepared'
+            prepare_vectors(prepared, [4096], [3], [30])
+            session.args.prepared_vectors = prepared
+            collect_batch(session, 'mock device')
+            self.assertFalse(any(name.startswith('parameters-') for name, _ in session.commands))
+            manifest = json.loads((root / 'benchmark-manifest.json').read_text())
+            name = vector_name(4096, 3, 30)
+            self.assertIn(name, manifest['context']['prepared_vector_sha256'])
+            (prepared / name).write_text('changed')
+            with self.assertRaisesRegex(ValueError, 'modified prepared vector'):
+                collect_batch(session, 'mock device')
+
+
+    def test_conversion_reference_is_passed_only_to_conversion_and_recorded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session = FakeSession(root, dimensions=(4096,), scope='gpu-conversion')
+            session.args.benchmark_prime_bits = [30]
+            session.args.conversion_references = root
+            name = 'benchmark-vector-n4096-k3-b30.conversion'
+            path = root / name
+            path.write_bytes(b'fixture')
+            checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+            (root / 'conversion-references.json').write_text(json.dumps({name: checksum}))
+            collect_batch(session, 'mock GPU')
+            matching = [(stage, args) for stage, args in session.commands if str(path.resolve()) in args]
+            self.assertEqual(len(matching), 1)
+            self.assertTrue(matching[0][0].endswith('-conversion'))
+            manifest = json.loads((root / 'benchmark-manifest.json').read_text())
+            self.assertEqual(manifest['context']['conversion_reference_sha256'], {name: checksum})
+            path.write_bytes(b'changed')
+            with self.assertRaisesRegex(ValueError, 'modified conversion reference'):
+                collect_batch(session, 'mock GPU')
+
     def test_conversion_scope_and_simulation_rejection(self):
         for simulation in (False, True):
             with tempfile.TemporaryDirectory() as directory:

@@ -7,9 +7,10 @@ At the next rental, first complete the
 Test a small CUDA/NVTX trace and real SM/L2/DRAM counter capture before the
 long batch; save both successes and permission failures in the session record.
 
-Preview `python3 scripts/gpu_rental_batch.py --mode plan` without a GPU.
+Preview `python3 scripts/gpu_rental_batch.py --mode plan --target rtx-4080-super`
+without a GPU.
 Use the [single-batch commands](../next-gpu-rental.md#run-the-queue-as-one-batch)
-for offline compilation or a native RTX 5090 run. The native batch combines
+for offline compilation or a native run on the selected GPU. The native batch combines
 both schedules, resident conversion, sanitizers, ordered repeats, independent
 profiles and a verified evidence archive within one command budget.
 

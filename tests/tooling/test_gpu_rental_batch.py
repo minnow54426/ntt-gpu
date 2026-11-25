@@ -1,6 +1,7 @@
 """Batch orchestration tests use synthetic subprocesses, never native GPU evidence."""
 import contextlib
 import io
+from itertools import product
 import json
 import os
 from pathlib import Path
@@ -15,13 +16,15 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import gpu_rental_batch as batch
 import gpu_session
+from benchmark_batch import vector_name
 
 
-def options(root, mode='gpu'):
+def options(root, mode='gpu', target='rtx-5090'):
     return type('Options', (), dict(mode=mode, cuda_root=Path('/mock/cuda'),
         openfhe_prefix=Path('/mock/openfhe'), output_dir=root / 'records',
         build_dir=root / 'build', budget_minutes=5, jobs=2, command_timeout=120,
-        device_index=1))()
+        device_index=1, target=target, prepared_vectors=None, conversion_references=None, extended_probes=False,
+        defer_analysis=False))()
 
 
 def profile_binaries(current):
@@ -44,12 +47,51 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(plan['status'], 'PLANNED')
             self.assertFalse(plan['rentals_created'])
             args = gpu_session.parser().parse_args(plan['collector_arguments'])
+            self.assertEqual(args.architectures, '120')
             self.assertEqual(args.benchmark_scope, 'gpu-conversion')
             self.assertTrue(args.compare_ntt)
             self.assertFalse(args.skip_sanitizers)
             self.assertEqual(args.benchmark_dimensions, [4096, 65536])
             self.assertEqual(args.benchmark_towers, [3, 40])
             self.assertEqual(args.benchmark_prime_bits, [30, 60])
+
+    def test_ada_plans_compile_for_sm_89(self):
+        for target, model in [('rtx-4080', 'RTX 4080'), ('rtx-4080-super', 'RTX 4080 SUPER')]:
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as temporary:
+                plan = batch.make_plan(options(Path(temporary), 'offline', target))
+                self.assertEqual(plan['target'], dict(model=model, compute_cap='8.9', cuda_architecture='89'))
+                collector = gpu_session.parser().parse_args(plan['collector_arguments'])
+                self.assertEqual(collector.architectures, '89')
+
+    def test_prepared_batch_validates_inputs_before_device_access(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            args = options(Path(temporary), target='rtx-4080-super')
+            prepared = Path(temporary) / 'prepared'
+            prepared.mkdir()
+            args.prepared_vectors = args.conversion_references = prepared
+            vector_hashes, reference_hashes = {}, {}
+            for cell in product((4096, 65536), (3, 40), (30, 60)):
+                vector = prepared / vector_name(*cell)
+                reference = vector.with_suffix('.conversion')
+                vector.write_text('fixture vector')
+                reference.write_bytes(b'fixture reference')
+                vector_hashes[vector.name] = batch.digest(vector)
+                reference_hashes[reference.name] = batch.digest(reference)
+            batch.atomic_json(prepared / 'vectors.json', vector_hashes)
+            batch.atomic_json(prepared / 'conversion-references.json', reference_hashes)
+            current = batch.Batch(args)
+            collector = gpu_session.parser().parse_args(current.report['collector_arguments'])
+            self.assertEqual(collector.prepared_vectors, prepared)
+            self.assertEqual(collector.conversion_references, prepared)
+            gpu_session.validate_prepared_inputs(collector)
+
+            reference.write_bytes(b'changed reference')
+            with patch.object(current, 'preflight') as preflight, patch.object(gpu_session, 'main') as collect:
+                self.assertEqual(current.execute(), 1)
+            preflight.assert_not_called()
+            collect.assert_not_called()
+            self.assertIn('modified conversion reference', current.report['error'])
+            self.assertEqual(current.report['gpu_execution'], 'NOT_RUN')
 
     def test_offline_runs_only_collector_and_archives_not_run_gpu_state(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -87,18 +129,22 @@ class BatchTests(unittest.TestCase):
                 self.assertTrue(args.output_dir.with_suffix('.tar.gz.sha256').exists())
 
     def test_native_preflight_selects_physical_gpu_and_rejects_other_hardware(self):
-        for identity, accepted in [
-                ('0, GPU-A, NVIDIA RTX 4080 SUPER, 8.9, 595\n1, GPU-B, NVIDIA GeForce RTX 5090, 12.0, 595', True),
-                ('1, GPU-A, NVIDIA RTX 4080 SUPER, 8.9, 595', False),
-                ('0, GPU-B, NVIDIA GeForce RTX 5090, 12.0, 595', False)]:
-            with self.subTest(identity=identity), tempfile.TemporaryDirectory() as temporary:
-                current = batch.Batch(options(Path(temporary)))
+        for target, identity, expected_uuid in [
+                ('rtx-5090', '0, GPU-A, NVIDIA RTX 4080 SUPER, 8.9, 595\n1, GPU-B, NVIDIA GeForce RTX 5090, 12.0, 595', 'GPU-B'),
+                ('rtx-5090', '1, GPU-A, NVIDIA RTX 4080 SUPER, 8.9, 595', None),
+                ('rtx-5090', '0, GPU-B, NVIDIA GeForce RTX 5090, 12.0, 595', None),
+                ('rtx-4080-super', '1, GPU-A, NVIDIA GeForce RTX 4080 SUPER, 8.9, 595', 'GPU-A'),
+                ('rtx-4080-super', '1, GPU-A, NVIDIA GeForce RTX 4080 SUPER, 12.0, 595', None),
+                ('rtx-4080', '1, GPU-A, NVIDIA GeForce RTX 4080 SUPER, 8.9, 595', None),
+                ('rtx-4080', '1, GPU-A, NVIDIA GeForce RTX 4080, 8.9, 595', 'GPU-A')]:
+            with self.subTest(target=target, identity=identity), tempfile.TemporaryDirectory() as temporary:
+                current = batch.Batch(options(Path(temporary), target=target))
                 def run(name, command):
                     return {'source': 'abc\n', 'source-state': '', 'gpu-identity': identity,
                             'sanitizer-version': 'version'}[name]
                 with patch.object(current, 'run', side_effect=run):
-                    if accepted:
-                        self.assertEqual(current.preflight(), 'GPU-B')
+                    if expected_uuid:
+                        self.assertEqual(current.preflight(), expected_uuid)
                     else:
                         with self.assertRaises(ValueError):current.preflight()
 
@@ -141,12 +187,87 @@ class BatchTests(unittest.TestCase):
                 repeat.assert_called_once();analyze.assert_called_once()
                 self.assertEqual(current.report['status'], 'GPU_BATCH_PASSED_WITH_LIMITATIONS' if limited else 'GPU_BATCH_PASSED')
 
+    def test_extended_batch_can_defer_analysis_until_after_archive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            args = options(Path(temporary))
+            args.extended_probes = args.defer_analysis = True
+            current = batch.Batch(args)
+            with patch.object(current, 'preflight', return_value='GPU-test'), \
+                    patch.object(current, 'start_clock'), patch.object(current, 'stop_clock'), \
+                    patch.object(gpu_session, 'main', return_value=0), \
+                    patch.object(current, 'repeat') as repeat, patch.object(current, 'profiles') as profiles, \
+                    patch.object(current, 'analyze') as analyze:
+                self.assertEqual(current.execute(), 0)
+            self.assertEqual([call.args for call in repeat.call_args_list],
+                             [(), ('gpu-public', 40, 30), ('gpu-public', 40, 60)])
+            profiles.assert_called_once()
+            analyze.assert_not_called()
+            self.assertEqual(current.report['analysis'], 'DEFERRED_TO_LOCAL')
+            self.assertTrue(args.output_dir.with_suffix('.tar.gz.sha256').exists())
+
     def test_missing_profile_artifacts_are_not_reported_as_captured(self):
         with tempfile.TemporaryDirectory() as temporary:
             current = batch.Batch(options(Path(temporary)));current.output.mkdir()
             with patch.object(gpu_session, 'run_process', return_value=subprocess.CompletedProcess([], 0)):
                 current.profiles()
             self.assertEqual([stage['status'] for stage in current.report['stages']], ['PASS', 'PASS'] + ['FAIL'] * 4)
+
+    def test_conversion_profile_reuses_the_measured_reference(self):
+        for matches in (True, False):
+            with self.subTest(matches=matches), tempfile.TemporaryDirectory() as temporary:
+                args = options(Path(temporary))
+                args.conversion_references = Path(temporary) / 'prepared'
+                args.conversion_references.mkdir()
+                reference = args.conversion_references / Path(vector_name(65536, 3, 60)).with_suffix('.conversion')
+                reference.write_bytes(b'fixture reference')
+                checksum = batch.digest(reference)
+                batch.atomic_json(args.conversion_references / 'conversion-references.json', {reference.name: checksum})
+                current = batch.Batch(args)
+                paired = current.output / 'paired/group_twiddle_ct'
+                paired.mkdir(parents=True)
+                batch.atomic_json(paired / 'benchmark-manifest.json', {'context': {
+                    'conversion_reference_sha256': {reference.name: checksum if matches else 'different'}
+                }})
+                with patch.object(current, 'run', return_value=None) as run:
+                    current.profiles()
+                commands = {call.args[0]: call.args[1] for call in run.call_args_list}
+                self.assertNotIn(reference, commands['nsys-ntt'])
+                if matches:
+                    self.assertEqual(commands['nsys-conversion'][-1], reference)
+                    self.assertEqual(commands['ncu-conversion'][-1], reference)
+                    self.assertEqual(current.report['profile_conversion_reference_sha256'], checksum)
+                else:
+                    self.assertNotIn('nsys-conversion', commands)
+                    failure = current.report['stages'][-1]
+                    self.assertTrue(failure['optional'])
+                    self.assertIn('differs from the measured batch', failure['error'])
+
+    def test_extended_capture_exports_large_conversion_to_sqlite(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            args = options(Path(temporary))
+            args.extended_probes = True
+            current = batch.Batch(args)
+            current.output.mkdir()
+            profile_binaries(current)
+            def process(command, **kwargs):
+                if '--output' in command:
+                    output = Path(command[command.index('--output') + 1])
+                    if command[1] == 'profile':
+                        output.with_suffix('.nsys-rep').write_text('mock capture')
+                    if command[1] == 'export':
+                        output.write_text('mock sqlite')
+                return subprocess.CompletedProcess(command, 0)
+            with patch.object(gpu_session, 'run_process', side_effect=process):
+                current.profiles()
+            stages = {stage['name']: stage for stage in current.report['stages']}
+            large = stages['nsys-conversion-k40']['command']
+            self.assertTrue(large[-3].endswith('benchmark-vector-n65536-k40-b60.txt'))
+            self.assertNotIn('ncu-conversion-k40', stages)
+            export = stages['nsys-conversion-k40-sqlite']
+            self.assertEqual(export['status'], 'PASS')
+            self.assertIn('sqlite', export['command'])
+            self.assertTrue(export['command'][-1].endswith('nsys-conversion-k40.nsys-rep'))
+
 
     def test_shared_deadline_stops_commands_before_launch(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -238,6 +359,51 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(current.report['analysis'], 'VALIDATED')
             summary = json.loads((current.output / 'analysis/summary.json').read_text())
             self.assertEqual(summary['repeat_operation_rows'], 12)
+
+    def test_public_repeats_are_validated_against_the_paired_workload(self):
+        from benchmark_report import TIMING_OPERATIONS
+        from test_analyze_gpu_batch import fixture
+        for bits in batch.PUBLIC_REPEAT_BITS:
+            with self.subTest(bits=bits), tempfile.TemporaryDirectory() as temporary:
+                current = batch.Batch(options(Path(temporary)))
+                current.output.mkdir()
+                fixture(current.output, dimension=65536, bits=bits, towers=40)
+                paired = current.output / 'paired'
+                for schedule in batch.ORDER[:2]:
+                    directory = current.build / schedule
+                    directory.mkdir(parents=True)
+                    (directory / 'ntt_cuda_cli').write_text(schedule)
+                scope = 'host_wall_gpu_public_call'
+                def raw(name, command, optional):
+                    self.assertTrue(optional)
+                    binary, subcommand, vector, warmups, samples = command
+                    self.assertEqual(subcommand, 'gpu-bench-jsonl')
+                    self.assertEqual((warmups, samples), ('5', '50'))
+                    self.assertEqual(vector.name, vector_name(65536, 40, bits))
+                    schedule = binary.parent.name
+                    report = json.loads((paired / schedule / 'report.json').read_text())
+                    job = f'benchmark-n65536-k40-b{bits}-gpu-public'
+                    records = [dict(report['benchmark_summaries'][job]['workload'],
+                                    type='workload', warmups=5, samples=50)]
+                    for operation in TIMING_OPERATIONS[scope]:
+                        records.extend(dict(type='sample', operation=operation, iteration=i,
+                                            milliseconds=1) for i in range(50))
+                        records.append(dict(type='summary', operation=operation, count=50,
+                                            mean_ms=1, median_ms=1, p5_ms=1, p95_ms=1))
+                    records.append(dict(type='complete', operations=len(TIMING_OPERATIONS[scope])))
+                    data = '\n'.join(map(json.dumps, records))
+                    (current.output / (name + '.log')).write_text(data)
+                    return data
+                with patch.object(current, 'run', side_effect=raw):
+                    current.repeat('gpu-public', 40, bits)
+                current.analyze()
+                summary = json.loads((current.output / 'analysis/summary.json').read_text())
+                self.assertEqual(summary['public_repeat_operation_rows'], 4 * len(TIMING_OPERATIONS[scope]))
+                self.assertTrue((current.output / 'analysis/public-repeats.csv').is_file())
+                log = current.output / f'public-repeat-b{bits}-1-legacy_dif.log'
+                log.write_text('changed')
+                with self.assertRaisesRegex(ValueError, 'repeat identity/hash mismatch'):
+                    batch.export_analysis(current.output, current.output / 'reanalyzed')
 
 
 if __name__ == '__main__':

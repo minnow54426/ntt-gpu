@@ -228,7 +228,7 @@ class SessionTests(unittest.TestCase):
 
     def scenario(self, mode='offline', fail=None, missing_gpu=False, bad_label=False, skip=False,
                  bad_benchmark=False, synthetic=False, scope=None, missing_openfhe=False,
-                 unexpected_gpu=False):
+                 unexpected_gpu=False, prebuilt=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             args = module.parser().parse_args(['--mode', mode, '--cuda-root', str(root / 'toolkit'),
@@ -248,6 +248,29 @@ class SessionTests(unittest.TestCase):
             (root / 'openfhe/libOPENFHEcore.a').write_text('mock library')
             for binary in ['ntt_cuda_cli', 'ntt_openfhe_bench', 'ntt_resident_bench', 'ntt_resident_conversion_bench']:
                 (root / 'build' / binary).write_text('mock executable bytes')
+            if prebuilt is not None:
+                args.offline_records = root / 'offline'
+                args.ntt_schedule = 'group_twiddle_ct'
+                args.architectures = '89'
+                args.build_dir = args.build_dir.resolve()
+                args.openfhe_prefix = args.openfhe_prefix.resolve()
+                for path in args.build_dir.glob('ntt_*'):
+                    path.chmod(0o755)
+                (args.build_dir / 'CMakeCache.txt').write_text(
+                    'NTT_CUDA_LEGACY_BUTTERFLY:BOOL=OFF\nCMAKE_CUDA_ARCHITECTURES:STRING=89\n')
+                for name in ('CTestTestfile.cmake', *module.OFFLINE_FIXTURES):
+                    (args.build_dir / name).write_text('mock artifact')
+                hashes = module.offline_build_hashes(args.build_dir, args.openfhe_prefix)
+                offline = args.offline_records / args.ntt_schedule
+                offline.mkdir(parents=True)
+                (offline / 'report.json').write_text(json.dumps(dict(
+                    mode='offline', status='OFFLINE_READY', source_commit='mock-source-commit',
+                    source_dirty=False, build_dir=str(args.build_dir), source_dir=str(module.ROOT),
+                    openfhe_prefix=str(args.openfhe_prefix), transform_schedule=args.ntt_schedule,
+                    configured_cache={'CMAKE_CUDA_ARCHITECTURES': args.architectures},
+                    stages=[{'name': 'host-tests', 'status': 'PASS'}], offline_build_sha256=hashes)))
+                if prebuilt == 'tampered':
+                    (args.build_dir / 'ntt_cuda_cli').write_text('changed')
             commands = []
             names = module.OPENFHE_TESTS | module.HOST_TESTS | {'cuda_constructor_preflight', 'resident_cuda_preflight'}
             if mode == 'cpu':
@@ -270,6 +293,8 @@ class SessionTests(unittest.TestCase):
                     output.write('mock-source-commit\n')
                 elif command[0] == 'git':
                     output.write('')
+                elif prebuilt and command[-1] == 'info':
+                    output.write('transform schedule: group_twiddle_ct\n')
                 elif 'lscpu' in command:
                     output.write(json.dumps({'lscpu': [
                         {'field': 'Architecture:', 'data': 'x86_64'},
@@ -301,6 +326,8 @@ class SessionTests(unittest.TestCase):
                         'setup_included': False, 'towers': 3, 'warmups': warmups, 'samples': count,
                         'moduli': [(1 << (bits-1)) + 1 + i*131072 for i in range(3)],
                         'roots': [2, 3, 4], 'simulation': synthetic}
+                    if prebuilt:
+                        metadata['transform_schedule'] = args.ntt_schedule
                     if timing == 'host_wall_resident_conversion':
                         metadata.update(conversion_parameters(65536))
                     output.write(json.dumps(metadata) + '\n')
@@ -321,6 +348,17 @@ class SessionTests(unittest.TestCase):
             report = json.loads((root / 'record/report.json').read_text())
             self.assertFalse((root / 'record/report.json.tmp').exists())
             return code, report, commands
+
+    def test_reuses_offline_build_and_rejects_changed_executable(self):
+        code, report, commands = self.scenario(mode='gpu', scope='gpu', prebuilt='verified')
+        self.assertEqual(code, 0, report.get('error'))
+        self.assertIn('reused_offline_build', report)
+        self.assertFalse(any('--build' in c or '-S' in c for c in commands))
+        self.assertTrue(any('-FS' in c and '-L' in c for c in commands))
+        code, report, commands = self.scenario(mode='gpu', scope='gpu', prebuilt='tampered')
+        self.assertEqual(code, 1)
+        self.assertIn('build files or OpenFHE libraries changed', report['error'])
+        self.assertFalse(any(c[-1] == 'info' for c in commands))
 
     def test_offline_never_executes_gpu_and_reports_compile_only(self):
         code, report, commands = self.scenario()

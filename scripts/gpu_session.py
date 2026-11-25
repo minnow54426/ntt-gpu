@@ -2,6 +2,7 @@
 """Collect CPU benchmarks, compile CUDA offline, or record native GPU checks."""
 import argparse
 from datetime import datetime, timezone
+from itertools import product
 import json
 import os
 from pathlib import Path
@@ -11,13 +12,45 @@ import subprocess
 import sys
 import time
 from benchmark_batch import (DIMENSIONS, MAX_TOWERS, PRIME_BITS, TOWER_COUNTS, SCOPE_GROUPS,
-                             atomic_json, benchmark_scope, collect_batch, collect_profiles)
+                             atomic_json, benchmark_scope, check_vector, collect_batch, collect_profiles, digest,
+                             select_conversion_reference, stage_vector, vector_hashes)
 
 ROOT = Path(__file__).resolve().parents[1]
+OFFLINE_FIXTURES = ('vector_n1024.txt', 'vector_n65536.txt')
 GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection', 'cuda_benchmark_matrix_exact', 'resident_cuda_exact', 'cuda_basis_exact', 'cuda_shoup_exact', 'cuda_barrett_exact'}
 OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph', 'openfhe_basis_conversion', 'basis_openfhe_exact', 'openfhe_benchmark_protocol', 'resident_openfhe_host'}
 HOST_TESTS = {'cuda_host_validation', 'setup_ownership_host', 'measurement_host', 'resident_runtime_host', 'resident_benchmark_host', 'resident_conversion_benchmark_host', 'basis_conversion_bigint', 'benchmark_profile_ranges', 'resident_profile_host', 'resident_conversion_profile_host', 'barrett_transform_check'}
 NTT_SCHEDULES = {'group_twiddle_ct': 'OFF', 'legacy_dif': 'ON'}
+
+
+def offline_build_hashes(build, prefix):
+    executables = sorted(path for path in build.glob('ntt_*')
+                         if path.is_file() and os.access(path, os.X_OK))
+    libraries = sorted(path for path in prefix.rglob('*OPENFHE*')
+                       if path.is_file() and path.suffix in ('.a', '.so', '.dylib'))
+    if not executables or not libraries:
+        raise ValueError('offline build is missing executables or OpenFHE libraries')
+    return {
+        'build': {str(path.relative_to(build)): digest(path)
+                  for path in [build / name for name in ('CMakeCache.txt', 'CTestTestfile.cmake', *OFFLINE_FIXTURES)] + executables},
+        'openfhe': {str(path.relative_to(prefix)): digest(path) for path in libraries},
+    }
+
+
+def verify_offline_build(report_path, build, prefix, commit, schedule, architectures):
+    report = json.loads(report_path.read_text())
+    if (report.get('status') != 'OFFLINE_READY' or report.get('mode') != 'offline'
+            or report.get('source_dirty') is not False or report.get('source_commit') != commit
+            or report.get('build_dir') != str(build) or report.get('source_dir') != str(ROOT)
+            or report.get('openfhe_prefix') != str(prefix) or report.get('transform_schedule') != schedule
+            or report.get('configured_cache', {}).get('CMAKE_CUDA_ARCHITECTURES') != architectures
+            or not any(s.get('name') == 'host-tests' and s.get('status') == 'PASS'
+                       for s in report.get('stages', []))):
+        raise ValueError('offline record does not match the clean checkout, paths, architecture or schedule')
+    hashes = offline_build_hashes(build, prefix)
+    if hashes != report.get('offline_build_sha256'):
+        raise ValueError('offline build files or OpenFHE libraries changed')
+    return hashes
 
 
 def tool(name):
@@ -170,7 +203,15 @@ class Session:
             else:
                 configure += ['-DNTT_REQUIRE_CUDA=ON', '-DNTT_ENABLE_CUDA=ON',
                     f'-DCMAKE_CUDA_COMPILER={nvcc}', f'-DCMAKE_CUDA_ARCHITECTURES={args.architectures}']
-            self.run('configure', configure)
+            offline_records = getattr(args, 'offline_records', None)
+            if offline_records is not None:
+                report_path = offline_records / schedule / 'report.json'
+                self.report['reused_offline_build'] = {
+                    'report_sha256': digest(report_path),
+                    'files': verify_offline_build(report_path, build, args.openfhe_prefix.resolve(),
+                                                  self.report['source_commit'], schedule, args.architectures)}
+            else:
+                self.run('configure', configure)
             cache = build / 'CMakeCache.txt'
             if cache.is_file():
                 keys = {'CMAKE_CXX_COMPILER', 'CMAKE_CUDA_COMPILER', 'CMAKE_CUDA_HOST_COMPILER',
@@ -187,7 +228,8 @@ class Session:
             if schedule and self.report.get('configured_cache', {}).get(
                     'NTT_CUDA_LEGACY_BUTTERFLY') != legacy_option:
                 raise RuntimeError('CMake cache does not confirm requested NTT schedule')
-            self.run('build', [args.cmake, '--build', build, '-j', str(args.jobs)])
+            if offline_records is None:
+                self.run('build', [args.cmake, '--build', build, '-j', str(args.jobs)])
             registered = json.loads(self.run('registered-tests', [args.ctest, '--test-dir', build, '--show-only=json-v1']))
             tests = {test['name']: test for test in registered['tests']}
             required = OPENFHE_TESTS | HOST_TESTS
@@ -217,6 +259,10 @@ class Session:
                 if args.architectures == 'native':
                     raise RuntimeError('Offline compilation requires explicit architecture numbers, not native')
                 self.run('host-tests', [args.ctest, '--test-dir', build, '-LE', 'gpu', '--output-on-failure'])
+                if schedule and not self.report['source_dirty'] and cache.is_file():
+                    prefix = args.openfhe_prefix.resolve()
+                    self.report.update(source_dir=str(ROOT), openfhe_prefix=str(prefix),
+                                       offline_build_sha256=offline_build_hashes(build, prefix))
                 self.report['status'] = 'OFFLINE_READY'
             else:
                 self.report['registered_gpu_tests'] = sorted(GPU_TESTS)
@@ -228,17 +274,22 @@ class Session:
                 if benchmark_scope(args) in ('gpu', 'gpu-chain', 'gpu-conversion'):
                     # Native tests still run their OpenFHE references and CTest fixtures.
                     exact += ['-L', 'gpu']
+                    if offline_records is not None:
+                        exact += ['-FS', '^(VECTORS|VECTORS_N64K)$']
                     self.report['exact_test_label'] = 'gpu'
                 self.run('exact-tests', exact)
                 self.report['gpu_execution'] = 'EXACT_TESTS_PASS'
                 if not args.skip_sanitizers:
                     self.report['sanitizers'] = 'RUNNING'
                     conversion_smoke = None
+                    conversion_reference = []
                     if benchmark_scope(args) == 'gpu-conversion':
                         conversion_smoke = self.output / 'conversion-smoke-n4096-k40-b60.txt'
-                        self.run('conversion-smoke-parameters', [sys.executable,
-                            self.root / 'tests/oracle/gen_vectors.py', '--zero-coefficients',
-                            conversion_smoke, '4096', '40', '1', '60'])
+                        stage_vector(self, 'conversion-smoke-parameters', conversion_smoke, 4096, 40, 60)
+                        if getattr(args, 'conversion_references', None) is not None:
+                            reference, checksum = select_conversion_reference(args.conversion_references, 4096, 40, 60)
+                            conversion_reference = [reference]
+                            self.report['conversion_smoke_reference_sha256'] = checksum
                     for sanitizer in ['memcheck', 'racecheck', 'initcheck', 'synccheck']:
                         self.run('sanitizer-' + sanitizer, ['compute-sanitizer', '--tool', sanitizer,
                             '--error-exitcode', '1', build / 'ntt_cuda_openfhe_tests', '--smoke'])
@@ -255,7 +306,8 @@ class Session:
                         if conversion_smoke:
                             self.run('sanitizer-conversion-benchmark-' + sanitizer,
                                 ['compute-sanitizer', '--tool', sanitizer, '--error-exitcode', '1',
-                                 build / 'ntt_resident_conversion_bench', conversion_smoke, '1', '2'])
+                                 build / 'ntt_resident_conversion_bench', conversion_smoke, '1', '2',
+                                 *conversion_reference])
                     self.report['sanitizers'] = 'SMOKE_MATRIX_PASS'
                     self.report['sanitizer_scopes'] = ['baseline_smoke', 'matrix_smoke', 'resident_smoke', 'basis_smoke', 'shoup_exact', 'barrett_exact']
                     if conversion_smoke:
@@ -300,7 +352,10 @@ def compare_ntt(args):
         raise ValueError('Comparison build and record roots must be disjoint')
     for schedule in NTT_SCHEDULES:
         child = build / schedule
-        if child.is_symlink() or child.exists():
+        if getattr(args, 'offline_records', None) is not None:
+            if child.is_symlink() or not child.is_dir():
+                raise ValueError('Prepared build directory is missing: ' + str(child))
+        elif child.is_symlink() or child.exists():
             raise ValueError('Comparison requires fresh build directories: ' + str(child))
     output.mkdir(parents=True, exist_ok=False)
     index = output / 'comparison.json'
@@ -376,6 +431,11 @@ def parser():
     result.add_argument('--cmake', default=tool('cmake'))
     result.add_argument('--ctest', default=tool('ctest'))
     result.add_argument('--benchmark', action='store_true')
+    result.add_argument('--prepared-vectors', type=Path, help='Use a CPU-prepared vector directory')
+    result.add_argument('--conversion-references', type=Path,
+                        help='Use CPU-prepared OpenFHE arrays for conversion benchmarking')
+    result.add_argument('--offline-records', type=Path,
+                        help='Reuse verified builds from an offline paired run in GPU comparison mode')
     result.add_argument('--ntt-schedule', choices=NTT_SCHEDULES, help='Select and verify a single CUDA schedule')
     result.add_argument('--compare-ntt', action='store_true', help='Build and record both CUDA schedules separately')
     result.add_argument('--benchmark-prime-bits', type=int, nargs='+', choices=PRIME_BITS, default=list(PRIME_BITS))
@@ -394,6 +454,30 @@ def parser():
     return result
 
 
+def validate_prepared_inputs(args):
+    if args.conversion_references is not None:
+        if not (args.mode == 'gpu' and args.benchmark and args.benchmark_scope == 'gpu-conversion'):
+            raise ValueError('--conversion-references requires GPU conversion benchmarking')
+        cells = set(product(args.benchmark_dimensions, args.benchmark_towers, args.benchmark_prime_bits))
+        if not args.skip_sanitizers:
+            cells.add((4096, 40, 60))
+        for cell in sorted(cells):
+            select_conversion_reference(args.conversion_references, *cell)
+    if args.prepared_vectors is not None:
+        if not (args.benchmark or args.profile):
+            raise ValueError('--prepared-vectors requires --benchmark or --profile')
+        hashes = vector_hashes(args.prepared_vectors)
+        cells = set()
+        if args.benchmark:
+            cells.update(product(args.benchmark_dimensions, args.benchmark_towers, args.benchmark_prime_bits))
+        if args.benchmark_scope == 'gpu-conversion' and not args.skip_sanitizers:
+            cells.add((4096, 40, 60))
+        if args.profile:
+            cells.add((65536, 3, 60))
+        for n, k, bits in sorted(cells):
+            check_vector(args.prepared_vectors, hashes, n, k, bits)
+
+
 def main(argv=None, *, deadline=None):
     cli = parser()
     args = cli.parse_args(argv)
@@ -406,6 +490,11 @@ def main(argv=None, *, deadline=None):
             if not args.benchmark or args.benchmark_scope not in (None, 'gpu', 'gpu-chain', 'gpu-conversion'):
                 cli.error('GPU comparison requires --benchmark and GPU-only scope')
             args.benchmark_scope = args.benchmark_scope or 'gpu'
+    if args.offline_records is not None:
+        if args.mode != 'gpu' or not args.compare_ntt or args.architectures in (None, 'native'):
+            cli.error('--offline-records requires GPU comparison with an explicit architecture')
+        if not args.offline_records.is_dir():
+            cli.error('--offline-records directory does not exist')
     if args.ntt_schedule and args.mode == 'cpu':
         cli.error('--ntt-schedule requires offline or GPU mode')
     try:
@@ -429,6 +518,10 @@ def main(argv=None, *, deadline=None):
     if any(len(set(axis)) != len(axis) for axis in
            (args.benchmark_dimensions, args.benchmark_towers, args.benchmark_prime_bits)):
         cli.error('benchmark matrix axes must not contain duplicates')
+    try:
+        validate_prepared_inputs(args)
+    except (OSError, ValueError, TypeError) as error:
+        cli.error(str(error))
     if args.resume and (args.output_dir is None or not args.benchmark or args.allow_dirty):
         cli.error('--resume requires --output-dir, --benchmark and a clean checkout')
     if args.mode == 'offline' and (args.benchmark or args.profile or args.resume or args.skip_sanitizers or args.architectures == 'native'):
