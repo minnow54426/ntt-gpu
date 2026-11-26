@@ -79,6 +79,38 @@ replace this early access check.
 | 5 | Compare legacy versus group twiddles on matched inputs | Raw paired resident forward/inverse samples first; public-call timings reported separately |
 | 6 | Measure the resident operation chain and capture a selected profile | End-to-end chain versus an intentionally host-roundtripped chain; device timeline and hardware counters if permitted |
 
+The current source also requires `resident_cuda_hybrid_exact` in the native
+selection. It compares precomputed digits and both key-switch contributions
+before and after ModDown against pinned OpenFHE. It also checks ciphertext
+residues and decoded CKKS slots for key switching, relinearization, and
+left and right rotations at full and reduced levels. The same fixture also
+checks a hoisted batch containing a left shift, a zero shift, and a right
+shift. Build a package from the updated source to include these checks.
+
+### Compare individual and hoisted CKKS rotations
+
+Prepare a fixture on the Mac using the host build with pinned OpenFHE.
+Use a new output path.
+
+```sh
+build/pull-cpu/ntt_openfhe_hybrid --prepare-rotation build/rotation-benchmark-input.bin
+```
+
+Copy that fixture to the rental and pass
+`--rotation-fixture /path/to/rotation-benchmark-input.bin` to the batch
+command below. The fixture contains fresh test ciphertexts, rotation
+evaluation keys, and expected OpenFHE outputs. Key generation and reference
+evaluation happen during local preparation.
+
+The runner compares four individual adapter calls with one hoisted call
+using the same input and shifts `[1, -1, 2, -2]`. It measures both paths
+for N=65,536 with five and three active Q towers. Each level has two warmup
+pairs and ten measured pairs, alternating the order of the two paths. The
+wall time includes session setup, input and key transfers, computation, and
+output restoration. Correctness comparisons run outside the timed interval.
+The archive retains the raw pairs and records the fixture hash and median
+paired speedup. The native collector requires CUDA records.
+
 ## Run the queue as one batch
 
 [`gpu_rental_batch.py`](../scripts/gpu_rental_batch.py) combines the queue

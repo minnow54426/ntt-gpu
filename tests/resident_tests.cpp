@@ -1,4 +1,5 @@
 #include "support/resident_host_driver.hpp"
+#include <array>
 #include <iostream>
 #include <type_traits>
 
@@ -306,12 +307,84 @@ void conversion_chain_and_failures() {
   check(host_limited->trace->calls == host_calls && low_host.stats().host_bytes == 192 && !low_host.stats().poisoned,
         "host admission failure preserves earlier queued uploads");
 }
+void hybrid_digit_complement() {
+  const auto full = layout(3, 40);
+  auto active = full;
+  active.towers = q_prefix(*full.parameters, full.active_q);
+  const auto coefficients = input(active, 9);
+  auto driver = std::make_shared<HostDriver>(full);
+  Session session(driver);
+  const auto source = session.upload(active, coefficients);
+  const auto calls = driver->trace->calls;
+  rejects([&] { session.hybrid_digits(source); }, "Hybrid digits reject coefficient input");
+  check(driver->trace->calls == calls, "invalid Hybrid input submits no work");
+
+  const auto evaluations = session.forward(source);
+  const auto digits = session.hybrid_digits(evaluations);
+  check(digits.size() == 3 && session.stats().parameter_uploads == 7,
+        "split a complement larger than 40 towers without reordering it");
+  check(session.stats().downloads == 0 && driver->trace->executed == 0,
+        "Hybrid precompute stays queued and resident");
+  const size_t n = full.parameters->n();
+  for (size_t digit = 0; digit < digits.size(); ++digit) {
+    std::vector<uint64_t> expected;
+    for (auto ref : full.towers) {
+      const auto tower = full.parameters->tower(ref);
+      const auto begin = coefficients.begin() + digit * n;
+      std::vector<uint64_t> values(begin, begin + n);
+      // A one-tower digit lifts its canonical source coefficients directly.
+      for (auto &value : values) value %= tower.q;
+      ntt::NegacyclicNtt(n, tower.q, tower.psi).forward(values);
+      expected.insert(expected.end(), values.begin(), values.end());
+    }
+    equal(session.download(digits[digit]).wait_values(), expected,
+          "large complement exact residues and QP ordering");
+  }
+  session.close();
+}
+void hybrid_key_admission_and_lifetime() {
+  const auto base = layout(2, 1);
+  const auto evaluation = transform_layout(base, false);
+  const auto values = input(evaluation, 7);
+  auto driver = std::make_shared<HostDriver>(base);
+  {
+    Session session(driver);
+    auto invalid = values;
+    invalid.front() = base.parameters->q().front().q;
+    const std::array invalid_key{HybridKeyDigit{values, values}, HybridKeyDigit{values, invalid}};
+    rejects([&] { session.upload_hybrid_key(evaluation, invalid_key); },
+            "reject invalid residues in a later key digit");
+    check(driver->trace->calls == 0, "key upload validates every row before submission");
+
+    const std::array key_rows{HybridKeyDigit{values, values}, HybridKeyDigit{values, values}};
+    const auto key = session.upload_hybrid_key(evaluation, key_rows);
+    const auto digit = session.upload_evaluation(values);
+    const std::array digits{digit, digit};
+    const auto before = driver->trace->calls;
+    rejects([&] { session.hybrid_accumulate(std::span(digits).first(1), key); },
+            "reject a missing active Hybrid digit");
+    check(driver->trace->calls == before, "invalid MAC input submits no transport work");
+
+    driver->trace->allow_drain = false;
+    // Create the event and two outputs, enqueue the first digit, then fail
+    // after the second digit was queued.
+    driver->trace->partial_step = before + 5;
+    rejects([&] { session.hybrid_accumulate(digits, key); }, "MAC partial submission is reported");
+    check(session.stats().poisoned && !session.stats().quiescent &&
+              driver->trace->live_buffers == 7,
+          "undrained MAC retains both outputs and every key and digit allocation");
+    driver->trace->allow_drain = true;
+    rejects([&] { session.close(); }, "MAC close preserves the original error after draining");
+  }
+  check(driver->trace->live_buffers == 0 && driver->trace->live_events == 0,
+        "drained MAC releases both channels and all dependencies");
+}
 } // namespace
 int main() {
   try {
     chain_and_leases(); rejection_and_views(); budgets(); failure_matrix();
     partial_and_quarantine(); abandonment_and_bad_output(); query_failure_and_evaluation_input();
-    conversion_chain_and_failures();
+    conversion_chain_and_failures(); hybrid_digit_complement(); hybrid_key_admission_and_lifetime();
     std::cout << checks << " RESIDENT HOST CONTROL CHECKS PASSED; NO GPU EXECUTION\n";
   } catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
 }

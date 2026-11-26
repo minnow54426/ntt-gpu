@@ -62,6 +62,72 @@ the digit’s original evaluation towers. During ModDown, it keeps the Q
 evaluation towers. It does not inverse-transform and forward-transform
 every Q_lP tower at each step.
 
+The resident prototype runs steps 1–4 through
+[`Session::hybrid_digits`](../src/resident.cpp). It takes the complete active
+Q array in evaluation form and produces one evaluation array in active QP
+order per digit. It reuses the inverse NTT, approximate CRT and forward NTT
+operations. For a disjoint complement, it converts the contiguous groups on
+either side of the digit separately and copies the original digit back
+between them. That keeps the Q/P order and allows each conversion to stay
+within the basis plan's tower limit.
+
+For steps 5–6, `Session::upload_hybrid_key` packs the active Q towers and
+reads the P towers from their full-context offsets. `Session::hybrid_accumulate`
+computes both channels in QP. Each digit adds its products into the same two
+buffers. Once all digits contribute, the existing `Session::mod_down`
+reduces each channel to active Q. The API returns B and A by name.
+
+The host transport compares every digit, both QP contributions, and both
+ModDown outputs with pinned OpenFHE. Key packing uploads each active key
+channel once, and the operation chain leaves its intermediates resident.
+The `resident_cuda_hybrid_exact` fixture is queued for native verification.
+
+The [opt-in OpenFHE adapter](../include/ntt/openfhe_hybrid_adapter.hpp)
+accepts an evaluation-form `DCRTPoly` and its CKKS Hybrid evaluation key.
+It validates the active Q prefix and full QP key arrays, including each
+tower's root and storage format, before creating a resident session. It
+returns the reduced contributions as two evaluation-form OpenFHE
+polynomials named `b` and `a`. The caller chooses the session factory.
+
+The adapter waits for both downloads and closes the session before returning
+either output. Host tests cover a shortened Q level with diagnostic and
+generated keys, malformed inputs before session creation, and a failure
+during cleanup after the outputs have been computed.
+
+For two- and three-component ciphertexts, the opt-in
+`hybrid_key_switch_in_place` wrapper switches the last component and
+applies the returned contributions to private copies. It adds B to
+`c0` in both cases. With two components it replaces `c1` with A. With
+three components it adds A to `c1` and removes `c2`. The final
+`SetElements` move keeps the existing ciphertext object and its metadata.
+
+The opt-in `hybrid_relinearize_in_place` wrapper looks up multiplication
+keys using the ciphertext's key tag. Component `c2` uses the first key
+in the vector, `c3` uses the second, and so on. Each switch adds B to
+`c0` and A to `c1`. The wrapper commits both outputs together after
+all the switches succeed. It opens one resident session per switched
+component and uses OpenFHE to convert coefficient-form inputs.
+
+The opt-in `hybrid_rotate` adapter takes a two-component evaluation-form
+ciphertext and a signed slot shift. It uses the ciphertext key tag and the
+OpenFHE automorphism index to select the rotation key. The resident session
+uploads `c0`, `c1`, and the active key digits, then runs the full rotation
+graph before downloading the two output components. The original ciphertext
+is read-only, and the result carries its metadata.
+
+`hybrid_rotate_many` accepts a list of shifts for one ciphertext. It uploads
+the two input components once and prepares the digits of `c1` once. For
+each nonzero shift it uploads the corresponding key, runs the rotation
+graph, and downloads the result. Outputs follow request order. A zero
+shift returns an unchanged clone and needs no key. The adapter checks all
+requested key entries before opening the session and returns the batch only
+after it closes successfully.
+
+The digit decomposition is private to the batch and lives in that session.
+Downloading each completed result releases its temporary buffers before the
+next shift. The session's configured operation and memory limits apply to
+the batch.
+
 ## 2. Names, levels, and tower order
 
 Let M be the full context's Q-tower count, L the current ciphertext's active
@@ -291,6 +357,7 @@ wrong per-digit reduction order produces different arrays.
 | [`KeySwitchInPlace`][in-place] with two components | Add B contribution to c₀; **replace** c₁ with the A contribution |
 | [`KeySwitchInPlace`][in-place] with three components | Add B to c₀ and A to c₁; discard c₂ |
 | [`RelinearizeInPlace`][relinearize] | Switch each component from index 2 using the corresponding evaluation key, accumulate into c₀/c₁, then resize to two |
+| [`EvalRotate` Hybrid core][rotate-core] | Accumulate B and A in QP, add P·c₀ to B, permute both channels, then ModDown |
 
 For the in-place wrapper:
 
@@ -299,9 +366,28 @@ c'_0=c_0+Y_0,\qquad
 c'_1=\begin{cases}Y_1,&\text{two-component input},\\c_1+Y_1,&\text{three-component input}.\end{cases}
 \]
 
-D8 executes the two- and three-component wrapper cases. The source trace also
-records the general relinearization loop; higher ciphertext degrees and their
-full key families remain a later integration test.
+D8 executes the two- and three-component key-switch cases. The opt-in
+relinearization fixture exercises three- and four-component ciphertexts
+from an encrypted square and cube using OpenFHE-generated multiplication keys.
+
+### Why rotation permutes the QP arrays before ModDown
+
+For a rotation, let \(B\) and \(A\) be the two QP outputs of the Hybrid
+multiply-accumulate on the digits of \(c_1\). Let \(P\) be the product of the
+special primes and \(\sigma_k\) the substitution \(X\mapsto X^k\), where \(k\)
+is the odd automorphism index for the requested slot shift. OpenFHE computes
+
+\[
+c'_0 = \operatorname{ModDown}(\sigma_k(B+P c_0)),\qquad
+c'_1 = \operatorname{ModDown}(\sigma_k(A)).
+\]
+
+In each active Q tower, the rotation kernel multiplies the selected value
+of \(c_0\) by \(P\bmod q_i\) before adding it to the matching entry of \(B\).
+Here \(q_i\) is the prime for that tower. On P towers the added term is zero.
+The kernel uses the same bit-reversed evaluation order as the NTT, so an
+automorphism gathers one entry per output and tower. Keeping this order of
+operations preserves OpenFHE's approximate basis conversion semantics.
 
 ### Delayed QP operations are distinct from digit extension
 
@@ -315,9 +401,9 @@ addition of a QP MAC result before reduction.
 The pinned CKKS [`EvalFastRotationExt`][rotation] has another ordering requirement: it
 computes the extended MAC, optionally adds P times c₀ on the Q towers, then
 applies the automorphism to **both QP components**. Reduction is deferred.
-The automorphism map and full rotation API are source-traced here; their exact
-end-to-end arrays remain P6/P7 work. Do not move the permutation across the
-selected rotation key without a separate equivalence proof.
+The host fixtures compare the single-rotation output with `EvalRotate`
+and the batched output with `EvalFastRotation` at two levels. CUDA
+verification is queued with the same fixture.
 
 ## 7. Full-size fixture and evidence
 
@@ -428,6 +514,7 @@ performance result, or complete CKKS encryption/decryption integration gate.
 [basis]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/dcrtpoly-impl.h#L938-L982
 [params]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemerns/rns-cryptoparameters.cpp#L88-L134
 [relinearize]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemebase/base-leveledshe.cpp#L315-L329
+[rotate-core]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemebase/base-leveledshe.cpp#L382-L452
 [rotation]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp#L595-L649
 
 [core]: https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L295-L298

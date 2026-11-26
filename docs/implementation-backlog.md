@@ -282,6 +282,23 @@ sanitizer and performance evidence before the P5 production gate.
 
 ### B10 — Hybrid runtime, keys and hoists
 
+The resident Hybrid core has host comparisons against pinned OpenFHE for
+digit precompute, key packing at reduced levels, B/A accumulation and
+ModDown. The rental batch queues the same exact-array checks on CUDA.
+Production key lifetime, hoisted-digit caching and OpenFHE dispatch remain
+separate deliverables.
+
+An explicit Hybrid-core adapter now imports OpenFHE polynomials and keys and
+returns the two Q contributions as OpenFHE objects. The opt-in ciphertext
+wrapper applies the two- and three-component `KeySwitchInPlace` rules
+transactionally. The opt-in relinearization wrapper selects multiplication
+keys by ciphertext key tag and commits all switched components together.
+The opt-in rotation adapter selects the rotation key by ciphertext key tag
+and applies the permutation to both extended QP channels before ModDown.
+The opt-in batch adapter hoists input digits within one resident session
+and reuses them across shifts. Cross-call caching and production dispatch
+remain open.
+
 Trace [`EvalKeySwitchPrecomputeCore`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L300-L366) → [`EvalFastKeySwitchCoreExt`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L389-L421) → [`EvalFastKeySwitchCore`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/keyswitch/keyswitch-hybrid.cpp#L368-L387). The full wrappers are [`RelinearizeInPlace`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/schemebase/base-leveledshe.cpp#L315-L329) and [`EvalFastRotationExt`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp#L595-L649).
 
 Broaden the production parameter, digit, level and key-family fixtures before
@@ -294,8 +311,11 @@ cannot be reused after the input changes.
 
 **Acceptance:** complete intermediate/final arrays match for fixed input/key
 material; altered key snapshots cannot reuse stale cache entries; stale hoists
-are rejected. Actual rotation automorphisms and higher-degree relinearization
-need full exact and CKKS decryption tests; D8's source trace alone is insufficient.
+are rejected. Exact encrypted square and cube fixtures cover opt-in
+relinearization. Exact and decoded-slot fixtures cover signed one-slot
+shifts at full and reduced levels and batches combining both directions
+with a zero shift. Extend coverage across production parameters, levels
+and rotation keys.
 Record key upload reuse, peak live memory and full-operation timing.
 
 ## 5. P8: integrate and release

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import signal
+from statistics import median
 import subprocess
 import sys
 import tarfile
@@ -24,6 +25,41 @@ GPU_TARGETS = {
     'rtx-4080': ('RTX 4080', '8.9', '89'),
     'rtx-4080-super': ('RTX 4080 SUPER', '8.9', '89'),
 }
+ROTATION_WARMUPS, ROTATION_PAIRS = 2, 10
+ROTATION_FIXTURE_HEADER = b'NTT CKKS rotation benchmark v1\n'
+
+
+def rotation_fixture_digest(path):
+    with path.open('rb') as stream:
+        if stream.read(len(ROTATION_FIXTURE_HEADER)) != ROTATION_FIXTURE_HEADER:
+            raise ValueError('Invalid CKKS rotation fixture header')
+    return digest(path)
+
+
+def summarize_rotation_pairs(raw, warmups, pairs, backend='cuda'):
+    records = [json.loads(line) for line in raw.splitlines()]
+    if len(records) != 2 * pairs:
+        raise ValueError('Missing or extra paired rotation samples')
+    summaries = {}
+    for group, active_q in enumerate((5, 3)):
+        samples = records[group * pairs:(group + 1) * pairs]
+        speedups = []
+        for index, row in enumerate(samples):
+            order = 'hoisted_first' if (warmups + index) % 2 else 'individual_first'
+            expected = dict(schema=1, backend=backend, timing='public_call_wall',
+                            ring_dimension=65536, active_q=active_q, shifts=[1, -1, 2, -2],
+                            pair=index + 1, order=order)
+            if not isinstance(row, dict) or any(row.get(key) != value for key, value in expected.items()):
+                raise ValueError('Rotation sample workload, backend or pair order differs')
+            individual, hoisted = row.get('individual_ns'), row.get('hoisted_ns')
+            if any(type(value) is not int or value <= 0 for value in (individual, hoisted)):
+                raise ValueError('Rotation timings must be positive integer nanoseconds')
+            speedups.append(individual / hoisted)
+        summaries[str(active_q)] = dict(
+            median_individual_ns=median(row['individual_ns'] for row in samples),
+            median_hoisted_ns=median(row['hoisted_ns'] for row in samples),
+            median_paired_speedup=median(speedups))
+    return summaries
 
 
 def make_plan(args):
@@ -50,6 +86,8 @@ def make_plan(args):
              'Resident repeat: legacy, group, group, legacy; 5 warmups and 50 samples']
     if args.extended_probes:
         tasks.append('Ordered public-call repeats for 30/60-bit 40-tower workloads')
+    if args.rotation_fixture is not None:
+        tasks.append('Paired CKKS rotation timing with a local OpenFHE fixture')
     tasks.append('Independent nsys and ncu captures for resident NTT and conversion')
     if args.extended_probes:
         tasks.append('40-tower conversion CUDA/NVTX timeline and SQLite export')
@@ -58,6 +96,7 @@ def make_plan(args):
     tasks.append('Stop telemetry; archive records and verify every archived file')
     return dict(mode=args.mode, status='PLANNED', budget_minutes=args.budget_minutes,
                 extended_probes=args.extended_probes,
+                rotation_fixture=str(args.rotation_fixture.resolve()) if args.rotation_fixture else None,
                 target=dict(model=model, compute_cap=capability, cuda_architecture=architecture),
                 output_dir=str(output), build_dir=str(build),
                 collector_command=[sys.executable, str(ROOT / 'scripts/gpu_session.py'), *collector],
@@ -219,6 +258,19 @@ class Batch:
                 record['status'] = 'FAIL'
             atomic_json(path, record)
 
+    def benchmark_rotations(self, fixture, checksum):
+        binary = self.build / 'group_twiddle_ct/ntt_resident_cuda_hybrid'
+        name = 'ckks-rotation-pairs'
+        raw = self.run(name, [binary, '--rotation-benchmark', fixture, ROTATION_WARMUPS, ROTATION_PAIRS])
+        if rotation_fixture_digest(fixture) != checksum:
+            raise ValueError('CKKS rotation fixture changed during the rental')
+        self.report['rotation_benchmark'] = dict(
+            warmups=ROTATION_WARMUPS, pairs=ROTATION_PAIRS, fixture_sha256=checksum,
+            binary_sha256=digest(binary), raw_log=name + '.log',
+            raw_sha256=digest(self.output / (name + '.log')),
+            summary=summarize_rotation_pairs(raw, ROTATION_WARMUPS, ROTATION_PAIRS))
+        self.save()
+
     def profiles(self):
         paired = self.output / 'paired/group_twiddle_ct'
         for profiler in ('nsys', 'ncu'):
@@ -285,6 +337,8 @@ class Batch:
             collector = self.report['collector_arguments']
             if self.args.prepared_vectors is not None or self.args.conversion_references is not None:
                 gpu_session.validate_prepared_inputs(gpu_session.parser().parse_args(collector))
+            fixture = self.args.rotation_fixture
+            fixture_checksum = rotation_fixture_digest(fixture) if fixture is not None else None
             if self.args.mode == 'gpu':
                 os.environ['CUDA_VISIBLE_DEVICES'] = self.preflight()
                 self.start_clock()
@@ -304,6 +358,8 @@ class Batch:
                 if self.args.extended_probes:
                     for bits in PUBLIC_REPEAT_BITS:
                         self.repeat('gpu-public', 40, bits)
+                if fixture is not None:
+                    self.benchmark_rotations(fixture.resolve(), fixture_checksum)
                 self.profiles()
                 if self.args.defer_analysis:
                     self.report['analysis'] = 'DEFERRED_TO_LOCAL'
@@ -392,6 +448,8 @@ def main(argv=None):
     cli.add_argument('--prepared-vectors', type=Path, help='Directory containing CPU-prepared vectors and vectors.json')
     cli.add_argument('--conversion-references', type=Path,
                      help='Directory containing CPU-prepared conversion arrays and their manifest')
+    cli.add_argument('--rotation-fixture', type=Path,
+                     help='Locally prepared ciphertexts, rotation evaluation keys and OpenFHE references')
     cli.add_argument('--extended-probes', action='store_true',
                      help='Add 40-tower public-call repeats and an Nsight Systems SQLite export')
     cli.add_argument('--defer-analysis', action='store_true',
@@ -409,6 +467,8 @@ def main(argv=None):
     prepared = args.prepared_vectors is not None or args.conversion_references is not None
     if prepared and args.mode == 'offline':
         cli.error('Prepared vectors and references are used by the GPU batch, not offline compilation')
+    if args.rotation_fixture is not None and args.mode == 'offline':
+        cli.error('--rotation-fixture requires a GPU batch or its plan')
     if args.extended_probes and args.mode == 'offline':
         cli.error('--extended-probes requires a GPU batch or its plan')
     if args.defer_analysis and args.mode == 'offline':
@@ -419,6 +479,8 @@ def main(argv=None):
             plan = make_plan(args)
             if prepared:
                 gpu_session.validate_prepared_inputs(gpu_session.parser().parse_args(plan['collector_arguments']))
+            if args.rotation_fixture is not None:
+                plan['rotation_fixture_sha256'] = rotation_fixture_digest(args.rotation_fixture)
             print(json.dumps(plan, indent=2))
             return 0
         def interrupted(signum, frame):

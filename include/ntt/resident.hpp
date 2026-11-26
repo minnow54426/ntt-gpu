@@ -72,11 +72,21 @@ public:
   // Owned storage is exposed only after successful completion and validation.
   std::span<const uint64_t> wait_values() const;
 };
+struct HybridKeyDigit {
+  std::span<const uint64_t> b, a;
+};
+class HybridKey {
+  std::vector<Polynomial> b_, a_;
+  friend class Session;
+};
+struct HybridContributions {
+  Polynomial b, a;
+};
 class Session {
   std::shared_ptr<detail::State> state_;
   Polynomial upload_checked(const PolynomialLayout &, std::span<const uint64_t>, std::span<const Completion>);
   Polynomial transform(const Polynomial &, bool inverse, std::span<const Completion>);
-  Polynomial join(const Polynomial &, const Polynomial &);
+  Polynomial join(std::span<const Polynomial>);
   Polynomial correct(const Polynomial &, const Polynomial &);
 public:
   // Driver injection is a test/prototype seam. Only make_cuda_session creates
@@ -107,6 +117,20 @@ public:
   // ModDown requires evaluation QP and returns evaluation Q.
   Polynomial mod_up(const Polynomial &, std::span<const Completion> waits = {});
   Polynomial mod_down(const Polynomial &, std::span<const Completion> waits = {});
+  // Precompute Hybrid digits from complete evaluation Q in an active QP session.
+  // Each output is evaluation QP and retains the digit's original Q towers.
+  std::vector<Polynomial> hybrid_digits(const Polynomial &,
+                                       std::span<const Completion> waits = {});
+  // Snapshot full-context QP key rows into this session's active QP layout.
+  HybridKey upload_hybrid_key(const PolynomialLayout &full_key_layout,
+                              std::span<const HybridKeyDigit>);
+  // Accumulate both channels in evaluation QP before calling ModDown.
+  HybridContributions hybrid_accumulate(std::span<const Polynomial> digits,
+                                         const HybridKey &,
+                                         std::span<const Completion> waits = {});
+  // Add P*c0 in the Q towers, then permute both evaluation QP channels.
+  HybridContributions hybrid_rotate_extended(const HybridContributions &,
+                                              const Polynomial &c0, uint32_t automorphism);
   Polynomial subview(const Polynomial &, size_t first_tower, size_t count, size_t active_q);
   Download download(const Polynomial &, std::span<const Completion> waits = {});
   Download multiply(std::span<const uint64_t>, std::span<const uint64_t>);

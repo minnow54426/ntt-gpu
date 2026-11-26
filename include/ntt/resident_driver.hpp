@@ -32,6 +32,14 @@ public:
   virtual void transform(Buffer &, const PolynomialLayout &, bool inverse) = 0;
   virtual void pointwise(Buffer &, const Buffer &, size_t offset,
                          const PolynomialLayout &) = 0;
+  virtual void hybrid_mac(Buffer &result_b, Buffer &result_a,
+                          const Buffer &digit, const Buffer &key_b,
+                          const Buffer &key_a, const PolynomialLayout &,
+                          bool first_digit) = 0;
+  virtual void hybrid_rotate(Buffer &out_b, Buffer &out_a, const Buffer &extended_b,
+                             const Buffer &extended_a, const Buffer &c0, size_t c0_offset,
+                             const Buffer &scales, const PolynomialLayout &,
+                             uint32_t automorphism) = 0;
   virtual void switch_basis(Buffer &, const Buffer &, size_t source_offset,
                             const Buffer &constants, const PolynomialLayout &source,
                             const PolynomialLayout &target) = 0;

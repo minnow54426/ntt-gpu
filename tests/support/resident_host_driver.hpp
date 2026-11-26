@@ -102,6 +102,45 @@ public:
                                              p.parameters->tower(p.towers[k]).q);
     });
   }
+  void hybrid_mac(detail::Buffer &result_b, detail::Buffer &result_a,
+                  const detail::Buffer &digit, const detail::Buffer &key_b,
+                  const detail::Buffer &key_a, const PolynomialLayout &layout,
+                  bool first_digit) override {
+    auto *b = &buffer(result_b), *a = &buffer(result_a);
+    const auto *input = &buffer(digit), *b_key = &buffer(key_b), *a_key = &buffer(key_a);
+    enqueue([b, a, input, b_key, a_key, layout, first_digit] {
+      const size_t n = layout.parameters->n();
+      for (size_t index = 0; index < input->values.size(); ++index) {
+        const auto q = layout.parameters->tower(layout.towers[index / n]).q;
+        const auto value = input->values[index];
+        detail::hybrid_mac_value(b->values[index], value, b_key->values[index], q, first_digit);
+        detail::hybrid_mac_value(a->values[index], value, a_key->values[index], q, first_digit);
+      }
+    });
+  }
+  void hybrid_rotate(detail::Buffer &out_b, detail::Buffer &out_a,
+                     const detail::Buffer &extended_b, const detail::Buffer &extended_a,
+                     const detail::Buffer &c0, size_t c0_offset, const detail::Buffer &scales,
+                     const PolynomialLayout &layout, uint32_t automorphism) override {
+    auto *b = &buffer(out_b), *a = &buffer(out_a);
+    const auto *input_b = &buffer(extended_b), *input_a = &buffer(extended_a);
+    const auto *first = &buffer(c0), *table = &buffer(scales);
+    enqueue([=] {
+      const auto n = layout.parameters->n();
+      const auto log_n = ntt::log2_of_pow2(n);
+      for (size_t tower = 0; tower < layout.towers.size(); ++tower) {
+        const auto modulus = layout.parameters->tower(layout.towers[tower]).q;
+        for (size_t slot = 0; slot < n; ++slot) {
+          const auto source = tower * n + detail::automorphism_source_index(slot, n, log_n, automorphism);
+          const auto destination = tower * n + slot;
+          b->values[destination] = detail::rotated_b_value(
+              input_b->values[source], first->values.data() + c0_offset, source, tower,
+              layout.active_q, table->values.data(), modulus);
+          a->values[destination] = input_a->values[source];
+        }
+      }
+    });
+  }
   void switch_basis(detail::Buffer &out, const detail::Buffer &input, size_t offset,
                      const detail::Buffer &constants, const PolynomialLayout &source,
                      const PolynomialLayout &target) override {

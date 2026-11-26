@@ -24,7 +24,7 @@ def options(root, mode='gpu', target='rtx-5090'):
         openfhe_prefix=Path('/mock/openfhe'), output_dir=root / 'records',
         build_dir=root / 'build', budget_minutes=5, jobs=2, command_timeout=120,
         device_index=1, target=target, prepared_vectors=None, conversion_references=None, extended_probes=False,
-        defer_analysis=False))()
+        defer_analysis=False, rotation_fixture=None))()
 
 
 def profile_binaries(current):
@@ -35,6 +35,26 @@ def profile_binaries(current):
 
 
 class BatchTests(unittest.TestCase):
+    def test_rotation_pairs_validate_native_backend_and_full_pair_order(self):
+        samples = [
+            dict(schema=1, backend='cuda', timing='public_call_wall',
+                 ring_dimension=65536, active_q=towers, shifts=[1, -1, 2, -2],
+                 pair=pair, order='individual_first' if pair == 1 else 'hoisted_first',
+                 individual_ns=200, hoisted_ns=100)
+            for towers, pair in product((5, 3), (1, 2))
+        ]
+        def jsonl(records):
+            return '\n'.join(json.dumps(record) for record in records)
+
+        summary = batch.summarize_rotation_pairs(jsonl(samples), 0, 2)
+        self.assertEqual(summary['5']['median_paired_speedup'], 2)
+        self.assertEqual(summary['3']['median_hoisted_ns'], 100)
+        for change in ({'backend': 'host_simulation'}, {'order': 'hoisted_first'}, {'hoisted_ns': 0}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                batch.summarize_rotation_pairs(jsonl([samples[0] | change, *samples[1:]]), 0, 2)
+        with self.assertRaises(ValueError):
+            batch.summarize_rotation_pairs(jsonl(samples[:-1]), 0, 2)
+
     def test_plan_needs_no_gpu_and_schedules_all_scopes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

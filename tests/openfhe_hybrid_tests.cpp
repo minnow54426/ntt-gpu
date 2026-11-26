@@ -1,19 +1,34 @@
 // D8: pinned OpenFHE Hybrid graph against unreduced-CRT and scalar MAC oracles.
-// Every polynomial has N=65536. No CUDA or approximate-decryption result.
+// Every polynomial has N=65536. Compare the resident host or CUDA transport.
 #include <algorithm>
 #include <array>
+#include <charconv>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "openfhe.h"
+#include "ciphertext-ser.h"
+#include "cryptocontext-ser.h"
+#include "key/key-ser.h"
+#include "scheme/ckksrns/ckksrns-ser.h"
 #include "keyswitch/keyswitch-hybrid.h"
 #include "ntt/ntt.hpp"
 #include "ntt/basis_conversion.hpp"
 #include "ntt/backend_contract.hpp"
+#include "ntt/openfhe_hybrid_adapter.hpp"
+#include "ntt/resident.hpp"
+#ifndef NTT_RESIDENT_CUDA
+#include "support/resident_host_driver.hpp"
+#endif
 
 namespace {
 using namespace lbcrypto;
@@ -63,6 +78,32 @@ void equal(const DCRTPoly& actual, const Rows& expected, const Params& params,
     }
     comparisons += N;
   }
+}
+std::vector<uint64_t> pack_evaluations(const DCRTPoly& polynomial,
+                                       const ntt::proposal::PolynomialLayout& layout) {
+  require(polynomial.GetFormat() == Format::EVALUATION &&
+              polynomial.GetNumOfElements() == layout.towers.size(),
+          "OpenFHE evaluation layout");
+  std::vector<uint64_t> values;
+  values.reserve(layout.towers.size() * N);
+  for (size_t i = 0; i < layout.towers.size(); ++i) {
+    const auto& tower = polynomial.GetElementAtIndex(i);
+    const auto expected = layout.parameters->tower(layout.towers[i]);
+    require(tower.GetFormat() == Format::EVALUATION &&
+                tower.GetModulus().ConvertToInt() == expected.q &&
+                tower.GetRootOfUnity().ConvertToInt() == expected.psi,
+            "OpenFHE evaluation tower ordering");
+    for (size_t coefficient = 0; coefficient < N; ++coefficient)
+      values.push_back(tower[coefficient].ConvertToInt());
+  }
+  return values;
+}
+ntt::resident::Session make_resident_session(const ntt::proposal::PolynomialLayout &layout) {
+#ifdef NTT_RESIDENT_CUDA
+  return ntt::resident::make_cuda_session(layout);
+#else
+  return ntt::resident::Session(std::make_shared<resident_test::HostDriver>(layout));
+#endif
 }
 Rows transform(Rows data, const Params& params, bool inverse = false) {
   for (size_t l = 0; l < data.size(); ++l) {
@@ -317,6 +358,373 @@ void check_wrappers(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks
       equal(ct->GetElements()[channel], expected[channel], params, Format::EVALUATION, "outer add/replace semantics");
   }
 }
+void check_transactional_wrapper(const CryptoContext<DCRTPoly> &cc, const KeySwitchHYBRID &ks,
+                                 const EvalKey<DCRTPoly> &key, const DCRTPoly &input,
+                                 const Rows &base, bool test_failures) {
+  for (const size_t count : {size_t(2), size_t(3)}) {
+    auto ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(cc, "original-key-tag");
+    const auto &params = input.GetParams();
+    std::vector<DCRTPoly> elements(count - 1, make(base, params, Format::COEFFICIENT));
+    elements.push_back(input);
+    ciphertext->SetElements(std::move(elements));
+    ciphertext->SetLevel(1);
+    ciphertext->SetNoiseScaleDeg(2);
+    ciphertext->SetScalingFactor(1234.5);
+    auto expected = ciphertext->Clone();
+    ks.KeySwitchInPlace(expected, key);
+    const auto original = ciphertext.get();
+
+#ifndef NTT_RESIDENT_CUDA
+    if (test_failures && count == 3) {
+      const auto saved = ciphertext->GetElements();
+      auto malformed = ciphertext->Clone();
+      malformed->GetElements()[1].GetAllElements().front().OverrideFormat(Format::EVALUATION);
+      bool opened = false;
+      auto count_factory = [&](const ntt::proposal::PolynomialLayout &layout) {
+        opened = true;
+        return make_resident_session(layout);
+      };
+      bool rejected = false;
+      try {
+        ntt::openfhe::hybrid_key_switch_in_place(malformed, key, count_factory);
+      } catch (const std::invalid_argument &) {
+        rejected = true;
+      }
+      require(rejected && !opened, "invalid leading component rejected before submission");
+      auto fail_factory = [](const ntt::proposal::PolynomialLayout &layout) {
+        auto driver = std::make_shared<resident_test::HostDriver>(layout);
+        driver->trace->cleanup_error = true;
+        return ntt::resident::Session(std::move(driver));
+      };
+      bool failed = false;
+      try {
+        ntt::openfhe::hybrid_key_switch_in_place(ciphertext, key, fail_factory);
+      } catch (const std::runtime_error &error) {
+        failed = std::string(error.what()).find("cleanup") != std::string::npos;
+      }
+      require(failed && ciphertext->GetElements() == saved && ciphertext.get() == original &&
+                  ciphertext->GetLevel() == 1 && ciphertext->GetNoiseScaleDeg() == 2 &&
+                  ciphertext->GetScalingFactor() == 1234.5,
+              "late failure leaves ciphertext components and metadata unchanged");
+    }
+#else
+    (void)test_failures;
+#endif
+
+    ntt::openfhe::hybrid_key_switch_in_place(ciphertext, key, make_resident_session);
+    require(ciphertext.get() == original && ciphertext->GetElements().size() == 2 &&
+                ciphertext->GetElements() == expected->GetElements(),
+            "transactional wrapper matches pinned OpenFHE B/A add and replace semantics");
+    require(ciphertext->GetLevel() == expected->GetLevel() &&
+                ciphertext->GetNoiseScaleDeg() == expected->GetNoiseScaleDeg() &&
+                ciphertext->GetScalingFactor() == expected->GetScalingFactor() &&
+                ciphertext->GetKeyTag() == expected->GetKeyTag(),
+            "transactional wrapper preserves ciphertext metadata");
+    comparisons += 2 * N * input.GetNumOfElements();
+  }
+}
+void check_decoded_slots(const CryptoContext<DCRTPoly> &cc,
+                         const PrivateKey<DCRTPoly> &secret, const Ciphertext<DCRTPoly> &ciphertext,
+                         const std::vector<double> &values) {
+  Plaintext decrypted;
+  require(cc->Decrypt(secret, ciphertext, &decrypted).isValid && decrypted,
+          "decrypt the resulting CKKS ciphertext");
+  decrypted->SetLength(values.size());
+  const auto result = decrypted->GetRealPackedValue();
+  require(result.size() == values.size(), "decoded CKKS slot count");
+  for (size_t slot = 0; slot < values.size(); ++slot)
+    require(std::abs(result[slot] - values[slot]) <= 1e-6, "switched CKKS slot error");
+}
+void check_encrypted_key_switch(const CryptoContext<DCRTPoly> &cc,
+                                const KeyPair<DCRTPoly> &old_keys,
+                                const KeyPair<DCRTPoly> &new_keys,
+                                const EvalKey<DCRTPoly> &key) {
+  const std::vector<double> values{0.25, -0.5, 1.25, -2.0};
+  const auto original = cc->Encrypt(old_keys.publicKey, cc->MakeCKKSPackedPlaintext(values));
+  auto ciphertext = original->Clone();
+  auto expected = original->Clone();
+  cc->KeySwitchInPlace(expected, key);
+  ntt::openfhe::hybrid_key_switch_in_place(ciphertext, key, make_resident_session);
+  require(ciphertext->GetElements() == expected->GetElements(),
+          "encrypted CKKS key switch matches OpenFHE ciphertext residues");
+  check_decoded_slots(cc, new_keys.secretKey, ciphertext, values);
+  std::cout << "CKKS KEY SWITCH OK: exact ciphertext and decoded slots within 1e-6\n";
+
+  cc->EvalMultKeysGen(old_keys.secretKey);
+  auto product = cc->EvalMultNoRelin(original, original);
+  require(product->GetElements().size() == 3, "encrypted product has three components");
+  auto cube = cc->EvalMultNoRelin(original, product);
+  require(cube->GetElements().size() == 4, "encrypted cube has four components");
+  auto expected_product = product->Clone();
+  auto expected_cube = cube->Clone();
+  cc->RelinearizeInPlace(expected_product);
+  cc->RelinearizeInPlace(expected_cube);
+
+#ifndef NTT_RESIDENT_CUDA
+  const auto original_components = cube->GetElements();
+  size_t opened = 0;
+  auto fail_second = [&](const ntt::proposal::PolynomialLayout &layout) {
+    auto driver = std::make_shared<resident_test::HostDriver>(layout);
+    driver->trace->cleanup_error = ++opened == 2;
+    return ntt::resident::Session(driver);
+  };
+  bool cleanup_failed = false;
+  try {
+    ntt::openfhe::hybrid_relinearize_in_place(cube, fail_second);
+  } catch (const std::runtime_error &error) {
+    cleanup_failed = std::string(error.what()).find("cleanup") != std::string::npos;
+  }
+  require(cleanup_failed && opened == 2 && cube->GetElements() == original_components,
+          "failure on the second component leaves the whole ciphertext unchanged");
+
+  auto missing_key = cube->Clone();
+  missing_key->SetKeyTag("unregistered-relinearization-test-key");
+  opened = 0;
+  bool missing_key_rejected = false;
+  try {
+    ntt::openfhe::hybrid_relinearize_in_place(missing_key, fail_second);
+  } catch (const std::exception &) {
+    missing_key_rejected = true;
+  }
+  require(missing_key_rejected && opened == 0 &&
+              missing_key->GetElements() == original_components,
+          "missing relinearization key is rejected before session creation");
+#endif
+
+  ntt::openfhe::hybrid_relinearize_in_place(product, make_resident_session);
+  require(product->GetElements() == expected_product->GetElements(),
+          "encrypted CKKS square relinearization matches OpenFHE ciphertext residues");
+  auto squares = values;
+  for (auto &value : squares) value *= value;
+  check_decoded_slots(cc, old_keys.secretKey, product, squares);
+  std::cout << "CKKS RELINEARIZATION OK: exact ciphertext and decoded square within 1e-6\n";
+
+  // Exercise format normalization with a mixture of coefficient and evaluation inputs.
+  cube->GetElements()[0].SetFormat(Format::COEFFICIENT);
+  cube->GetElements()[3].SetFormat(Format::COEFFICIENT);
+  const auto *cube_object = cube.get();
+  ntt::openfhe::hybrid_relinearize_in_place(cube, make_resident_session);
+  require(cube->GetElements() == expected_cube->GetElements(),
+          "encrypted CKKS cube relinearization matches OpenFHE ciphertext residues");
+  require(cube.get() == cube_object && cube->GetKeyTag() == expected_cube->GetKeyTag() &&
+              cube->GetLevel() == expected_cube->GetLevel() &&
+              cube->GetNoiseScaleDeg() == expected_cube->GetNoiseScaleDeg() &&
+              cube->GetScalingFactor() == expected_cube->GetScalingFactor(),
+          "relinearization preserves ciphertext identity and metadata");
+  auto cubes = squares;
+  for (size_t slot = 0; slot < cubes.size(); ++slot) cubes[slot] *= values[slot];
+  check_decoded_slots(cc, old_keys.secretKey, cube, cubes);
+  std::cout << "CKKS RELINEARIZATION OK: exact ciphertext and decoded cube within 1e-6\n";
+}
+void check_encrypted_rotation(const CryptoContext<DCRTPoly> &cc,
+                              const KeyPair<DCRTPoly> &keys) {
+  constexpr size_t slots = 8;
+  const std::vector<double> values{0.25, -0.5, 1.25, -2.0, 0.75, 0.125, 3.0, -1.0};
+  cc->EvalRotateKeyGen(keys.secretKey, {1, -1});
+  for (const uint32_t level : {0u, 2u}) {
+    const auto input = cc->Encrypt(
+        keys.publicKey, cc->MakeCKKSPackedPlaintext(values, 1, level, nullptr, slots));
+    require(input->GetElements()[0].GetNumOfElements() == 5 - level,
+            "rotation fixture uses the intended active Q level");
+    const auto original = input->Clone();
+#ifndef NTT_RESIDENT_CUDA
+    std::vector<std::shared_ptr<resident_test::Trace>> traces;
+    auto observe_session = [&](const ntt::proposal::PolynomialLayout &layout) {
+      auto driver = std::make_shared<resident_test::HostDriver>(layout);
+      traces.push_back(driver->trace);
+      return ntt::resident::Session(std::move(driver));
+    };
+#else
+    const auto observe_session = make_resident_session;
+#endif
+    for (const int32_t shift : {1, -1}) {
+      const auto expected = cc->EvalRotate(input, shift);
+      const auto result = ntt::openfhe::hybrid_rotate(input, shift, observe_session);
+      require(*result == *expected, "encrypted rotation matches OpenFHE residues and metadata");
+      auto decoded = values;
+      const size_t left = shift > 0 ? 1 : slots - 1;
+      std::rotate(decoded.begin(), decoded.begin() + left, decoded.end());
+      check_decoded_slots(cc, keys.secretKey, result, decoded);
+      std::cout << "CKKS ROTATION OK: level=" << level << " shift=" << shift
+                << " exact ciphertext and decoded slots within 1e-6\n";
+    }
+    require(*input == *original, "rotation preserves its input ciphertext");
+
+    const std::array<int32_t, 3> shifts{1, 0, -1};
+    const auto digits = cc->EvalFastRotationPrecompute(input);
+    const auto results = ntt::openfhe::hybrid_rotate_many(input, shifts, observe_session);
+    require(results.size() == shifts.size(), "hoisted rotation returns every requested shift");
+    for (size_t index = 0; index < shifts.size(); ++index) {
+      const auto expected = cc->EvalFastRotation(input, static_cast<uint32_t>(shifts[index]), digits);
+      require(*results[index] == *expected, "hoisted rotation matches OpenFHE in request order");
+      auto decoded = values;
+      const size_t left = (slots + shifts[index]) % slots;
+      std::rotate(decoded.begin(), decoded.begin() + left, decoded.end());
+      check_decoded_slots(cc, keys.secretKey, results[index], decoded);
+    }
+    require(*input == *original && results[1].get() != input.get(),
+            "hoisted rotation preserves the input and clones the zero shift");
+    std::cout << "CKKS HOISTED ROTATION OK: level=" << level << " shifts=1,0,-1\n";
+#ifndef NTT_RESIDENT_CUDA
+    require(traces.size() == 3, "two single rotations and one shared hoisted session");
+    const auto separate_operations = traces[0]->executed + traces[1]->executed;
+    require(traces[2]->executed < separate_operations,
+            "hoisted rotation reuses work across nonzero shifts");
+    std::cout << "HOISTED HOST OPERATIONS: level=" << level << " separate=" << separate_operations
+              << " hoisted=" << traces[2]->executed << '\n';
+#endif
+
+    if (level != 0)
+      continue;
+    bool opened = false;
+    auto count_factory = [&](const ntt::proposal::PolynomialLayout &layout) {
+      opened = true;
+      return make_resident_session(layout);
+    };
+    bool missing_key_rejected = false;
+    try {
+      (void)ntt::openfhe::hybrid_rotate(input, 2, count_factory);
+    } catch (const std::invalid_argument &) {
+      missing_key_rejected = true;
+    }
+    require(missing_key_rejected && !opened, "rotation rejects missing keys before session creation");
+    const std::array<int32_t, 2> missing_shift{1, 2};
+    missing_key_rejected = false;
+    try {
+      (void)ntt::openfhe::hybrid_rotate_many(input, missing_shift, count_factory);
+    } catch (const std::invalid_argument &) {
+      missing_key_rejected = true;
+    }
+    require(missing_key_rejected && !opened, "hoisted rotation preflights keys across the batch");
+    const std::array<int32_t, 2> identity_shifts{0, 0};
+    auto unregistered = input->Clone();
+    unregistered->SetKeyTag("unregistered-identity-rotation-test-key");
+    const auto identities = ntt::openfhe::hybrid_rotate_many(unregistered, identity_shifts, count_factory);
+    require(!opened && identities.size() == 2 && *identities[0] == *unregistered &&
+                *identities[1] == *unregistered && identities[0] != identities[1],
+            "identity-only batch clones the input without a key or session");
+#ifndef NTT_RESIDENT_CUDA
+    auto fail_factory = [](const ntt::proposal::PolynomialLayout &layout) {
+      auto driver = std::make_shared<resident_test::HostDriver>(layout);
+      driver->trace->cleanup_error = true;
+      return ntt::resident::Session(std::move(driver));
+    };
+    bool cleanup_failed = false;
+    try {
+      (void)ntt::openfhe::hybrid_rotate(input, 1, fail_factory);
+    } catch (const std::runtime_error &error) {
+      cleanup_failed = std::string(error.what()).find("cleanup") != std::string::npos;
+    }
+    require(cleanup_failed && *input == *original, "failed rotation leaves input unchanged");
+    cleanup_failed = false;
+    std::vector<Ciphertext<DCRTPoly>> failed_batch;
+    try {
+      failed_batch = ntt::openfhe::hybrid_rotate_many(input, shifts, fail_factory);
+    } catch (const std::runtime_error &error) {
+      cleanup_failed = std::string(error.what()).find("cleanup") != std::string::npos;
+    }
+    require(cleanup_failed && failed_batch.empty() && *input == *original,
+            "failed hoisted rotation leaves the input unchanged and publishes no results");
+#endif
+  }
+}
+
+unsigned benchmark_count(const char *argument, unsigned minimum, unsigned maximum) {
+  const std::string_view text(argument);
+  unsigned count = 0;
+  const auto end = text.data() + text.size();
+  const auto parsed = std::from_chars(text.data(), end, count);
+  require(parsed.ec == std::errc{} && parsed.ptr == end && count >= minimum && count <= maximum,
+          "rotation benchmark requires 0..20 warmup pairs and 2..100 measured pairs");
+  return count;
+}
+
+constexpr std::array<uint32_t, 2> rotation_benchmark_levels{0, 2};
+constexpr const char *rotation_fixture_header = "NTT CKKS rotation benchmark v1";
+const std::vector<int32_t> rotation_benchmark_shifts{1, -1, 2, -2};
+
+void prepare_rotation_fixture(const CryptoContext<DCRTPoly> &cc, const char *path) {
+  const std::vector<double> slots{0.25, -0.5, 1.25, -2.0, 0.75, 0.125, 3.0, -1.0};
+  const auto keys = cc->KeyGen();
+  cc->EvalRotateKeyGen(keys.secretKey, rotation_benchmark_shifts);
+  require(!std::filesystem::exists(path), "rotation fixture path already exists");
+  std::ofstream fixture(path, std::ios::binary);
+  require(bool(fixture), "cannot create rotation fixture");
+  fixture << rotation_fixture_header << '\n';
+  require(cc->SerializeEvalAutomorphismKey(fixture, SerType::BINARY, keys.secretKey->GetKeyTag()),
+          "cannot serialize rotation evaluation keys");
+  for (const auto level : rotation_benchmark_levels) {
+    const auto input = cc->Encrypt(
+        keys.publicKey, cc->MakeCKKSPackedPlaintext(slots, 1, level, nullptr, slots.size()));
+    Serial::Serialize(input, fixture, SerType::BINARY);
+    for (const auto shift : rotation_benchmark_shifts)
+      Serial::Serialize(cc->EvalRotate(input, shift), fixture, SerType::BINARY);
+  }
+  fixture.close();
+  require(bool(fixture), "cannot write rotation fixture");
+}
+
+void benchmark_rotations(const CryptoContext<DCRTPoly> &cc, const char *path,
+                         unsigned warmups, unsigned pairs) {
+  using Clock = std::chrono::steady_clock;
+  const auto &shifts = rotation_benchmark_shifts;
+  std::ifstream fixture(path, std::ios::binary);
+  std::string header;
+  require(bool(std::getline(fixture, header)) && header == rotation_fixture_header,
+          "invalid rotation fixture header");
+  require(cc->DeserializeEvalAutomorphismKey(fixture, SerType::BINARY),
+          "cannot load rotation evaluation keys");
+#ifdef NTT_RESIDENT_CUDA
+  constexpr auto backend = "cuda";
+#else
+  constexpr auto backend = "host_simulation";
+#endif
+  for (const auto level : rotation_benchmark_levels) {
+    Ciphertext<DCRTPoly> input;
+    Serial::Deserialize(input, fixture, SerType::BINARY);
+    require(input && input->GetCryptoContext() == cc && input->GetLevel() == level &&
+                input->GetElements().size() == 2, "rotation benchmark ciphertext context or level");
+    const auto active_q = input->GetElements()[0].GetNumOfElements();
+    require(active_q == 5 - level, "rotation benchmark active Q level");
+    std::vector<Ciphertext<DCRTPoly>> expected(shifts.size());
+    for (auto &reference : expected) {
+      Serial::Deserialize(reference, fixture, SerType::BINARY);
+      require(bool(reference), "missing rotation reference ciphertext");
+    }
+    auto measure = [&](bool hoisted) {
+      std::vector<Ciphertext<DCRTPoly>> outputs;
+      const auto start = Clock::now();
+      if (hoisted) {
+        outputs = ntt::openfhe::hybrid_rotate_many(input, shifts, make_resident_session);
+      } else {
+        outputs.reserve(shifts.size());
+        for (const auto shift : shifts)
+          outputs.push_back(ntt::openfhe::hybrid_rotate(input, shift, make_resident_session));
+      }
+      const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
+      require(outputs.size() == expected.size(), "paired rotation output count");
+      for (size_t shift = 0; shift < shifts.size(); ++shift)
+        require(*outputs[shift] == *expected[shift], "paired rotation differs from OpenFHE");
+      return elapsed.count();
+    };
+    for (unsigned round = 0; round < warmups + pairs; ++round) {
+      const bool hoisted_first = round % 2 != 0;
+      const auto first = measure(hoisted_first);
+      const auto second = measure(!hoisted_first);
+      if (round < warmups)
+        continue;
+      std::cout << "{\"schema\":1,\"backend\":\"" << backend
+                << "\",\"timing\":\"public_call_wall\",\"ring_dimension\":" << N
+                << ",\"active_q\":" << active_q << ",\"shifts\":[1,-1,2,-2],\"pair\":"
+                << round - warmups + 1 << ",\"order\":\""
+                << (hoisted_first ? "hoisted_first" : "individual_first")
+                << "\",\"individual_ns\":" << (hoisted_first ? second : first)
+                << ",\"hoisted_ns\":" << (hoisted_first ? first : second) << "}" << std::endl;
+    }
+  }
+  require(fixture.peek() == std::char_traits<char>::eof() && !fixture.bad(),
+          "unexpected bytes after rotation fixture");
+}
 // Extended ciphertext scaling is a separate operation from digit basis extension.
 void check_delayed(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks,
                    const DCRTPoly& input, const Rows& evaluation,
@@ -390,6 +798,7 @@ void run_case(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks,
   const auto digits = ks.EvalKeySwitchPrecomputeCore(input, cp);
   const auto expected_digits = check_digits(input, coeff, cp, digits);
   const auto ext = ks.EvalFastKeySwitchCoreExt(digits, key, active);
+  const auto fast = ks.EvalFastKeySwitchCore(digits, key, active);
   // D9 bridge: derive metadata from real OpenFHE parameters, never an object
   // address or a presumed contiguous NativePoly allocation.
   {
@@ -411,9 +820,71 @@ void run_case(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks,
               expected.psi==root(key->GetAVector()[0].GetParams(),offsets[i]),
               "D9 key view addresses the full-context QP snapshot");
     }
+
+    const auto coefficient_layout = contract::transform_layout(layout, true);
+    auto resident = make_resident_session(coefficient_layout);
+    const contract::PolynomialLayout input_layout{snapshot, L, contract::q_prefix(*snapshot, L),
+      contract::Domain::Evaluation, contract::Order::BitReversed};
+    const auto input_values = pack_evaluations(input, input_layout);
+    const auto resident_input = resident.upload(input_layout, input_values);
+    const auto resident_digits = resident.hybrid_digits(resident_input);
+    require(resident_digits.size() == expected_digits.size(), "resident Hybrid digit count");
+    require(resident.stats().uploads == 1 && resident.stats().downloads == 0,
+            "resident Hybrid precompute has no intermediate host transfers");
+    for (size_t digit = 0; digit < resident_digits.size(); ++digit) {
+      contract::require_layout(resident_digits[digit].layout(), layout);
+      const auto download = resident.download(resident_digits[digit]);
+      const auto values = download.wait_values();
+      for (size_t tower = 0; tower < layout.towers.size(); ++tower) {
+        const auto& expected = expected_digits[digit][tower];
+        require(std::equal(expected.begin(), expected.end(), values.begin() + tower * N),
+                "resident Hybrid digit residues differ from OpenFHE");
+        comparisons += N;
+      }
+    }
+    const auto full_count = snapshot->q().size();
+    const contract::PolynomialLayout full_key_layout{snapshot, full_count,
+      contract::qp_basis(*snapshot, full_count), contract::Domain::Evaluation,
+      contract::Order::BitReversed};
+    auto upload_key = [&] {
+      std::vector<std::array<std::vector<uint64_t>, 2>> storage;
+      for (size_t digit = 0; digit < key->GetBVector().size(); ++digit)
+        storage.push_back({pack_evaluations(key->GetBVector()[digit], full_key_layout),
+                           pack_evaluations(key->GetAVector().at(digit), full_key_layout)});
+      std::vector<ntt::resident::HybridKeyDigit> rows;
+      for (const auto& row : storage) rows.push_back({row[0], row[1]});
+      return resident.upload_hybrid_key(full_key_layout, rows);
+    };
+    const auto resident_key = upload_key();
+    const auto transfers_before = resident.stats();
+    require(transfers_before.uploads == 1 + 2 * resident_digits.size(),
+            "only active key digits are uploaded");
+    const auto mac = resident.hybrid_accumulate(resident_digits, resident_key);
+    const auto reduced_b = resident.mod_down(mac.b);
+    const auto reduced_a = resident.mod_down(mac.a);
+    require(resident.stats().downloads == transfers_before.downloads &&
+                resident.stats().uploads == transfers_before.uploads,
+            "Hybrid MAC and ModDown have no intermediate polynomial transfers");
+    auto compare_output = [&](const ntt::resident::Polynomial& result,
+                              const DCRTPoly& expected,
+                              const contract::PolynomialLayout& result_layout) {
+      contract::require_layout(result.layout(), result_layout);
+      const auto download = resident.download(result);
+      const auto reference = pack_evaluations(expected, result_layout);
+      require(std::ranges::equal(download.wait_values(), reference),
+              "resident Hybrid contribution differs from OpenFHE");
+      comparisons += reference.size();
+    };
+    compare_output(mac.b, ext[0], layout);
+    compare_output(mac.a, ext[1], layout);
+    compare_output(reduced_b, fast[0], input_layout);
+    compare_output(reduced_a, fast[1], input_layout);
+    const auto original = resident.download(resident_input);
+    require(std::ranges::equal(original.wait_values(), input_values),
+            "resident Hybrid source remains unchanged");
+    resident.close();
   }
   const auto expected_ext = check_mac(expected_digits, key, active, ext);
-  const auto fast = ks.EvalFastKeySwitchCore(digits, key, active);
   const auto full = ks.KeySwitchCore(input, key);
   std::vector<Rows> down;
   for (size_t channel = 0; channel < 2; ++channel) {
@@ -426,6 +897,60 @@ void run_case(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks,
     check_delayed(cc, ks, input, evaluation, ext, down, cp);
     check_reduction_order(expected_digits, key, active, down, cp);
   }
+  if (L == 4 && pattern == 3) {
+    const auto result = ntt::openfhe::hybrid_key_switch_core(input, key, make_resident_session);
+    equal(result.b, down[0], active, Format::EVALUATION, "adapter B contribution");
+    equal(result.a, down[1], active, Format::EVALUATION, "adapter A contribution");
+    check_transactional_wrapper(cc, ks, key, input, coeff, wrappers);
+  }
+#ifndef NTT_RESIDENT_CUDA
+  if (wrappers && L == 4 && pattern == 3) {
+    auto malformed = input;
+    malformed.GetAllElements().front().OverrideFormat(Format::COEFFICIENT);
+    bool factory_called = false;
+    auto count_factory = [&](const ntt::proposal::PolynomialLayout &layout) {
+      factory_called = true;
+      return make_resident_session(layout);
+    };
+    bool invalid_rejected = false;
+    try {
+      (void)ntt::openfhe::hybrid_key_switch_core(malformed, key, count_factory);
+    } catch (const std::invalid_argument &) {
+      invalid_rejected = true;
+    }
+    require(invalid_rejected && !factory_called, "adapter rejects mixed formats before session creation");
+
+    auto bad_key = std::make_shared<EvalKeyRelinImpl<DCRTPoly>>(cc);
+    bad_key->SetAVector(key->GetAVector());
+    auto short_b = key->GetBVector();
+    short_b.pop_back();
+    bad_key->SetBVector(std::move(short_b));
+    invalid_rejected = false;
+    try {
+      (void)ntt::openfhe::hybrid_key_switch_core(input, bad_key, count_factory);
+    } catch (const std::invalid_argument &) {
+      invalid_rejected = true;
+    }
+    require(invalid_rejected && !factory_called,
+            "adapter rejects incomplete key channels before session creation");
+
+    std::shared_ptr<resident_test::HostDriver> driver;
+    auto failing_factory = [&](const ntt::proposal::PolynomialLayout &layout) {
+      driver = std::make_shared<resident_test::HostDriver>(layout);
+      driver->trace->cleanup_error = true;
+      return ntt::resident::Session(driver);
+    };
+    bool close_failed = false;
+    try {
+      (void)ntt::openfhe::hybrid_key_switch_core(input, key, failing_factory);
+    } catch (const std::runtime_error &error) {
+      close_failed = std::string(error.what()).find("cleanup") != std::string::npos;
+    }
+    require(close_failed && driver && driver->trace->executed > 0 &&
+                driver->trace->live_buffers == 0 && driver->trace->live_events == 0,
+            "adapter propagates late session failure without returning output or retaining buffers");
+  }
+#endif
   equal(input, evaluation, active, Format::EVALUATION, "source input remains unchanged");
   std::cout << "HYBRID GRAPH OK: N=" << N << " L=" << L << " pattern=" << pattern
             << " digits=" << digits->size() << " key=" << (wrappers ? "diagnostic+wrapper" : "generated") << std::endl;
@@ -435,11 +960,18 @@ void run_case(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks,
 int main(int argc, char** argv) {
   try {
     const bool basis_only = argc == 2 && std::string(argv[1]) == "--basis-only";
-    require(argc == 1 || basis_only, "usage: ntt_openfhe_hybrid [--basis-only]");
+    const bool rotation_prep = argc == 3 && std::string_view(argv[1]) == "--prepare-rotation";
+    const bool rotation_benchmark = argc == 5 && std::string_view(argv[1]) == "--rotation-benchmark";
+    require(argc == 1 || basis_only || rotation_prep || rotation_benchmark,
+            "usage: ntt_openfhe_hybrid [--basis-only | --prepare-rotation FIXTURE | "
+            "--rotation-benchmark FIXTURE WARMUPS PAIRS]");
+    const auto warmups = rotation_benchmark ? benchmark_count(argv[3], 0, 20) : 0;
+    const auto pairs = rotation_benchmark ? benchmark_count(argv[4], 2, 100) : 0;
     CCParams<CryptoContextCKKSRNS> config;
     config.SetRingDim(N);config.SetMultiplicativeDepth(4);config.SetScalingModSize(50);
     config.SetFirstModSize(60);config.SetScalingTechnique(FIXEDMANUAL);
     config.SetKeySwitchTechnique(HYBRID);config.SetNumLargeDigits(2);
+    config.SetMaxRelinSkDeg(3);
     auto cc = GenCryptoContext(config);cc->Enable(PKE);cc->Enable(KEYSWITCH);cc->Enable(LEVELEDSHE);
     auto cp = std::dynamic_pointer_cast<CryptoParametersRNS>(cc->GetCryptoParameters());
     require(cc->GetRingDimension() == N, "fixed full ring size");
@@ -452,6 +984,13 @@ int main(int argc, char** argv) {
       6511788946ULL,800790938143ULL,17749908910371ULL,11469071954203ULL};
     for (size_t l=0;l<8;++l) require(modulus(cp->GetParamsQP(),l)==fixed_q[l] && root(cp->GetParamsQP(),l)==fixed_psi[l],
                                    "pinned deterministic fixture parameters");
+    if (rotation_prep || rotation_benchmark) {
+      if (rotation_prep)
+        prepare_rotation_fixture(cc, argv[2]);
+      else
+        benchmark_rotations(cc, argv[2], warmups, pairs);
+      return 0;
+    }
     std::cout << "CONTEXT N=" << N << " M=5 alpha=3 beta=2 K=" << cp->GetParamsP()->GetParams().size() << std::endl;
     for (size_t l = 0; l < cp->GetParamsQP()->GetParams().size(); ++l)
       std::cout << "PARAM " << l << " q=" << modulus(cp->GetParamsQP(), l)
@@ -473,6 +1012,8 @@ int main(int argc, char** argv) {
     const auto generated = cc->KeySwitchGen(old_keys.secretKey, new_keys.secretKey);
     run_case(cc, ks, cp, generated, 5, 3, false);
     run_case(cc, ks, cp, generated, 4, 3, false);
+    check_encrypted_key_switch(cc, old_keys, new_keys, generated);
+    check_encrypted_rotation(cc, old_keys);
     std::cout << "D8 PASS: " << comparisons << " residue comparisons; canonical-lift witnesses="
               << noncanonical_witnesses << "; wrong-P-offset witnesses=" << wrong_key_witnesses << std::endl;
     return 0;

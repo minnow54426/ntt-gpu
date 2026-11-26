@@ -17,7 +17,7 @@ from benchmark_batch import (DIMENSIONS, MAX_TOWERS, PRIME_BITS, TOWER_COUNTS, S
 
 ROOT = Path(__file__).resolve().parents[1]
 OFFLINE_FIXTURES = ('vector_n1024.txt', 'vector_n65536.txt')
-GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection', 'cuda_benchmark_matrix_exact', 'resident_cuda_exact', 'cuda_basis_exact', 'cuda_shoup_exact', 'cuda_barrett_exact'}
+GPU_TESTS = {'cuda_oracle_crosscheck', 'cuda_matches_ref', 'cuda_verify', 'cuda_openfhe_exact', 'cuda_setup_fault_injection', 'cuda_benchmark_matrix_exact', 'resident_cuda_exact', 'cuda_basis_exact', 'cuda_shoup_exact', 'cuda_barrett_exact', 'resident_cuda_hybrid_exact'}
 OPENFHE_TESTS = {'openfhe_exact_compat', 'openfhe_representation_contract', 'openfhe_hybrid_graph', 'openfhe_basis_conversion', 'basis_openfhe_exact', 'openfhe_benchmark_protocol', 'resident_openfhe_host'}
 HOST_TESTS = {'cuda_host_validation', 'setup_ownership_host', 'measurement_host', 'resident_runtime_host', 'resident_benchmark_host', 'resident_conversion_benchmark_host', 'basis_conversion_bigint', 'benchmark_profile_ranges', 'resident_profile_host', 'resident_conversion_profile_host', 'barrett_transform_check'}
 NTT_SCHEDULES = {'group_twiddle_ct': 'OFF', 'legacy_dif': 'ON'}

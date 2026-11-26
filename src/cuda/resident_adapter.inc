@@ -28,6 +28,35 @@ __global__ void resident_correction_kernel(uint64_t *out, const uint64_t *left,
   if (i < n * count)
     out[i] = ::ntt::resident::detail::resident_correction_value(left[i], right[i], i/n, count, table);
 }
+__global__ void resident_hybrid_mac_kernel(uint64_t *result_b, uint64_t *result_a,
+                                          const uint64_t *digit, const uint64_t *key_b,
+                                          const uint64_t *key_a, const uint64_t *moduli,
+                                          uint64_t dimension, uint64_t tower_count,
+                                          bool first_digit) {
+  const uint64_t index = uint64_t(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (index >= dimension * tower_count)
+    return;
+  const auto modulus = moduli[index / dimension];
+  const auto value = digit[index];
+  ::ntt::resident::detail::hybrid_mac_value(result_b[index], value, key_b[index], modulus, first_digit);
+  ::ntt::resident::detail::hybrid_mac_value(result_a[index], value, key_a[index], modulus, first_digit);
+}
+__global__ void resident_hybrid_rotate_kernel(uint64_t *out_b, uint64_t *out_a,
+                                             const uint64_t *extended_b, const uint64_t *extended_a,
+                                             const uint64_t *c0, const uint64_t *scales,
+                                             const uint64_t *moduli, uint64_t dimension,
+                                             uint64_t log_dimension, uint64_t tower_count,
+                                             uint64_t active_q, uint32_t automorphism) {
+  const uint64_t index = uint64_t(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (index >= dimension * tower_count)
+    return;
+  const auto tower = index / dimension;
+  const auto source = tower * dimension + transport::automorphism_source_index(
+      index % dimension, dimension, log_dimension, automorphism);
+  out_b[index] = transport::rotated_b_value(extended_b[source], c0, source, tower,
+                                           active_q, scales, moduli[tower]);
+  out_a[index] = extended_a[source];
+}
 struct Context : std::enable_shared_from_this<Context> {
   PolynomialLayout base;
   int device;
@@ -180,6 +209,46 @@ public:
     DeviceGuard guard(ordinal()); check_health();
     pointwise_multiply_kernel<<<plan.elementwise_block_count, kThreadsPerBlock, 0, context_->stream>>>(
         a.data, b.data + offset, plan.device_moduli, plan.transform_length, plan.limb_count);
+    CHECK_CUDA(cudaGetLastError());
+  }
+  void hybrid_mac(transport::Buffer &result_b, transport::Buffer &result_a,
+                  const transport::Buffer &digit, const transport::Buffer &key_b,
+                  const transport::Buffer &key_a, const PolynomialLayout &layout,
+                  bool first_digit) override {
+    const auto &b = buffer(result_b), &a = buffer(result_a), &input = buffer(digit);
+    const auto &b_key = buffer(key_b), &a_key = buffer(key_a);
+    const auto count = bytes(layout) / sizeof(uint64_t);
+    require(b.elements == count && a.elements == count && input.elements == count
+                && b_key.elements == count && a_key.elements == count,
+            "CUDA Hybrid MAC extent");
+    const auto plan = context_->plan(layout);
+    DeviceGuard guard(ordinal());
+    check_health();
+    resident_hybrid_mac_kernel<<<plan.elementwise_block_count, kThreadsPerBlock, 0, context_->stream>>>(
+        b.data, a.data, input.data, b_key.data, a_key.data, plan.device_moduli,
+        plan.transform_length, plan.limb_count, first_digit);
+    CHECK_CUDA(cudaGetLastError());
+  }
+  void hybrid_rotate(transport::Buffer &out_b, transport::Buffer &out_a,
+                     const transport::Buffer &extended_b, const transport::Buffer &extended_a,
+                     const transport::Buffer &c0, size_t c0_offset, const transport::Buffer &scales,
+                     const PolynomialLayout &layout, uint32_t automorphism) override {
+    const auto &b = buffer(out_b), &a = buffer(out_a);
+    const auto &input_b = buffer(extended_b), &input_a = buffer(extended_a);
+    const auto &first = buffer(c0), &table = buffer(scales);
+    const auto plan = context_->plan(layout);
+    const auto elements = plan.transform_length * plan.limb_count;
+    require(b.elements == elements && a.elements == elements &&
+                input_b.elements == elements && input_a.elements == elements &&
+                c0_offset <= first.elements &&
+                layout.active_q * plan.transform_length <= first.elements - c0_offset &&
+                table.elements == layout.active_q, "CUDA Hybrid rotation extent");
+    DeviceGuard guard(ordinal());
+    check_health();
+    resident_hybrid_rotate_kernel<<<plan.elementwise_block_count, kThreadsPerBlock, 0, context_->stream>>>(
+        b.data, a.data, input_b.data, input_a.data, first.data + c0_offset, table.data, plan.device_moduli,
+        plan.transform_length, log2_of_pow2(plan.transform_length), plan.limb_count, layout.active_q,
+        automorphism);
     CHECK_CUDA(cudaGetLastError());
   }
   void switch_basis(transport::Buffer &out, const transport::Buffer &input, size_t offset,

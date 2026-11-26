@@ -1,5 +1,6 @@
 #include "ntt/resident_driver.hpp"
 #include "ntt/resident_conversion.hpp"
+#include <array>
 #include <atomic>
 #include <unordered_map>
 
@@ -353,25 +354,40 @@ Polynomial Session::switch_basis(const Polynomial &input, const PolynomialLayout
     return s.output(a, op);
   } catch (...) { s.fail(std::current_exception()); throw; }
 }
-Polynomial Session::join(const Polynomial &left, const Polynomial &right) {
-  auto &s = *state_; s.open(); s.check(left); s.check(right);
-  require(*left.layout_.parameters == *right.layout_.parameters
-            && left.layout_.active_q == right.layout_.active_q
-            && left.layout_.domain == right.layout_.domain
-            && left.layout_.order == right.layout_.order, "incompatible join layouts");
-  auto layout = left.layout_;
-  layout.towers.insert(layout.towers.end(), right.layout_.towers.begin(), right.layout_.towers.end());
+Polynomial Session::join(std::span<const Polynomial> parts) {
+  auto &s = *state_;
+  s.open();
+  require(!parts.empty(), "empty join");
+  auto layout = parts.front().layout_;
+  layout.towers.clear();
+  std::vector<std::shared_ptr<detail::Allocation>> allocations;
+  std::vector<std::shared_ptr<detail::Operation>> producers;
+  for (const auto &part : parts) {
+    s.check(part);
+    require(*layout.parameters == *part.layout_.parameters
+                && layout.active_q == part.layout_.active_q
+                && layout.domain == part.layout_.domain
+                && layout.order == part.layout_.order,
+            "incompatible join layouts");
+    layout.towers.insert(layout.towers.end(), part.layout_.towers.begin(), part.layout_.towers.end());
+    allocations.push_back(part.allocation_);
+    producers.push_back(part.producer_);
+  }
   s.compatible(layout);
   auto a = s.reserve(layout);
-  auto op = s.begin({left.allocation_, right.allocation_, a}, {left.producer_, right.producer_}, {});
+  allocations.push_back(a);
+  auto op = s.begin(std::move(allocations), std::move(producers), {});
   try {
     op->event = s.driver->make_event();
     a->buffer = s.driver->allocate(bytes(layout) / sizeof(uint64_t));
     require(bool(a->buffer) && bool(op->event), "driver returned null resource");
-    const auto first_count = bytes(left.layout_) / sizeof(uint64_t);
-    s.driver->copy_range(*a->buffer, 0, *left.allocation_->buffer, s.offset(left), first_count); ++s.copies;
-    s.driver->copy_range(*a->buffer, first_count, *right.allocation_->buffer, s.offset(right),
-                          bytes(right.layout_) / sizeof(uint64_t)); ++s.copies;
+    size_t destination = 0;
+    for (const auto &part : parts) {
+      const auto count = bytes(part.layout_) / sizeof(uint64_t);
+      s.driver->copy_range(*a->buffer, destination, *part.allocation_->buffer, s.offset(part), count);
+      destination += count;
+      ++s.copies;
+    }
     s.finish(op);
     return s.output(a, op);
   } catch (...) { s.fail(std::current_exception()); throw; }
@@ -382,11 +398,8 @@ Polynomial Session::correct(const Polynomial &left, const Polynomial &right) {
   std::vector<uint64_t> packed;
   for (auto t : layout.towers) packed.push_back(layout.parameters->tower(t).q);
   const auto moduli = packed;
-  for (auto q : moduli) {
-    uint64_t product = 1;
-    for (auto p : layout.parameters->p()) product = mul_mod(product, p.q % q, q);
-    packed.push_back(inv_mod(product, q));
-  }
+  for (auto q : moduli)
+    packed.push_back(inv_mod(detail::special_prime_product(*layout.parameters, q), q));
   auto staging = std::make_shared<detail::HostStorage>(s.budget, packed.size());
   std::copy(packed.begin(), packed.end(), staging->values.begin());
   auto constants = std::make_shared<detail::DeviceStorage>(s.budget, packed.size());
@@ -419,7 +432,7 @@ Polynomial Session::mod_up(const Polynomial &input, std::span<const Completion> 
     coefficients = inverse(input, waits);
   }
   auto p_coefficients = switch_basis(coefficients, p_layout);
-  return join(evaluations, forward(p_coefficients));
+  return join(std::array{evaluations, forward(p_coefficients)});
 }
 Polynomial Session::mod_down(const Polynomial &input, std::span<const Completion> waits) {
   require(bool(state_), "moved session"); auto &s = *state_; s.open(); s.check(input);
@@ -429,6 +442,174 @@ Polynomial Session::mod_down(const Polynomial &input, std::span<const Completion
   const auto q_coefficient = transform_layout(q.layout_, true);
   auto correction = forward(switch_basis(inverse(p, waits), q_coefficient));
   return correct(q, correction);
+}
+std::vector<Polynomial> Session::hybrid_digits(const Polynomial &input,
+                                                std::span<const Completion> waits) {
+  require(bool(state_), "moved session");
+  auto &s = *state_;
+  s.open();
+  s.check(input);
+  s.conversion_input(input.layout_, true);
+  require(input.layout_.domain == Domain::Evaluation, "Hybrid digits require evaluation Q input");
+
+  const size_t active_q = input.layout_.active_q;
+  const size_t alpha = s.base.parameters->alpha();
+  std::vector<Polynomial> digits;
+  digits.reserve(1 + (active_q - 1) / alpha);
+  for (size_t first = 0; first < active_q; first += alpha) {
+    const size_t count = std::min(alpha, active_q - first);
+    const auto evaluations = subview(input, first, count, active_q);
+    const auto coefficients = inverse(evaluations, waits);
+    std::vector<Polynomial> parts;
+    auto append_complement = [&](size_t begin, size_t end) {
+      // Each distinct target is independent. Keep a conversion within the
+      // shared plan's 40-tower limit and the driver's contiguous layout.
+      while (begin < end) {
+        const size_t next = begin + std::min<size_t>(40, end - begin);
+        auto target = s.base;
+        target.towers.assign(s.base.towers.begin() + begin, s.base.towers.begin() + next);
+        parts.push_back(forward(switch_basis(coefficients, target)));
+        begin = next;
+      }
+    };
+    append_complement(0, first);
+    parts.push_back(evaluations);
+    append_complement(first + count, s.base.towers.size());
+    digits.push_back(join(parts));
+  }
+  return digits;
+}
+HybridKey Session::upload_hybrid_key(const PolynomialLayout &full_key_layout,
+                                     std::span<const HybridKeyDigit> digits) {
+  require(bool(state_), "moved session");
+  auto &s = *state_;
+  s.open();
+  const auto active_layout = transform_layout(s.base, false);
+  s.conversion_input(active_layout, false);
+  validate(full_key_layout);
+  const auto &parameters = *s.base.parameters;
+  const auto full_q = parameters.q().size();
+  const auto alpha = parameters.alpha();
+  require(*full_key_layout.parameters == parameters &&
+              full_key_layout.active_q == full_q &&
+              full_key_layout.towers == qp_basis(parameters, full_q) &&
+              full_key_layout.domain == Domain::Evaluation,
+          "Hybrid keys require full-context evaluation QP");
+  require(digits.size() == 1 + (full_q - 1) / alpha, "wrong full-context Hybrid key digit count");
+  for (const auto &digit : digits) {
+    validate_host_values(full_key_layout, digit.b);
+    validate_host_values(full_key_layout, digit.a);
+  }
+
+  const auto offsets = key_indices(parameters, active_layout.active_q);
+  const size_t active_digits = 1 + (active_layout.active_q - 1) / alpha;
+  const size_t n = parameters.n();
+  std::vector<uint64_t> packed(offsets.size() * n);
+  auto upload_channel = [&](std::span<const uint64_t> values) {
+    for (size_t tower = 0; tower < offsets.size(); ++tower)
+      std::copy_n(values.begin() + offsets[tower] * n, n, packed.begin() + tower * n);
+    return upload_checked(active_layout, packed, {});
+  };
+  HybridKey key;
+  key.b_.reserve(active_digits);
+  key.a_.reserve(active_digits);
+  for (const auto &digit : digits.first(active_digits)) {
+    key.b_.push_back(upload_channel(digit.b));
+    key.a_.push_back(upload_channel(digit.a));
+  }
+  return key;
+}
+HybridContributions Session::hybrid_accumulate(std::span<const Polynomial> digits,
+                                               const HybridKey &key,
+                                               std::span<const Completion> waits) {
+  require(bool(state_), "moved session");
+  auto &s = *state_;
+  s.open();
+  const auto layout = transform_layout(s.base, false);
+  s.conversion_input(layout, false);
+  const size_t active_digits = 1 + (layout.active_q - 1) / layout.parameters->alpha();
+  require(digits.size() == active_digits && key.b_.size() == active_digits &&
+              key.a_.size() == active_digits, "wrong active Hybrid digit count");
+
+  std::vector<std::shared_ptr<detail::Allocation>> allocations;
+  std::vector<std::shared_ptr<detail::Operation>> producers;
+  for (size_t index = 0; index < active_digits; ++index) {
+    for (const Polynomial *part : {&digits[index], &key.b_[index], &key.a_[index]}) {
+      s.check(*part);
+      require_layout(part->layout_, layout);
+      require(s.offset(*part) == 0, "Hybrid MAC requires full active QP buffers");
+      allocations.push_back(part->allocation_);
+      producers.push_back(part->producer_);
+    }
+  }
+  auto b = s.reserve(layout), a = s.reserve(layout);
+  allocations.insert(allocations.end(), {b, a});
+  auto op = s.begin(std::move(allocations), std::move(producers), waits);
+  try {
+    op->event = s.driver->make_event();
+    const size_t elements = bytes(layout) / sizeof(uint64_t);
+    b->buffer = s.driver->allocate(elements);
+    a->buffer = s.driver->allocate(elements);
+    require(bool(b->buffer) && bool(a->buffer) && bool(op->event), "driver returned null resource");
+    for (size_t index = 0; index < active_digits; ++index)
+      s.driver->hybrid_mac(*b->buffer, *a->buffer, *digits[index].allocation_->buffer,
+                          *key.b_[index].allocation_->buffer, *key.a_[index].allocation_->buffer,
+                          layout, index == 0);
+    s.finish(op);
+    return {s.output(b, op), s.output(a, op)};
+  } catch (...) {
+    s.fail(std::current_exception());
+    throw;
+  }
+}
+HybridContributions Session::hybrid_rotate_extended(const HybridContributions &extended,
+                                                    const Polynomial &c0,
+                                                    uint32_t automorphism) {
+  require(bool(state_), "moved session");
+  auto &s = *state_;
+  s.open();
+  s.check(extended.b);
+  s.check(extended.a);
+  s.check(c0);
+  const auto &layout = extended.b.layout_;
+  s.conversion_input(layout, false);
+  require_layout(extended.a.layout_, layout);
+  s.conversion_input(c0.layout_, true);
+  require(c0.layout_.domain == Domain::Evaluation && s.offset(extended.b) == 0 &&
+              s.offset(extended.a) == 0,
+          "Hybrid rotation requires evaluation Q and full evaluation QP buffers");
+  require((automorphism & 1) && automorphism < 2 * layout.parameters->n(),
+          "invalid negacyclic automorphism index");
+
+  auto staging = std::make_shared<detail::HostStorage>(s.budget, layout.active_q);
+  for (size_t tower = 0; tower < layout.active_q; ++tower) {
+    const auto modulus = layout.parameters->q()[tower].q;
+    staging->values[tower] = detail::special_prime_product(*layout.parameters, modulus);
+  }
+  auto constants = std::make_shared<detail::DeviceStorage>(s.budget, layout.active_q);
+  auto b = s.reserve(layout), a = s.reserve(layout);
+  auto op = s.begin({extended.b.allocation_, extended.a.allocation_, c0.allocation_, b, a},
+                    {extended.b.producer_, extended.a.producer_, c0.producer_}, {}, staging);
+  op->constants = constants;
+  try {
+    op->event = s.driver->make_event();
+    const size_t elements = bytes(layout) / sizeof(uint64_t);
+    b->buffer = s.driver->allocate(elements);
+    a->buffer = s.driver->allocate(elements);
+    constants->buffer = s.driver->allocate(layout.active_q);
+    require(bool(b->buffer) && bool(a->buffer) && bool(constants->buffer) && bool(op->event),
+            "driver returned null resource");
+    s.driver->upload(*constants->buffer, staging->values);
+    ++s.parameter_uploads;
+    s.driver->hybrid_rotate(*b->buffer, *a->buffer, *extended.b.allocation_->buffer,
+                            *extended.a.allocation_->buffer, *c0.allocation_->buffer, s.offset(c0),
+                            *constants->buffer, layout, automorphism);
+    s.finish(op);
+    return {s.output(b, op), s.output(a, op)};
+  } catch (...) {
+    s.fail(std::current_exception());
+    throw;
+  }
 }
 Polynomial Session::subview(const Polynomial &p, size_t first, size_t count, size_t active_q) {
   require(bool(state_), "moved session"); auto &s = *state_; s.open(); s.check(p);
