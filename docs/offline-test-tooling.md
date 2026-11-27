@@ -128,6 +128,20 @@ per-command timeout is 1,800 seconds. Do not run concurrent collectors in one
 directory. Export the **entire record directory** and verify its archive hash
 before ending the rental.
 
+### Reuse verified offline builds
+
+The direct `gpu_session.py` collector accepts `--offline-records DIR` with
+`--mode gpu --compare-ntt` and explicit `--architectures`. It verifies the
+commit, absolute paths, architecture, schedule, executable hashes, CTest
+definitions/vectors and OpenFHE libraries before skipping configuration,
+compilation and CTest vector generation. Native checks still run.
+
+Stage the original checkout, builds, libraries and reports at the same
+absolute paths on a compatible Linux image. A different source revision
+requires a new build record. This is an advanced collector option; the
+`gpu_rental_batch.py` wrapper uses fresh build/result directories and adds
+the controlled repeats, rotation benchmark and separate profiles.
+
 ### Optional selected profiling
 
 Add `--profile` only when both `nsys` and `ncu` work and the host permits GPU

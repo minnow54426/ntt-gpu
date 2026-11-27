@@ -8,12 +8,12 @@ the set of primes representing each coefficient, and Hybrid key switching,
 which uses these operations to change a ciphertext's key representation.
 Finally connect the GPU implementation to the OpenFHE cryptography library.
 
-**What works:** the CPU reference and tested CUDA baseline agree with OpenFHE.
-A [temporary Ada GPU run](docs/batch40-native-analysis.md) passed its selected
-native checks. The newer [resident-chain prototype](docs/resident-operation-chain.md)
-passes host tests and compiles for CUDA; it has not run on a GPU.
-**Next:** validate the current source on RTX 5090. RTX 4090 remains the planned
-control. The main workload has 65,536 coefficients.
+**What works:** the CPU reference and recorded Ada GPU runs agree with pinned
+OpenFHE. The [November 24 run](docs/paired-ntt-native-analysis.md#what-changed-in-the-november-24-ada-results)
+also checked resident ModUp/ModDown. The newer Hybrid adapters pass CPU checks
+and compile for CUDA; their native validation remains queued.
+**Next:** use RTX 4080 SUPER for the prepared batch and retain RTX 5090 for
+target validation. The main workload has 65,536 coefficients.
 
 ## Build & test
 
@@ -68,28 +68,14 @@ for the standalone build.
 
 ### First session on a rented GPU
 
-Finish the [offline preparation](docs/offline-gpu-preparation.md) first. On the
-GPU machine, use the chosen source revision and the installation directory
-of the required OpenFHE version:
+Follow the [rental runbook](docs/next-gpu-rental.md): prepare inputs locally,
+freeze the clean source, check profiler permissions on the selected instance,
+then run correctness, sanitizers and measurements as one bounded batch.
+The runbook owns the current matrix and commands. The
+[collector guide](docs/offline-test-tooling.md) describes individual experiments,
+resume rules and timing scopes.
 
-```sh
-bash scripts/autodl_setup.sh
-```
-
-The helper records the machine and software versions, builds the code, and
-checks the answers. It also runs sanitizer tools, which detect memory and
-threading errors, before collecting 280 GPU measurement jobs. The jobs cover N=4096–65536,
-30/50/55/60-bit primes and 1–40 RNS towers. A tower is one copy of the polynomial
-modulo one prime. Public-call and device-event timings stay separate.
-
-Use `NTT_REPO_DIR`, `NTT_CUDA_ROOT` and `NTT_OPENFHE_PREFIX` for machine-specific
-paths. `--resume --output-dir <record>` reruns checks and reuses only matching,
-hash-verified measurements. `--profile` requests Nsight captures. The helper
-does not pull source, install dependencies or change drivers. Failed stages
-return nonzero; retain the complete record directory. See the
-[collector guide](docs/offline-test-tooling.md) for timing scopes and options.
-
-Collect the matching 140-job CPU baseline locally without a CUDA installation:
+For a separate OpenFHE CPU baseline, without CUDA:
 
 ```sh
 python3 scripts/gpu_session.py --mode cpu \
@@ -97,10 +83,9 @@ python3 scripts/gpu_session.py --mode cpu \
   --benchmark --output-dir bench-results-local-cpu
 ```
 
-Use the same problem sizes and repetition counts in CPU and GPU sessions.
-The reports still identify each machine and build separately. Direct GPU collector commands default
-to the combined 420-job selection; choose `--benchmark-scope gpu` for GPU-only
-work. Changing modes or scopes requires a new record directory.
+Match inputs and repetitions before comparing CPU/GPU results. Each report
+keeps its own machine, build and timing boundary. Use a new record directory
+when changing the mode or scope.
 
 The default build targets `sm_89` and, with CUDA 12.8+, `sm_120`. For one known
 GPU, use `-DCMAKE_CUDA_ARCHITECTURES=native` (CMake 3.24+).
@@ -117,14 +102,16 @@ measured both schedules on a server reporting RTX 4080 SUPER / compute 8.9.
 The [resident operation-chain prototype](docs/resident-operation-chain.md) adds
 polynomial handles whose inputs cannot be changed, one ordered GPU work queue
 (a stream), and temporary CPU buffers owned by the session. A limited operation
-log retains resources needed by unfinished work. Its CPU driver and CUDA adapter
-pass exact OpenFHE comparisons. The November 19 native Ada batch also passed
-the selected sanitizer checks. Production OpenFHE integration remains planned.
+log retains resources needed by unfinished work. Its host transport passes exact
+OpenFHE comparisons. Recorded Ada runs checked the earlier CUDA paths; updated
+runtime and Hybrid code needs another native run. Production integration remains
+planned.
 
-The November 20 [resident basis-conversion addition](docs/basis-conversion-preparation.md#keep-modup-and-moddown-in-the-resident-chain)
-composes ModUp and ModDown without intermediate polynomial downloads. Its
-CPU/OpenFHE and failure checks pass, and both CUDA schedules compile. That
-new composition still needs its own native GPU and sanitizer run.
+The [resident basis-conversion path](docs/basis-conversion-preparation.md#keep-modup-and-moddown-in-the-resident-chain)
+composes ModUp and ModDown without intermediate downloads and has recorded
+native Ada evidence. The [opt-in Hybrid adapters](include/ntt/openfhe_hybrid_adapter.hpp)
+add transactional key switching, relinearization and rotations. Production
+integration, native validation of the newer adapters and tuning remain open.
 
 Both backends use the same negacyclic transform convention:
 

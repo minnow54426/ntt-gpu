@@ -13,17 +13,12 @@ polynomials. Operations leave their inputs unchanged. Queued work keeps input
 buffers alive even if the caller discards a handle. An upload first copies the
 caller’s array into a temporary CPU buffer owned by the session.
 
-**Status:** CPU tests cover delayed work, ownership and failure handling.
-On November 19, native OpenFHE and sanitizer checks passed on a server
-reporting RTX 4080 SUPER / compute 8.9. Both schedules also compiled for sm_120.
-The [daily record](journal/2026-11-19.md#native-gpu-batch-completed) contains the
-measurement and export results. B06 preparation continues with production
-ownership requirements, driver/context failure handling and RTX 5090 acceptance.
-
-November 20 preparation adds resident approximate basis conversion and
-ModUp/ModDown composition. Its new host checks and CUDA compilation are
-recorded separately in the [conversion guide](basis-conversion-preparation.md#keep-modup-and-moddown-in-the-resident-chain).
-This new path still requires native execution after the November 19 source.
+**Status:** the recorded Ada runs checked resident NTT and ModUp/ModDown.
+The [November 24 report](paired-ntt-native-analysis.md#what-changed-in-the-november-24-ada-results)
+contains the latest native measurements. Newer Hybrid adapters and runtime
+changes pass offline checks but require another native run. Driver/context
+failure handling, production ownership requirements and RTX 5090 acceptance
+remain open.
 
 ## What is implemented
 
@@ -34,6 +29,7 @@ This new path still requires native execution after the November 19 source.
 | Transport boundary | [`resident_driver.hpp`](../include/ntt/resident_driver.hpp): device buffers/events and a single-stream command interface |
 | CUDA adapter | [`resident_adapter.inc`](../src/cuda/resident_adapter.inc), included by [`ntt_kernels.cu`](../src/cuda/ntt_kernels.cu), reuses the existing kernels |
 | Deferred host transport | [`resident_host_driver.hpp`](../tests/support/resident_host_driver.hpp): queues CPU work for ownership/failure tests; never represents GPU execution |
+| Opt-in OpenFHE bridge | [`openfhe_hybrid_adapter.hpp`](../include/ntt/openfhe_hybrid_adapter.hpp): explicit key-switch, relinearization and rotation entry points |
 
 Each session fixes N and the exact ordered list of primes and roots. This
 list is its basis. Uploaded arrays must identify whether they contain
@@ -45,8 +41,8 @@ new outputs instead of overwriting their inputs.
 
 Use one host thread per session, including handle access and destruction.
 The API is separate from the abstract [proposed Backend](../include/ntt/backend_api.hpp).
-It supplies no production OpenFHE adapter, cache, CPU fallback, cross-device
-operation or multi-stream execution.
+The OpenFHE bridge is opt-in; production dispatch, caching, automatic CPU
+fallback, cross-device operations and multi-stream execution remain planned.
 
 For conversion, an explicit-layout `upload(layout, values)` can select a
 contiguous whole-tower subset of the session's basis. Coefficients use natural
@@ -130,6 +126,22 @@ that queued work still uses. When a section of the queue finishes, the runtime
 releases its pins. It keeps a record of a failed submission even when the
 caller never received a completion handle.
 
+In [`resident.cpp`](../src/resident.cpp), admission and submission have separate
+jobs:
+
+1. `open_state()` rejects a moved, closed or poisoned session.
+2. The operation checks its input layout, reserves output capacity and calls
+   `begin()` to retain every resource before native work.
+3. Upload, transform, pointwise and join use `submit_output()`: create the event,
+   allocate the reserved output, enqueue the operation, record completion and
+   construct the result under one failure guard.
+4. A throw at any submission step poisons the session and drains or retains
+   its resources through the existing failure path.
+
+Conversion constants and two-output Hybrid operations keep explicit submission
+code because they pin additional resources. Diagnostic methods and `close()`
+remain callable after admission has stopped.
+
 | State | Required behavior |
 |---|---|
 | Preflight or admission refusal | Submit no command for that operation; report the error |
@@ -166,7 +178,7 @@ cache or a replacement for [B07 admission/cache work](implementation-backlog.md#
 
 ## Observed checks
 
-- **450 host control checks** cover independent negacyclic convolution,
+- [Host control tests](../tests/resident_tests.cpp) cover independent negacyclic convolution,
   immutable inputs, owned uploads, explicit/implicit dependencies, nested views,
   foreign/closed handles, budgets, every synchronous transport step, failures
   after enqueue, asynchronous errors, abandoned outputs and quarantine recovery.
@@ -192,9 +204,10 @@ The [exact fixture](../tests/resident_openfhe_tests.cpp) uses real OpenFHE
 [`NativePoly::SwitchFormat`](https://github.com/openfheorg/openfhe-development/blob/b59e1f291965f14fbee5172cd83a20f5b856204f/src/core/include/lattice/hal/default/poly-impl.h#L454-L474)
 through the format API. Root/modulus selection comes from the pinned OpenFHE
 implementation; complete arrays are compared, not approximate CKKS decryptions.
-The CUDA variant passed the earlier NTT/product fixture on reported compute
-8.9 on November 19. The new conversion cases compile in both CUDA schedules
-for sm_89/sm_120; executing those cases on a GPU is still pending.
+The recorded CUDA NTT/product and conversion runs used reported compute 8.9.
+Their evidence is tied to the source versions in the journal. The current
+runtime cleanup and newer Hybrid adapters need the next native run; compilation
+for sm_89/sm_120 does not supply that evidence.
 
 ## Reproduce and verify next
 

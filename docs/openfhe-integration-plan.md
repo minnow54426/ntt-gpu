@@ -17,7 +17,7 @@ acceptance checks pass.
 Target OpenFHE 1.6.1 and N=65536. Use the RTX 4080 SUPER for development and
 retain the RTX 5090 as a hardware validation target. Baseline
 benchmarks also span N=4096–65536 and 30/50/55/60-bit primes in `uint64_t`.
-Last reviewed: 2026-11-24 (Asia/Shanghai).
+Last reviewed: 2026-11-27 (Asia/Shanghai).
 
 ## Live tracker
 

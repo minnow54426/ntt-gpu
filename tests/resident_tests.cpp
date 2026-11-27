@@ -1,5 +1,6 @@
 #include "support/resident_host_driver.hpp"
 #include <array>
+#include <functional>
 #include <iostream>
 #include <type_traits>
 
@@ -379,12 +380,48 @@ void hybrid_key_admission_and_lifetime() {
   check(driver->trace->live_buffers == 0 && driver->trace->live_events == 0,
         "drained MAC releases both channels and all dependencies");
 }
+void closed_and_moved_admission() {
+  const auto base = layout(2, 1);
+  const auto values = input(base, 1);
+  auto driver = std::make_shared<HostDriver>(base);
+  Session moved(driver);
+  Session owner(std::move(moved));
+  const Polynomial empty;
+  const HybridKey key;
+  const HybridContributions channels;
+  const std::vector<std::function<void(Session &)>> admissions{
+      [&](Session &s) { s.upload(values); },
+      [&](Session &s) { s.upload(base, values); },
+      [&](Session &s) { s.upload_evaluation(values); },
+      [&](Session &s) { s.forward(empty); },
+      [&](Session &s) { s.inverse(empty); },
+      [&](Session &s) { s.pointwise(empty, empty); },
+      [&](Session &s) { s.switch_basis(empty, base); },
+      [&](Session &s) { s.mod_up(empty); },
+      [&](Session &s) { s.mod_down(empty); },
+      [&](Session &s) { s.hybrid_digits(empty); },
+      [&](Session &s) { s.upload_hybrid_key(base, {}); },
+      [&](Session &s) { s.hybrid_accumulate({}, key); },
+      [&](Session &s) { s.hybrid_rotate_extended(channels, empty, 1); },
+      [&](Session &s) { s.subview(empty, 0, 1, 1); },
+      [&](Session &s) { s.download(empty); },
+      [&](Session &s) { s.multiply(values, values); },
+  };
+  owner.close();
+  for (Session *session : {&moved, &owner}) {
+    for (const auto &admit : admissions)
+      rejects([&] { admit(*session); }, "closed or moved session must reject new work");
+  }
+  check(driver->trace->calls == 0, "rejected admission never touches the driver");
+  check(owner.stats().closed && owner.history().empty(), "closed-session diagnostics remain readable");
+}
 } // namespace
 int main() {
   try {
     chain_and_leases(); rejection_and_views(); budgets(); failure_matrix();
     partial_and_quarantine(); abandonment_and_bad_output(); query_failure_and_evaluation_input();
     conversion_chain_and_failures(); hybrid_digit_complement(); hybrid_key_admission_and_lifetime();
+    closed_and_moved_admission();
     std::cout << checks << " RESIDENT HOST CONTROL CHECKS PASSED; NO GPU EXECUTION\n";
   } catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
 }

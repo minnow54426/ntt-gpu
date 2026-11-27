@@ -84,6 +84,7 @@ struct HybridContributions {
 };
 class Session {
   std::shared_ptr<detail::State> state_;
+  detail::State &open_state();
   Polynomial upload_checked(const PolynomialLayout &, std::span<const uint64_t>, std::span<const Completion>);
   Polynomial transform(const Polynomial &, bool inverse, std::span<const Completion>);
   Polynomial join(std::span<const Polynomial>);

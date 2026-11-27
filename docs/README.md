@@ -147,7 +147,7 @@ checks, use the relevant guide:
 | Modular arithmetic | [Arithmetic contract](modular-arithmetic-contract.md): bigint and full-size CPU checks |
 | OpenFHE arrays and formats | [Representation contract](openfhe-representation-contract.md): pinned core-library comparisons |
 | Hybrid key switching | [Operation graph](openfhe-hybrid-operation-graph.md): intermediate CPU arrays and actual keys |
-| Runtime ownership | [Resident-chain prototype](resident-operation-chain.md): host lifetime/failure tests; native CUDA pending |
+| Runtime ownership | [Resident-chain prototype](resident-operation-chain.md): lifetime/failure tests, recorded Ada runs and remaining native checks |
 | Native CUDA session | [Preparation guide](offline-gpu-preparation.md): actual GPU exactness, sanitizers and measurements |
 
 <div id="add-the-notebook-to-the-personal-website" aria-hidden="true"></div>

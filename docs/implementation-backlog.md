@@ -57,8 +57,8 @@ compiler/runtime; host compiler; OS; CMake flags; source commit; OpenFHE commit,
 NativeInteger size and build options. Record clocks/power mode and profiler
 versions before performance measurements.
 
-Start with RTX 5090; use RTX 4090 as the control. If only a control GPU is
-available, label that run and keep the primary-device gate open. Use native
+Use RTX 4080 SUPER as the working baseline and retain RTX 5090 for target
+validation. Label each exact card and keep the primary-device gate open. Use native
 architecture compilation on the selected device; `sm_120` requires an appropriate
 toolkit (the current configured target starts at CUDA 12.8).
 
@@ -200,9 +200,10 @@ Offline preparation 2026-11-16: the [resident-chain prototype](resident-operatio
 implements private handles, one-stream dependencies, immutable outputs, bounded
 reservations, owned staging and failed-work quarantine. Its deferred host
 transport passes OpenFHE comparisons and lifetime/error tests; the real CUDA
-adapter compiles for sm_89/sm_120. Native CUDA execution, actual failed-context
-cleanup, broader concurrency/cache behavior and production API acceptance are
-still open. This is not a completed B06 or a P3 phase transition.
+adapter compiles for sm_89/sm_120. Later Ada runs checked the resident NTT and
+conversion paths. Newer Hybrid native checks, actual failed-context cleanup,
+broader concurrency/cache behavior and production API acceptance remain open.
+This does not complete B06 or advance P3.
 
 Implement the accepted metadata through a private registry, move-only allocation
 owners, one explicit initial stream, immutable views/results, owned upload and

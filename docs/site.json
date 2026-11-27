@@ -11,7 +11,7 @@
       "summary": "Build the CPU version first and learn which GPU results have been checked.",
       "takeaways": [
         "You can build and test this project without a GPU. Start with the CPU commands and the eight-value debugging example.",
-        "The November 19 Ada run passed the resident chain and new arithmetic/conversion checks. The primary RTX 5090 test remains open."
+        "Recorded Ada runs checked resident NTT and conversion. Newer runtime and Hybrid code needs another native run; RTX 5090 acceptance remains open."
       ],
       "next_page": "vscode-debugging.html",
       "prerequisite": "No GPU or prior project setup is required.",
@@ -119,7 +119,7 @@
       "summary": "Keep intermediate arrays on the GPU while composing polynomial operations.",
       "takeaways": [
         "Upload two polynomials, transform both, multiply matching evaluations, inverse-transform, then download only the final result.",
-        "The prototype preserves inputs and retains queued buffers. Native OpenFHE and sanitizer checks passed on compute 8.9 on November 19."
+        "The prototype preserves inputs and retains queued buffers. Recorded Ada runs checked earlier versions; updated runtime and Hybrid paths need native validation."
       ],
       "next_page": "implementation-backlog.html",
       "prerequisite": "Know when uploads, downloads and temporary buffers occur.",
@@ -151,7 +151,7 @@
       "summary": "Follow the arrays and source code in OpenFHE Hybrid key switching.",
       "takeaways": [
         "Hybrid key switching groups prime towers into digits, adds auxiliary prime towers, multiplies by key arrays, and reduces two accumulated outputs.",
-        "The exact order of conversion and reduction affects the arrays. CPU comparisons check this sequence; a GPU key-switch implementation is still planned."
+        "The operation order affects the arrays. Host fixtures compare the prototype and opt-in adapters with OpenFHE; native Hybrid checks remain queued."
       ],
       "next_page": "device-backend-contract.html",
       "prerequisite": "Know how OpenFHE orders prime towers and marks polynomial formats.",
@@ -181,7 +181,7 @@
       "summary": "Understand approximate CRT and compose basis conversion with resident NTT operations.",
       "takeaways": [
         "Preserve OpenFHE's unreduced CRT sum and source-tower order when constructing conversion plans.",
-        "Standalone probes passed the November 19 Ada run. The newer resident ModUp/ModDown chain passes CPU tests and CUDA compilation; its GPU run is pending."
+        "Standalone and resident conversion have recorded Ada evidence. Later runtime changes need fresh native checks; reusable plan caches remain future work."
       ],
       "next_page": "next-gpu-rental.html",
       "prerequisite": "Understand a prime tower and the difference between coefficients and evaluations.",
@@ -387,7 +387,7 @@
       "summary": "Finish builds and CPU checks before paying for GPU time.",
       "takeaways": [
         "Use a CPU machine to install dependencies, compile code and prepare tests. Rent a GPU to run device checks and collect measurements.",
-        "Earlier Ada results apply to their recorded revision. The later resident ModUp/ModDown composition still needs its own native GPU checks."
+        "Earlier Ada results apply to their recorded revisions. Prepare the updated runtime and Hybrid checks locally, then run their native gates on the rental."
       ],
       "next_page": "offline-test-tooling.html",
       "prerequisite": "Have a working CPU build. Hardware is only needed for the native checks.",

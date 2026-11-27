@@ -38,6 +38,6 @@ profiles and a verified evidence archive within one command budget.
    can include setup and verification. Record the result and profiler limits
    in the journal.
 
-The November 22 batch exercised the native run, archive handoff, and local
-analysis. Offline conversion-reference replay still needs a native GPU run.
-[November 22 journal](../journal/2026-11-22.md)
+The November 24 batch exercised conversion-reference replay, native execution,
+archive handoff and local analysis. Newer Hybrid adapter checks remain queued.
+See the [recorded evidence](../journal/2026-11-24.md#complete-the-native-ada-batch).

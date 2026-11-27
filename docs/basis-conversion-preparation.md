@@ -1,8 +1,10 @@
 # Prepare basis conversion before the next GPU rental
 
 We can prepare conversion arithmetic and reference answers on the M1 Pro.
-The November 19 run checked the CUDA implementation on compute 8.9.
-The RTX 5090 hardware check remains in the next combined session.
+The November 19 run checked standalone conversion on compute 8.9, and the
+[November 24 run](paired-ntt-native-analysis.md#what-changed-in-the-november-24-ada-results)
+checked resident composition. Later runtime changes and RTX 5090 acceptance
+remain queued for the next native session.
 
 ## What the converter computes
 
@@ -163,16 +165,16 @@ a composed call can fail after earlier operations were queued. The original
 input remains unchanged, and there is no automatic CPU retry.
 
 This prototype builds tables per operation. Reusable conversion-plan caches,
-allocation pools and performance selection remain later work. The new
-composition needs its own native CUDA and sanitizer run; the November 19
-standalone conversion results do not validate later code.
+allocation pools and performance selection remain later work. Recorded Ada
+composition results apply to their tested revision; subsequent runtime changes
+need fresh native checks.
 
 ### What has been checked locally
 
-All 29 CPU/OpenFHE CTests pass after adding the conversion chain. The resident
-control suite passes 450 checks, including injected failures and parameter-table
-memory limits, and passes AddressSanitizer, UndefinedBehaviorSanitizer and
-leak detection. The shared fixture checks both ModUp input formats and an
+CPU/OpenFHE and resident control tests cover the conversion chain, injected
+failures and parameter-table memory limits. The control suite also passes
+AddressSanitizer, UndefinedBehaviorSanitizer and leak detection. The shared
+fixture checks both ModUp input formats and an
 independent ModDown input against the actual OpenFHE public operations.
 Cases include all five active prefixes of a five-Q/three-P context and a
 40-Q/three-P dense case, preserving the given prime order.

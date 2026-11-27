@@ -18,8 +18,9 @@ switching. QP means the Q towers followed by the P towers; in formulas it
 also denotes the product of those primes.
 
 [The CPU tests](../tests/openfhe_hybrid_tests.cpp) compare real OpenFHE PKE
-arrays with an independent unreduced-CRT formula. They establish this graph,
-not a GPU key-switch implementation. Source excerpts are © 2022 OpenFHE,
+arrays with an independent unreduced-CRT formula. The resident prototype and
+opt-in adapter implement the graph; their newer Hybrid CUDA path still needs
+native validation. Source excerpts are © 2022 OpenFHE,
 under [BSD 2-Clause](site-assets/licenses/OpenFHE-BSD-2-Clause.txt).
 
 ## 1. Read the complete path
@@ -443,9 +444,11 @@ not compared across separate runs.
 | Composition and wrappers | Fast/full core equality, input immutability, two/three-component update, delayed QP path |
 | Negative alternatives | Canonical-lift substitution, missing P-key offset, per-digit ModDown |
 
-Observed on Linux x86_64 with GCC 14.2, Release, NativeInteger 64, and OpenMP
-off: **18 cases and 117,571,584 residue comparisons passed**. All **15 CTests**
-in the OpenFHE-enabled build passed. The deterministic reduced-level fixture
+The [original D8 record](journal/2026-11-11.md) used Linux x86_64, GCC 14.2,
+Release, NativeInteger 64 and OpenMP off: **18 cases and 117,571,584 residue
+comparisons passed**, along with the **15 then-registered CTests**. Later
+adapter fixtures add encrypted key switching, relinearization and rotations;
+see the [November 26 record](journal/2026-11-26.md). The reduced-level fixture
 found 524,288 residues that distinguish the wrong per-digit reduction order.
 
 Every comparison checks all 65536 entries of every involved tower, plus
@@ -499,8 +502,8 @@ D8 freezes this source graph and the exercised array boundary.
 [D9 device/buffer/stream/cache design](device-backend-contract.md), closing P1's
 architecture gate while leaving runtime implementation and native validation open.
 P4/P6 must broaden base-conversion and cryptographic fixtures across the
-production parameter/level/key matrix. This is not a GPU implementation,
-performance result, or complete CKKS encryption/decryption integration gate.
+production parameter/level/key matrix. The current prototype does not close
+native Hybrid acceptance, performance or production integration gates.
 
 ## Pinned source references
 

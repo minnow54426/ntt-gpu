@@ -234,8 +234,9 @@ named stage logs after every run.
 
 The legacy `bench` command still uses 46-bit primes and public-call wall time.
 The collector now separates `bench-jsonl` public calls, `events-jsonl` resident
-work/pinned copies and `ntt_openfhe_bench` CPU arithmetic. The current CUDA paths compile offline; the new resident path still needs native
-execution. The CPU comparator is locally verified.
+work/pinned copies and `ntt_openfhe_bench` CPU arithmetic. Recorded Ada runs
+checked resident NTT and conversion. Newer runtime and Hybrid paths compile
+offline and still need native validation. The CPU comparator is locally verified.
 Optional `--profile` needs working `nsys` and `ncu` plus counter permissions;
 it prepares a bounded capture, not a completed D14 bottleneck report.
 See the [protocol and limits](offline-test-tooling.md).
