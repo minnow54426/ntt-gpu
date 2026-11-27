@@ -15,11 +15,10 @@ The [paired Ada analysis](paired-ntt-native-analysis.md) is complete on the
 M1 Pro. The November 21 conversion benchmark adds both ModUp input formats,
 independent ModDown, their resident composition and two host-boundary controls.
 
-The November 20 resident ModUp/ModDown composition is a later source change.
-Its extended `resident_cuda_exact` fixture and `--smoke` cases must pass on
-the next GPU run. The earlier native result covers standalone conversion
-and the earlier resident NTT chain. See the
-[conversion guide](basis-conversion-preparation.md#keep-modup-and-moddown-in-the-resident-chain).
+The November 24 native run covered resident ModUp/ModDown composition. The
+newer Hybrid key-switching, relinearization and rotation adapters pass host
+comparisons with OpenFHE; their CUDA path still needs the next native run.
+Keep those source versions separate when interpreting the earlier results.
 
 - The collector runs two versions: the new group-twiddle schedule and the
   older, or legacy, schedule. It checks that both use the same inputs and GPU,
@@ -112,6 +111,54 @@ The archive retains the raw pairs and records the fixture hash and median
 paired speedup. The native collector requires CUDA records.
 
 ## Run the queue as one batch
+
+### Freeze the source and prepared inputs
+
+Before the next rental, use the current CPU/OpenFHE build to prepare the eight
+vector/reference sets below and the rotation fixture above. Commit the source
+changes before packaging. The handoff pins the exact commit, includes its Git
+bundle and a portable verifier, and checks every copied input against its hash.
+It contains source and data; Linux binaries and dependencies still need to be
+built for the receiving machine. Nothing in these commands rents or runs a GPU.
+
+```sh
+python3 scripts/prepare_rental_bundle.py create \
+  --prepared-vectors build/prepared-vectors \
+  --rotation-fixture build/rotation-benchmark-input.bin \
+  --output-dir build/rental-handoff --target rtx-4080-super
+```
+
+Use fresh paths. Keep the resulting `.tar.gz`, `.tar.gz.sha256` and
+`.tar.gz.verify.json` together. Verify the external checksum before extraction
+on the receiving machine:
+
+```sh
+sha256sum -c rental-handoff.tar.gz.sha256
+tar -xzf rental-handoff.tar.gz
+python3 rental-handoff/handoff.py verify rental-handoff
+python3 rental-handoff/handoff.py restore rental-handoff /absolute/path/to/ntt-gpu
+python3 rental-handoff/handoff.py plan rental-handoff /absolute/path/to/ntt-gpu
+```
+
+The portable helper can verify the files before the source checkout exists.
+Its `plan` command requires that checkout to match the frozen commit and be
+clean. It validates all eight vector/reference sets and the rotation fixture,
+then prints the full `gpu_command_for_later`, including the rotation benchmark
+and extended probes. It does not execute that command. Supply `--cuda-root`,
+`--openfhe-prefix`, `--build-dir` and `--output-dir` to `plan` as needed for the
+receiving machine; build and result directories must be new and disjoint.
+
+Optionally pass `--verification-dir` to retain offline reports. Those reports
+keep their original revision and scope; packaging does not promote host
+simulation or compilation into native evidence. Prebuilt binaries are not
+included or made reusable under the bundle's revision.
+
+The handoff status `OFFLINE_HANDOFF_READY` establishes source/data consistency,
+not GPU correctness or timings. A successful compile is also separate from
+native acceptance. Probe Nsight permissions before the long batch and preserve
+blocked-counter errors in the evidence archive.
+
+### Preview and execute the prepared queue
 
 [`gpu_rental_batch.py`](../scripts/gpu_rental_batch.py) combines the queue
 into one command. Pass the
