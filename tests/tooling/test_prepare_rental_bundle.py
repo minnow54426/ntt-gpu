@@ -45,6 +45,10 @@ class HandoffTests(unittest.TestCase):
         self.verification = self.base / 'verification'
         self.verification.mkdir()
         (self.verification / 'cpu.log').write_text('Synthetic offline record; not native evidence')
+        # Path-component and full-string sorting disagree for these siblings.
+        (self.verification / 'cuda').mkdir()
+        (self.verification / 'cuda' / 'build.log').write_text('Synthetic compiler log')
+        (self.verification / 'cuda-comparison.json').write_text('{"gpu_execution":"NOT_RUN"}')
 
     def git(self, *args):
         return handoff.run(['git', *args], self.repo)
@@ -87,6 +91,9 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(plan['target']['model'], 'RTX 4080 SUPER')
         self.assertEqual(plan['rotation_fixture_sha256'], handoff.digest(self.rotation))
         self.assertFalse((checkout / 'build').exists())
+        sums = self.output / 'SHA256SUMS'
+        sums.write_text('\n'.join(reversed(sums.read_text().splitlines())) + '\n')
+        self.assertEqual(handoff.verify_bundle(self.output)['status'], 'OFFLINE_HANDOFF_READY')
         with self.assertRaises(ValueError):
             self.create()
 

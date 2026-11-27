@@ -105,9 +105,14 @@ def verify_bundle(directory):
     for name, checksum in hashes.items():
         if digest(regular(directory / name)) != checksum:
             raise ValueError('Handoff file changed: ' + name)
-    expected_sums = ''.join(digest(directory / name) + '  ' + name + '\n'
-                            for name in sorted(set(hashes) | {'manifest.json'}))
-    if regular(directory / 'SHA256SUMS').read_text() != expected_sums:
+    expected_sums = {name: digest(directory / name) for name in set(hashes) | {'manifest.json'}}
+    recorded_sums = {}
+    for line in regular(directory / 'SHA256SUMS').read_text().splitlines():
+        parts = line.split('  ', 1)
+        if len(parts) != 2 or parts[1] in recorded_sums:
+            raise ValueError('Invalid or duplicate handoff checksum entry')
+        recorded_sums[parts[1]] = parts[0]
+    if recorded_sums != expected_sums:
         raise ValueError('Handoff checksums or manifest changed')
     heads = run(['git', 'bundle', 'list-heads', directory / 'source.bundle'])
     if manifest['source_commit'] + ' HEAD' not in heads.splitlines():
