@@ -791,7 +791,7 @@ void check_reduction_order(const std::vector<Rows>& digits, const EvalKey<DCRTPo
 }
 void run_case(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks,
               const std::shared_ptr<CryptoParametersRNS>& cp, const EvalKey<DCRTPoly>& key,
-              size_t L, unsigned pattern, bool wrappers) {
+              size_t L, unsigned pattern, bool wrappers, bool adapter_at_every_level = false) {
   const auto active = select(cp->GetElementParams(), 0, L);
   const Rows coeff = fixture(active, pattern), evaluation = transform(coeff, active);
   const auto input = make(evaluation, active, Format::EVALUATION);
@@ -897,7 +897,7 @@ void run_case(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks,
     check_delayed(cc, ks, input, evaluation, ext, down, cp);
     check_reduction_order(expected_digits, key, active, down, cp);
   }
-  if (L == 4 && pattern == 3) {
+  if ((L == 4 || adapter_at_every_level) && pattern == 3) {
     const auto result = ntt::openfhe::hybrid_key_switch_core(input, key, make_resident_session);
     equal(result.b, down[0], active, Format::EVALUATION, "adapter B contribution");
     equal(result.a, down[1], active, Format::EVALUATION, "adapter A contribution");
@@ -955,16 +955,85 @@ void run_case(const CryptoContext<DCRTPoly>& cc, const KeySwitchHYBRID& ks,
   std::cout << "HYBRID GRAPH OK: N=" << N << " L=" << L << " pattern=" << pattern
             << " digits=" << digits->size() << " key=" << (wrappers ? "diagnostic+wrapper" : "generated") << std::endl;
 }
+
+// Keep the original pinned-parameter fixture and serialized benchmark stable.
+// This separate gate varies the values that determine digit and key addressing.
+void check_parameter_matrix() {
+#ifdef NTT_RESIDENT_CUDA
+  std::cout << "HYBRID PARAMETER MATRIX BACKEND: cuda" << std::endl;
+#else
+  std::cout << "HYBRID PARAMETER MATRIX BACKEND: host_simulation" << std::endl;
+#endif
+  struct Configuration {
+    uint32_t scaling_bits, first_bits, large_digits, expected_alpha;
+  };
+  constexpr std::array<Configuration, 3> configurations{{
+      // OpenFHE 1.6.1 requires scaling bits < 60 for NativeInteger 64.
+      {30, 31, 3, 2}, {50, 60, 5, 1}, {59, 60, 2, 3}}};
+  KeySwitchHYBRID ks;
+  size_t cases = 0;
+  for (const auto &configuration : configurations) {
+    const auto canonical_before = noncanonical_witnesses, offset_before = wrong_key_witnesses;
+    CCParams<CryptoContextCKKSRNS> config;
+    config.SetRingDim(N);
+    config.SetMultiplicativeDepth(4);
+    config.SetScalingModSize(configuration.scaling_bits);
+    config.SetFirstModSize(configuration.first_bits);
+    config.SetScalingTechnique(FIXEDMANUAL);
+    config.SetKeySwitchTechnique(HYBRID);
+    config.SetNumLargeDigits(configuration.large_digits);
+    const auto cc = GenCryptoContext(config);
+    cc->Enable(PKE);cc->Enable(KEYSWITCH);cc->Enable(LEVELEDSHE);
+    const auto cp = std::dynamic_pointer_cast<CryptoParametersRNS>(cc->GetCryptoParameters());
+    require(cc->GetRingDimension() == N && cp->GetElementParams()->GetParams().size() == 5 &&
+                cp->GetNumPerPartQ() == configuration.expected_alpha && cp->GetNoiseScale() == 1,
+            "parameter matrix configuration");
+    std::cout << "PARAMETER MATRIX CONTEXT: N=" << N
+              << " scaling_bits=" << configuration.scaling_bits
+              << " first_bits=" << configuration.first_bits
+              << " M=5 alpha=" << cp->GetNumPerPartQ()
+              << " K=" << cp->GetParamsP()->GetParams().size() << std::endl;
+    for (size_t tower = 0; tower < cp->GetParamsQP()->GetParams().size(); ++tower)
+      std::cout << "PARAM " << tower << " q=" << modulus(cp->GetParamsQP(), tower)
+                << " psi=" << root(cp->GetParamsQP(), tower) << std::endl;
+
+    const auto diagnostic = diagnostic_key(cc, cp);
+    for (size_t active = 1; active <= 5; ++active) {
+      run_case(cc, ks, cp, diagnostic, active, 3, true, true);
+      ++cases;
+    }
+    // Actual evaluation-key arrays must work at both ends of the level range.
+    // Compare the same generated arrays in OpenFHE and the resident transport.
+    const auto old_keys = cc->KeyGen(), new_keys = cc->KeyGen();
+    const auto generated = cc->KeySwitchGen(old_keys.secretKey, new_keys.secretKey);
+    for (const size_t active : {size_t(1), size_t(5)}) {
+      run_case(cc, ks, cp, generated, active, 3, false, true);
+      ++cases;
+    }
+    require(noncanonical_witnesses > canonical_before && wrong_key_witnesses > offset_before,
+            "each context must detect canonical CRT and wrong reduced-level key offsets");
+  }
+  require(cases == 21 && noncanonical_witnesses > 0 && wrong_key_witnesses > 0,
+          "parameter matrix must cover every case and detect incorrect alternatives");
+  std::cout << "HYBRID PARAMETER MATRIX PASS: " << cases << " cases; " << comparisons
+            << " residue comparisons; canonical-lift witnesses=" << noncanonical_witnesses
+            << "; wrong-P-offset witnesses=" << wrong_key_witnesses << std::endl;
+}
 } // namespace
 
 int main(int argc, char** argv) {
   try {
     const bool basis_only = argc == 2 && std::string(argv[1]) == "--basis-only";
+    const bool parameter_matrix = argc == 2 && std::string_view(argv[1]) == "--parameter-matrix";
     const bool rotation_prep = argc == 3 && std::string_view(argv[1]) == "--prepare-rotation";
     const bool rotation_benchmark = argc == 5 && std::string_view(argv[1]) == "--rotation-benchmark";
-    require(argc == 1 || basis_only || rotation_prep || rotation_benchmark,
-            "usage: ntt_openfhe_hybrid [--basis-only | --prepare-rotation FIXTURE | "
+    require(argc == 1 || basis_only || parameter_matrix || rotation_prep || rotation_benchmark,
+            "usage: ntt_openfhe_hybrid [--basis-only | --parameter-matrix | --prepare-rotation FIXTURE | "
             "--rotation-benchmark FIXTURE WARMUPS PAIRS]");
+    if (parameter_matrix) {
+      check_parameter_matrix();
+      return 0;
+    }
     const auto warmups = rotation_benchmark ? benchmark_count(argv[3], 0, 20) : 0;
     const auto pairs = rotation_benchmark ? benchmark_count(argv[4], 2, 100) : 0;
     CCParams<CryptoContextCKKSRNS> config;

@@ -228,7 +228,7 @@ class SessionTests(unittest.TestCase):
 
     def scenario(self, mode='offline', fail=None, missing_gpu=False, bad_label=False, skip=False,
                  bad_benchmark=False, synthetic=False, scope=None, missing_openfhe=False,
-                 unexpected_gpu=False, prebuilt=None):
+                 unexpected_gpu=False, prebuilt=None, missing_test=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             args = module.parser().parse_args(['--mode', mode, '--cuda-root', str(root / 'toolkit'),
@@ -281,6 +281,8 @@ class SessionTests(unittest.TestCase):
                 names |= module.GPU_TESTS
             if unexpected_gpu:
                 names |= module.GPU_TESTS
+            if missing_test:
+                names.discard(missing_test)
             registered = {'tests': [{'name': name, 'properties': [{'name': 'LABELS', 'value':
                 ['gpu'] if name in module.GPU_TESTS and not bad_label else []}]} for name in sorted(names)]}
 
@@ -398,6 +400,18 @@ class SessionTests(unittest.TestCase):
             self.assertEqual(report['status'], 'FAIL')
             self.assertEqual(report['gpu_execution'], 'NOT_RUN')
             self.assertIn('FAIL', (report['cpu_execution'], report['benchmark']))
+
+    def test_hybrid_parameter_matrix_cannot_be_omitted(self):
+        for mode, name in [('cpu', 'openfhe_hybrid_parameter_matrix'),
+                           ('offline', 'openfhe_hybrid_parameter_matrix'),
+                           ('offline', 'resident_cuda_hybrid_parameter_matrix'),
+                           ('gpu', 'resident_cuda_hybrid_parameter_matrix')]:
+            with self.subTest(mode=mode, missing=name):
+                code, report, commands = self.scenario(mode=mode, missing_test=name)
+                self.assertEqual(code, 1)
+                self.assertEqual(report['status'], 'FAIL')
+                self.assertIn(name, report['error'])
+                self.assertFalse(any('--output-on-failure' in command for command in commands))
 
     def test_gpu_only_keeps_native_gates_and_sanitizers_but_omits_cpu_measurements(self):
         code, report, commands = self.scenario(mode='gpu', scope='gpu')

@@ -289,6 +289,13 @@ ModDown. The rental batch queues the same exact-array checks on CUDA.
 Production key lifetime, hoisted-digit caching and OpenFHE dispatch remain
 separate deliverables.
 
+The [offline parameter matrix](openfhe-hybrid-operation-graph.md#broader-offline-parameter-checks)
+adds 21 exact-array cases across three prime configurations, digit group
+sizes 1/2/3 and all five active levels. Six cases use generated keys at the
+level endpoints. It exercises both adapters at every level; the matching
+native CUDA gate remains queued. This supplements the fixed fixture without
+closing B10 or the production parameter/key matrix.
+
 An explicit Hybrid-core adapter now imports OpenFHE polynomials and keys and
 returns the two Q contributions as OpenFHE objects. The opt-in ciphertext
 wrapper applies the two- and three-component `KeySwitchInPlace` rules

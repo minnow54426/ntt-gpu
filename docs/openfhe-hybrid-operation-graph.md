@@ -444,6 +444,38 @@ not compared across separate runs.
 | Composition and wrappers | Fast/full core equality, input immutability, two/three-component update, delayed QP path |
 | Negative alternatives | Canonical-lift substitution, missing P-key offset, per-digit ModDown |
 
+### Broader offline parameter checks
+
+The separate `--parameter-matrix` gate changes the prime settings and the
+number of towers grouped into each digit. This catches assumptions that can
+pass with the original five-Q, α=3 example alone. Every polynomial still has
+65,536 coefficients and every context starts with five Q towers.
+
+| Scaling / first-prime settings | Digit group size α | Active Q counts |
+|---|---:|---|
+| 30 / 31 bits | 2 | 1 through 5 |
+| 50 / 60 bits | 1 | 1 through 5 |
+| 59 / 60 bits | 3 | 1 through 5 |
+
+These are configuration settings; the log prints the exact Q/P primes and
+roots. OpenFHE 1.6.1 with 64-bit native integers requires a scaling-size
+setting below 60, so the upper-width case uses 59.
+
+The 15 diagnostic cases use tower-distinct dense data with zero, one and
+q−1 boundary entries. Six more cases use actual generated evaluation keys
+at one and five active Q towers. All 21 compare the digit arrays, both QP
+accumulators, final contributions and transactional two/three-component
+updates against OpenFHE. The independent BigInteger calculation still checks
+the intermediate conversion steps. Both the core adapter and ciphertext
+wrapper run at every tested level.
+
+Run `ntt_openfhe_hybrid --parameter-matrix` for the host check. The matching
+`resident_cuda_hybrid_parameter_matrix` CTest uses the CUDA transport and is
+queued for the next rental. The collector requires both registered gates;
+host simulation does not establish native correctness. This matrix supplements
+the original fixtures; broader encrypted-operation and production coverage
+remain open.
+
 The [original D8 record](journal/2026-11-11.md) used Linux x86_64, GCC 14.2,
 Release, NativeInteger 64 and OpenMP off: **18 cases and 117,571,584 residue
 comparisons passed**, along with the **15 then-registered CTests**. Later

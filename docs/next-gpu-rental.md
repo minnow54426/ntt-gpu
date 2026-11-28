@@ -18,7 +18,10 @@ dated records.
 
 The [November 28 handoff](journal/2026-11-28.md) freezes refactored source
 `4fb89d7` with matching offline builds, checked inputs and a verified restore
-and batch plan. Use that frozen checkout for this batch.
+and batch plan. It remains a snapshot of that original queue. The subsequent
+[21-case Hybrid parameter gate](openfhe-hybrid-operation-graph.md#broader-offline-parameter-checks)
+needs a new handoff from the updated source before rental; do not combine its
+results with build records from `4fb89d7`.
 
 ## Commands to prepare before provisioning
 
@@ -177,6 +180,10 @@ ModDown, ciphertext residues and decoded slots. It covers key switching,
 relinearization, left/right rotation and a hoisted `[1, 0, -1]` batch at full
 and reduced levels. The Barrett primitive has its own exactness and sanitizer
 checks; it is not selected in timed NTT dispatch.
+
+The separate `resident_cuda_hybrid_parameter_matrix` gate adds 21 cases with
+different prime settings, digit group sizes and active levels. Retain its
+exactness log for each schedule before collecting timings.
 
 Each schedule has 32 matrix measurement jobs. Complete the same inputs,
 primes, roots, seed and timing scopes before comparing versions. The default

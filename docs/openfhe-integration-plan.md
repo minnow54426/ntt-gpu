@@ -17,7 +17,7 @@ acceptance checks pass.
 Target OpenFHE 1.6.1 and N=65536. Use the RTX 4080 SUPER for development and
 retain the RTX 5090 as a hardware validation target. Baseline
 benchmarks also span N=4096–65536 and 30/50/55/60-bit primes in `uint64_t`.
-Last reviewed: 2026-11-27 (Asia/Shanghai).
+Last reviewed: 2026-11-28 (Asia/Shanghai).
 
 ## Live tracker
 
@@ -34,6 +34,11 @@ records native conversion replay, paired timings and scoped Nsight Systems
 captures. Group twiddles consistently improved NTT device-event timings.
 Public-call timing varied by workload, and the rental blocked performance
 counters. P2/D11 remains open.
+
+The [expanded Hybrid fixture](openfhe-hybrid-operation-graph.md#broader-offline-parameter-checks)
+adds offline coverage across three prime settings, digit group sizes 1/2/3
+and all five active levels. Its native CUDA gate is queued; this preparation
+does not advance the working-day or phase gates.
 
 See the [next GPU rental queue](next-gpu-rental.md) for the offline work and
 the order of the bundled native checks.
