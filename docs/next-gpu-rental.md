@@ -16,6 +16,10 @@ Keep results tied to their source revision and exact card. See the
 for measured results. This page is the current procedure; older journals are
 dated records.
 
+The [November 28 handoff](journal/2026-11-28.md) freezes refactored source
+`4fb89d7` with matching offline builds, checked inputs and a verified restore
+and batch plan. Use that frozen checkout for this batch.
+
 ## Commands to prepare before provisioning
 
 On a CPU machine, build the pinned OpenFHE tests, generate all eight
